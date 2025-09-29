@@ -7,7 +7,12 @@ for train, validation, and test partitions.
 """
 
 import sys
+import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent.parent))
@@ -20,16 +25,14 @@ from labeler.teammate_location_forecast import TeammateLocationForecastCreator
 def main():
     """Main function to create location prediction labels for all partitions."""
     
-    # Configuration for Windows (adjust paths as needed)
-    if sys.platform == "win32":
-        DATA_DIR = r"C:\Users\wangy\projects\x-ego\data"
-        OUTPUT_DIR = r"C:\Users\wangy\projects\x-ego\data\labels"
-        PARTITION_CSV_PATH = r"C:\Users\wangy\projects\x-ego\data\match_round_partitioned.csv"
-    else:
-        # Unix configuration - adjust paths as needed
-        DATA_DIR = "data"
-        OUTPUT_DIR = "data/labels"  
-        PARTITION_CSV_PATH = "data/match_round_partitioned.csv"
+    # Load paths from environment variables
+    DATA_BASE_PATH = os.getenv('DATA_BASE_PATH')
+    if not DATA_BASE_PATH:
+        raise ValueError("DATA_BASE_PATH environment variable not set. Please check your .env file.")
+    
+    DATA_DIR = DATA_BASE_PATH
+    OUTPUT_DIR = os.path.join(DATA_BASE_PATH, 'labels')
+    PARTITION_CSV_PATH = os.path.join(DATA_BASE_PATH, 'match_round_partitioned.csv')
     
     print("Creating Location Prediction Labels")
     print("=" * 50)

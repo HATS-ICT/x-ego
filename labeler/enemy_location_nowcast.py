@@ -1,8 +1,13 @@
 import sys
+import os
 import pandas as pd
 from pathlib import Path
 from typing import Dict, List, Any
 import random
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
@@ -160,16 +165,14 @@ class EnemyLocationNowcastCreator(LocationPredictionBase):
 
 def main():
     """Main function for testing enemy location nowcast creation."""
-    # Configuration for Windows
-    if sys.platform == "win32":
-        DATA_DIR = r"C:\Users\wangy\projects\x-ego\data"
-        OUTPUT_DIR = r"C:\Users\wangy\projects\x-ego\data\labels"
-        PARTITION_CSV_PATH = r"C:\Users\wangy\projects\x-ego\data\match_round_partitioned.csv"
-    else:
-        # Unix configuration - adjust paths as needed
-        DATA_DIR = "/path/to/data"
-        OUTPUT_DIR = "/path/to/data/labels"
-        PARTITION_CSV_PATH = "/path/to/data/match_round_partitioned.csv"
+    # Load paths from environment variables
+    DATA_BASE_PATH = os.getenv('DATA_BASE_PATH')
+    if not DATA_BASE_PATH:
+        raise ValueError("DATA_BASE_PATH environment variable not set. Please check your .env file.")
+    
+    DATA_DIR = DATA_BASE_PATH
+    OUTPUT_DIR = os.path.join(DATA_BASE_PATH, 'labels')
+    PARTITION_CSV_PATH = os.path.join(DATA_BASE_PATH, 'match_round_partitioned.csv')
     
     # Create enemy location nowcast creator
     creator = EnemyLocationNowcastCreator(

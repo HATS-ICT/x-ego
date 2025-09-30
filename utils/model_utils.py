@@ -19,11 +19,11 @@ class SelectIndex(nn.Module):
         return x[:, self.index, :]
 
 
-def load_model_from_checkpoint(config, checkpoint_path: str):
+def load_model_from_checkpoint(cfg, checkpoint_path: str):
     """Load model from checkpoint
     
     Args:
-        config: Model configuration
+        cfg: Model configuration
         checkpoint_path: Path to checkpoint file
         
     Returns:
@@ -32,8 +32,8 @@ def load_model_from_checkpoint(config, checkpoint_path: str):
     
     print(f"Loading model from checkpoint: {checkpoint_path}")
     
-    # Create model with config
-    model = CTFMContrastive(config)
+    # Create model with cfg
+    model = CTFMContrastive(cfg)
     
     # Load checkpoint
     checkpoint = torch.load(checkpoint_path, map_location='cpu')

@@ -8,12 +8,12 @@ from lightning.pytorch.callbacks import ModelCheckpoint
 from utils.training_utils import setup_callbacks, setup_logger
 
 
-def run_training_pipeline(config, model_class, datamodule_class, task_name, print_header=None):
+def run_training_pipeline(cfg, model_class, datamodule_class, task_name, print_header=None):
     """
     Generic training pipeline that handles common training logic.
     
     Args:
-        config: Training configuration
+        cfg: Training configuration
         model_class: Model class to instantiate
         datamodule_class: DataModule class to instantiate
         task_name: Name of the task for logging
@@ -27,15 +27,15 @@ def run_training_pipeline(config, model_class, datamodule_class, task_name, prin
     
     # Set tensor core precision for better performance
     torch.set_float32_matmul_precision('medium')
-    L.seed_everything(config['meta']['seed'], workers=True)
+    L.seed_everything(cfg.meta.seed, workers=True)
     
     # Create datamodule
     print("Creating datamodule...")
     # Handle different datamodule initialization patterns
     if task_name == "contrastive":
-        datamodule = datamodule_class(config=config)
+        datamodule = datamodule_class(config=cfg)
     else:
-        datamodule = datamodule_class(config)
+        datamodule = datamodule_class(cfg)
     datamodule.prepare_data()
     datamodule.setup("fit")
     
@@ -43,32 +43,32 @@ def run_training_pipeline(config, model_class, datamodule_class, task_name, prin
     print(f"Validation samples: {len(datamodule.val_dataset) if datamodule.val_dataset else 0}")
     
     # Print task-specific information
-    print_task_info(config, datamodule, task_name)
+    print_task_info(cfg, datamodule, task_name)
     
     print(f"Creating {task_name} model...")
-    model = model_class(config)
+    model = model_class(cfg)
     
     # Update model with dataset info for location prediction tasks
-    setup_model_with_dataset_info(config, datamodule, model)
+    setup_model_with_dataset_info(cfg, datamodule, model)
     
-    if config['training']['torch_compile']:
+    if cfg.training.torch_compile:
         model = torch.compile(model)
     
-    callbacks = setup_callbacks(config)
-    logger = setup_logger(config)
+    callbacks = setup_callbacks(cfg)
+    logger = setup_logger(cfg)
     
     # Create trainer
-    trainer = create_trainer(config, callbacks, logger)
+    trainer = create_trainer(cfg, callbacks, logger)
     
     # Log hyperparameters to wandb
     if logger is not None:
-        logger.log_hyperparams(config)
+        logger.log_hyperparams(cfg)
     
     # Start training
-    run_training(config, trainer, model, datamodule)
+    run_training(cfg, trainer, model, datamodule)
     
     # Run testing
-    run_testing(config, datamodule, model_class, trainer, callbacks, task_name)
+    run_testing(cfg, datamodule, model_class, trainer, callbacks, task_name)
     
     # Finish wandb run
     if logger is not None:
@@ -77,34 +77,34 @@ def run_training_pipeline(config, model_class, datamodule_class, task_name, prin
     print(f"{task_name.replace('_', ' ').title()} training completed!")
 
 
-def print_task_info(config, datamodule, task_name):
+def print_task_info(cfg, datamodule, task_name):
     """Print task-specific information"""
     # Common info for location prediction tasks
     if 'location' in task_name:
-        print(f"Number of agents: {config['data']['num_agents']}")
-        print(f"Task form: {config['data']['task_form']}")
-        print(f"Agent fusion method: {config['model']['agent_fusion_method']}")
+        print(f"Number of agents: {cfg.data.num_agents}")
+        print(f"Task form: {cfg.data.task_form}")
+        print(f"Agent fusion method: {cfg.model.agent_fusion_method}")
         
-        if config['data']['task_form'] in ['coord-reg', 'generative']:
-            print(f"Loss function: {config['data']['loss_fn']}")
-            if config['data']['loss_fn'] == 'sinkhorn':
-                print(f"  Sinkhorn blur: {config['data']['sinkhorn_blur']}")
-                print(f"  Sinkhorn scaling: {config['data']['sinkhorn_scaling']}")
+        if cfg.data.task_form in ['coord-reg', 'generative']:
+            print(f"Loss function: {cfg.data.loss_fn}")
+            if cfg.data.loss_fn == 'sinkhorn':
+                print(f"  Sinkhorn blur: {cfg.data.sinkhorn_blur}")
+                print(f"  Sinkhorn scaling: {cfg.data.sinkhorn_scaling}")
         
-        if config['data']['task_form'] in ['multi-label-cls', 'multi-output-reg']:
-            # Get num_places from datamodule after setup and update config
-            config['num_places'] = datamodule.num_places
-            print(f"Number of places: {config['num_places']}")
-        elif config['data']['task_form'] in ['grid-cls', 'density-cls']:
-            grid_resolution = config['data'].get('grid_resolution', 10)
+        if cfg.data.task_form in ['multi-label-cls', 'multi-output-reg']:
+            # Get num_places from datamodule after setup and update cfg
+            cfg.num_places = datamodule.num_places
+            print(f"Number of places: {cfg.num_places}")
+        elif cfg.data.task_form in ['grid-cls', 'density-cls']:
+            grid_resolution = cfg.data.get('grid_resolution', 10)
             print(f"Grid resolution: {grid_resolution}x{grid_resolution} = {grid_resolution * grid_resolution} cells")
-            if config['data']['task_form'] == 'density-cls':
-                print(f"Gaussian sigma: {config['data'].get('gaussian_sigma', 1.0)}")
+            if cfg.data.task_form == 'density-cls':
+                print(f"Gaussian sigma: {cfg.data.get('gaussian_sigma', 1.0)}")
 
 
-def setup_model_with_dataset_info(config, datamodule, model):
+def setup_model_with_dataset_info(cfg, datamodule, model):
     """Setup model with dataset-specific information"""
-    if config['data']['task_form'] in ['coord-reg', 'generative']:
+    if cfg.data.task_form in ['coord-reg', 'generative']:
         # Set coordinate scaler from dataset for location prediction tasks
         if hasattr(datamodule, 'train_dataset') and hasattr(datamodule.train_dataset, 'get_coordinate_scaler'):
             scaler = datamodule.train_dataset.get_coordinate_scaler()
@@ -112,52 +112,52 @@ def setup_model_with_dataset_info(config, datamodule, model):
                 model.set_coordinate_scaler(scaler)
 
 
-def create_trainer(config, callbacks, logger):
+def create_trainer(cfg, callbacks, logger):
     """Create Lightning trainer with common configuration"""
-    training_config = config['training']
+    training_cfg = cfg.training
     
     # Configure gradient clipping - disable if fused optimizer is enabled
-    fused_optimizer = config['optimization']['fused_optimizer']
-    gradient_clip_val = None if fused_optimizer else training_config['gradient_clip_val']
+    fused_optimizer = cfg.optimization.fused_optimizer
+    gradient_clip_val = None if fused_optimizer else training_cfg.gradient_clip_val
     
     trainer = L.Trainer(
-        max_epochs=training_config['max_epochs'],
-        accelerator=training_config['accelerator'],
-        devices=training_config['devices'],
-        strategy=training_config['strategy'],
-        precision=training_config['precision'],
+        max_epochs=training_cfg.max_epochs,
+        accelerator=training_cfg.accelerator,
+        devices=training_cfg.devices,
+        strategy=training_cfg.strategy,
+        precision=training_cfg.precision,
         gradient_clip_val=gradient_clip_val,
-        accumulate_grad_batches=training_config['accumulate_grad_batches'],
-        val_check_interval=training_config['val_check_interval'],
-        check_val_every_n_epoch=training_config['check_val_every_n_epoch'],
-        log_every_n_steps=training_config['log_every_n_steps'],
-        enable_checkpointing=training_config['enable_checkpointing'],
-        enable_progress_bar=training_config['enable_progress_bar'],
-        enable_model_summary=training_config['enable_model_summary'],
+        accumulate_grad_batches=training_cfg.accumulate_grad_batches,
+        val_check_interval=training_cfg.val_check_interval,
+        check_val_every_n_epoch=training_cfg.check_val_every_n_epoch,
+        log_every_n_steps=training_cfg.log_every_n_steps,
+        enable_checkpointing=training_cfg.enable_checkpointing,
+        enable_progress_bar=training_cfg.enable_progress_bar,
+        enable_model_summary=training_cfg.enable_model_summary,
         callbacks=callbacks,
         logger=logger,
-        deterministic=training_config['deterministic'],
-        fast_dev_run=config['meta']['fast_dev_run'],
-        num_sanity_val_steps=training_config['num_sanity_val_steps'],
-        limit_train_batches=training_config['limit_train_batches'],
-        limit_val_batches=training_config['limit_val_batches'],
-        limit_test_batches=training_config['limit_test_batches'],
+        deterministic=training_cfg.deterministic,
+        fast_dev_run=cfg.meta.fast_dev_run,
+        num_sanity_val_steps=training_cfg.num_sanity_val_steps,
+        limit_train_batches=training_cfg.limit_train_batches,
+        limit_val_batches=training_cfg.limit_val_batches,
+        limit_test_batches=training_cfg.limit_test_batches,
     )
     
     return trainer
 
 
-def run_training(config, trainer, model, datamodule):
+def run_training(cfg, trainer, model, datamodule):
     """Run the training process"""
-    if 'resume_checkpoint_path' in config['checkpoint']:
-        print(f"Starting training from checkpoint: {config['checkpoint']['resume_checkpoint_path']}")
-        trainer.fit(model, datamodule, ckpt_path=str(config['checkpoint']['resume_checkpoint_path']))
+    if 'resume_checkpoint_path' in cfg.checkpoint:
+        print(f"Starting training from checkpoint: {cfg.checkpoint.resume_checkpoint_path}")
+        trainer.fit(model, datamodule, ckpt_path=str(cfg.checkpoint.resume_checkpoint_path))
     else:
         print("Starting training from scratch...")
         trainer.fit(model, datamodule)
 
 
-def run_testing(config, datamodule, model_class, trainer, callbacks, task_name):
+def run_testing(cfg, datamodule, model_class, trainer, callbacks, task_name):
     """Run testing on test dataset with both last and best checkpoints"""
     print("Setting up datamodule for testing...")
     datamodule.setup("test")
@@ -177,10 +177,10 @@ def run_testing(config, datamodule, model_class, trainer, callbacks, task_name):
         print(f"Checkpoint path: {checkpoint_path}")
         
         # Create fresh model for testing
-        test_model = model_class(config)
+        test_model = model_class(cfg)
         
         # Update model with dataset info for location prediction tasks
-        setup_test_model_with_dataset_info(config, datamodule, test_model)
+        setup_test_model_with_dataset_info(cfg, datamodule, test_model)
         
         # Store the checkpoint name for the model to use
         test_model.checkpoint_name = checkpoint_name
@@ -203,9 +203,9 @@ def run_testing(config, datamodule, model_class, trainer, callbacks, task_name):
             continue
 
 
-def setup_test_model_with_dataset_info(config, datamodule, test_model):
+def setup_test_model_with_dataset_info(cfg, datamodule, test_model):
     """Setup test model with dataset-specific information"""
-    if config['data']['task_form'] in ['coord-reg', 'generative']:
+    if cfg.data.task_form in ['coord-reg', 'generative']:
         # Set coordinate scaler from dataset
         if hasattr(datamodule, 'test_dataset') and hasattr(datamodule.test_dataset, 'get_coordinate_scaler'):
             scaler = datamodule.test_dataset.get_coordinate_scaler()

@@ -9,67 +9,67 @@ from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping, ModelSum
 from lightning.pytorch.loggers import WandbLogger
 
 
-def setup_callbacks(config):
+def setup_callbacks(cfg):
     """Setup Lightning callbacks"""
     callbacks = []
     
-    # Checkpoint callbacks (required if present in config)
-    if 'checkpoint' in config:
-        checkpoint_config = config['checkpoint']
+    # Checkpoint callbacks (required if present in cfg)
+    if 'checkpoint' in cfg:
+        checkpoint_cfg = cfg.checkpoint
         # Only create checkpoint callbacks if dirpath is set (not None)
-        if checkpoint_config.get('dirpath') is not None:
-            if 'epoch' in checkpoint_config and 'step' in checkpoint_config:
-                epoch_config = checkpoint_config['epoch']
+        if checkpoint_cfg.get('dirpath') is not None:
+            if 'epoch' in checkpoint_cfg and 'step' in checkpoint_cfg:
+                epoch_cfg = checkpoint_cfg.epoch
                 epoch_callback = ModelCheckpoint(
-                    dirpath=checkpoint_config['dirpath'],
-                    filename=epoch_config['filename'],
-                    monitor=epoch_config['monitor'],
-                    mode=epoch_config['mode'],
-                    save_top_k=epoch_config['save_top_k'],
-                    save_last=epoch_config['save_last'],
-                    auto_insert_metric_name=epoch_config['auto_insert_metric_name'],
-                    save_on_train_epoch_end=epoch_config['save_on_train_epoch_end'],
-                    every_n_epochs=epoch_config['every_n_epochs']
+                    dirpath=checkpoint_cfg.dirpath,
+                    filename=epoch_cfg.filename,
+                    monitor=epoch_cfg.monitor,
+                    mode=epoch_cfg.mode,
+                    save_top_k=epoch_cfg.save_top_k,
+                    save_last=epoch_cfg.save_last,
+                    auto_insert_metric_name=epoch_cfg.auto_insert_metric_name,
+                    save_on_train_epoch_end=epoch_cfg.save_on_train_epoch_end,
+                    every_n_epochs=epoch_cfg.every_n_epochs
                 )
                 callbacks.append(epoch_callback)
                 
                 # Step-based checkpoint callback
-                step_config = checkpoint_config['step']
+                step_cfg = checkpoint_cfg.step
                 step_callback = ModelCheckpoint(
-                    dirpath=checkpoint_config['dirpath'],
-                    filename=step_config['filename'],
-                    monitor=step_config['monitor'],
-                    mode=step_config['mode'],
-                    save_top_k=step_config['save_top_k'],
-                    save_last=step_config['save_last'],
-                    auto_insert_metric_name=step_config['auto_insert_metric_name'],
-                    save_on_train_epoch_end=step_config['save_on_train_epoch_end'],
-                    every_n_train_steps=step_config['every_n_train_steps']
+                    dirpath=checkpoint_cfg.dirpath,
+                    filename=step_cfg.filename,
+                    monitor=step_cfg.monitor,
+                    mode=step_cfg.mode,
+                    save_top_k=step_cfg.save_top_k,
+                    save_last=step_cfg.save_last,
+                    auto_insert_metric_name=step_cfg.auto_insert_metric_name,
+                    save_on_train_epoch_end=step_cfg.save_on_train_epoch_end,
+                    every_n_train_steps=step_cfg.every_n_train_steps
                 )
                 callbacks.append(step_callback)
                 
             else:
                 checkpoint_callback = ModelCheckpoint(
-                    dirpath=checkpoint_config['dirpath'],
-                    filename=checkpoint_config['filename'],
-                    monitor=checkpoint_config['monitor'],
-                    mode=checkpoint_config['mode'],
-                    save_top_k=checkpoint_config['save_top_k'],
-                    save_last=checkpoint_config['save_last'],
-                    auto_insert_metric_name=checkpoint_config['auto_insert_metric_name'],
-                    save_on_train_epoch_end=checkpoint_config['save_on_train_epoch_end'],
-                    every_n_train_steps=checkpoint_config.get('every_n_train_steps'),
-                    every_n_epochs=checkpoint_config.get('every_n_epochs')
+                    dirpath=checkpoint_cfg.dirpath,
+                    filename=checkpoint_cfg.filename,
+                    monitor=checkpoint_cfg.monitor,
+                    mode=checkpoint_cfg.mode,
+                    save_top_k=checkpoint_cfg.save_top_k,
+                    save_last=checkpoint_cfg.save_last,
+                    auto_insert_metric_name=checkpoint_cfg.auto_insert_metric_name,
+                    save_on_train_epoch_end=checkpoint_cfg.save_on_train_epoch_end,
+                    every_n_train_steps=checkpoint_cfg.get('every_n_train_steps'),
+                    every_n_epochs=checkpoint_cfg.get('every_n_epochs')
                 )
                 callbacks.append(checkpoint_callback)
     
     # Early stopping (optional)
-    if 'early_stopping' in config:
-        early_stop_config = config['early_stopping']
+    if 'early_stopping' in cfg:
+        early_stop_cfg = cfg.early_stopping
         early_stopping = EarlyStopping(
-            monitor=early_stop_config['monitor'],
-            patience=early_stop_config['patience'],
-            mode=early_stop_config['mode']
+            monitor=early_stop_cfg.monitor,
+            patience=early_stop_cfg.patience,
+            mode=early_stop_cfg.mode
         )
         callbacks.append(early_stopping)
     
@@ -78,27 +78,27 @@ def setup_callbacks(config):
     return callbacks
 
 
-def setup_logger(config):
+def setup_logger(cfg):
     """Setup WandB logger"""
-    if 'wandb' not in config:
+    if 'wandb' not in cfg:
         return None
         
-    wandb_config = config['wandb']
+    wandb_cfg = cfg.wandb
     
-    if not wandb_config['enabled']:
+    if not wandb_cfg.enabled:
         return None
     
     # Only create logger if save_dir is set (not None)
-    if wandb_config.get('save_dir') is None:
+    if wandb_cfg.get('save_dir') is None:
         return None
     
     # Initialize wandb
     logger = WandbLogger(
-        project=wandb_config['project'],
-        name=wandb_config.get('name'),  # name can be None for auto-generation
-        tags=wandb_config['tags'],
-        notes=wandb_config['notes'],
-        save_dir=wandb_config['save_dir']
+        project=wandb_cfg.project,
+        name=wandb_cfg.get('name'),  # name can be None for auto-generation
+        tags=wandb_cfg.tags,
+        notes=wandb_cfg.notes,
+        save_dir=wandb_cfg.save_dir
     )
     
     return logger

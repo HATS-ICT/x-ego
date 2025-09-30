@@ -82,24 +82,29 @@ def print_task_info(config, datamodule, task_name):
     # Common info for location prediction tasks
     if 'location' in task_name:
         print(f"Number of agents: {config['data']['num_agents']}")
-        print(f"Location form: {config['data']['task_form']}")
+        print(f"Task form: {config['data']['task_form']}")
         print(f"Agent fusion method: {config['model']['agent_fusion_method']}")
         
-        if config['data']['task_form'] in ['regression', 'generative']:
+        if config['data']['task_form'] in ['coord-reg', 'generative']:
             print(f"Loss function: {config['data']['loss_fn']}")
             if config['data']['loss_fn'] == 'sinkhorn':
                 print(f"  Sinkhorn blur: {config['data']['sinkhorn_blur']}")
                 print(f"  Sinkhorn scaling: {config['data']['sinkhorn_scaling']}")
         
-        if config['data']['task_form'] == 'classification':
+        if config['data']['task_form'] in ['multi-label-cls', 'multi-output-reg']:
             # Get num_places from datamodule after setup and update config
             config['num_places'] = datamodule.num_places
             print(f"Number of places: {config['num_places']}")
+        elif config['data']['task_form'] in ['grid-cls', 'density-cls']:
+            grid_resolution = config['data'].get('grid_resolution', 10)
+            print(f"Grid resolution: {grid_resolution}x{grid_resolution} = {grid_resolution * grid_resolution} cells")
+            if config['data']['task_form'] == 'density-cls':
+                print(f"Gaussian sigma: {config['data'].get('gaussian_sigma', 1.0)}")
 
 
 def setup_model_with_dataset_info(config, datamodule, model):
     """Setup model with dataset-specific information"""
-    if config['data']['task_form'] in ['regression', 'generative']:
+    if config['data']['task_form'] in ['coord-reg', 'generative']:
         # Set coordinate scaler from dataset for location prediction tasks
         if hasattr(datamodule, 'train_dataset') and hasattr(datamodule.train_dataset, 'get_coordinate_scaler'):
             scaler = datamodule.train_dataset.get_coordinate_scaler()
@@ -200,7 +205,7 @@ def run_testing(config, datamodule, model_class, trainer, callbacks, task_name):
 
 def setup_test_model_with_dataset_info(config, datamodule, test_model):
     """Setup test model with dataset-specific information"""
-    if config['data']['task_form'] in ['regression', 'generative']:
+    if config['data']['task_form'] in ['coord-reg', 'generative']:
         # Set coordinate scaler from dataset
         if hasattr(datamodule, 'test_dataset') and hasattr(datamodule.test_dataset, 'get_coordinate_scaler'):
             scaler = datamodule.test_dataset.get_coordinate_scaler()

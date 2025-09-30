@@ -22,7 +22,6 @@ class BaseDataModule(L.LightningDataModule, ABC):
     - DataLoader creation with consistent parameters
     - Logging and error handling
     """
-    
     def __init__(self, cfg: Dict[str, Any]):
         """
         Initialize Base DataModule.

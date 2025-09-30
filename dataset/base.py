@@ -69,6 +69,7 @@ class BaseVideoDataset(ABC):
         processor_model = None
         if hasattr(self.data_config, 'video_processor_model'):
             processor_model = self.data_config.video_processor_model
+            
         elif hasattr(self, '_config') and hasattr(self._config, 'model') and hasattr(self._config.model, 'encoder') and hasattr(self._config.model.encoder, 'video'):
             processor_model = self._config.model.encoder.video.processor_model
         

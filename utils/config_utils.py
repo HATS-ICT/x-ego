@@ -17,7 +17,7 @@ def validate_config(config):
     """Validate that config has all required keys"""
     required_keys = {
         'data': ['dir', 'data_path_csv_filename', 'batch_size', 'num_workers', 'persistent_workers', 'pin_mem',
-                 'dataset_type', 'target_fps', 'video_column_name', 'label_column_name',
+                 'target_fps', 'video_column_name', 'label_column_name',
                  'audio_sample_rate', 'train_split', 'val_split', 'test_split', 'video_processor_model', 'audio_processor_model'],
         'model': ['encoder'],
         'training': ['max_epochs', 'accelerator', 'devices', 'precision', 'gradient_clip_val', 'accumulate_grad_batches', 

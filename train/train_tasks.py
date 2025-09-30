@@ -1,8 +1,8 @@
 # Local imports
 from models.multi_agent_location_predictor import MultiAgentEnemyLocationPredictionModel
 # from models.ctfm_contrastive import CTFMContrastive
-from data_module.enemy_location_nowcast import EnemyLocationPredictionDataModule
-from data_module.teammate_location_forecast import SelfTeamFutureLocationPredictionDataModule
+from data_module.enemy_location_nowcast import EnemyLocationNowcastDataModule
+from data_module.teammate_location_forecast import TeammateLocationForecastDataModule
 # from data_module.contrastive import CTFMContrastiveDataModule
 from train.train_pipeline import run_training_pipeline
 
@@ -12,7 +12,7 @@ def train_teammate_location_forecast(config):
     run_training_pipeline(
         config=config,
         model_class=MultiAgentEnemyLocationPredictionModel,
-        datamodule_class=SelfTeamFutureLocationPredictionDataModule,
+        datamodule_class=TeammateLocationForecastDataModule,
         task_name="teammate_location_forecast",
         print_header="=== TRAINING MODE MULTI-AGENT SELF-TEAM FUTURE LOCATION PREDICTION ==="
     )
@@ -23,7 +23,7 @@ def train_enemy_location_nowcast(config):
     run_training_pipeline(
         config=config,
         model_class=MultiAgentEnemyLocationPredictionModel,
-        datamodule_class=EnemyLocationPredictionDataModule,
+        datamodule_class=EnemyLocationNowcastDataModule,
         task_name="enemy_location_nowcast",
         print_header="=== TRAINING MODE MULTI-AGENT ENEMY LOCATION PREDICTION ==="
     )
@@ -34,7 +34,7 @@ def train_enemy_location_forecast(config):
     run_training_pipeline(
         config=config,
         model_class=MultiAgentEnemyLocationPredictionModel,
-        datamodule_class=EnemyLocationPredictionDataModule,
+        datamodule_class=EnemyLocationNowcastDataModule,
         task_name="enemy_location_forecast",
         print_header="=== TRAINING MODE MULTI-AGENT ENEMY LOCATION PREDICTION ==="
     )

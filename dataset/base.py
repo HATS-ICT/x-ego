@@ -43,7 +43,7 @@ class BaseVideoDataset(ABC):
         Args:
             config: Configuration dictionary containing dataset parameters
         """
-        self.data_config = config['data']
+        self.data_cfg = cfg.data
         self.path_config = config.get('path', {})
         
         # Common video parameters

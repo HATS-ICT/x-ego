@@ -18,7 +18,7 @@ except ImportError:
     from dataset.enemy_location_nowcast import EnemyLocationNowcastDataset, enemy_location_nowcast_collate_fn
 
 
-class EnemyLocationPredictionDataModule(BaseDataModule):
+class EnemyLocationNowcastDataModule(BaseDataModule):
     """
     Lightning DataModule for multi-agent enemy location prediction dataset.
     

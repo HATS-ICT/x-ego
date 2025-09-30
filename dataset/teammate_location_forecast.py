@@ -7,12 +7,23 @@ import torch
 from torch.utils.data import Dataset
 import numpy as np
 import pickle
+import random
 from sklearn.preprocessing import MinMaxScaler
 
 try:
     from .base import BaseVideoDataset
+    from .label_creators import create_label_creator
 except ImportError:
-    from base_video_dataset import BaseVideoDataset
+    from base import BaseVideoDataset
+    from label_creators import create_label_creator
+
+try:
+    from utils.dataset_utils import apply_minimap_mask
+except ImportError:
+    import sys
+    from pathlib import Path
+    sys.path.append(str(Path(__file__).parent.parent))
+    from utils.dataset_utils import apply_minimap_mask
 
 
 # Setup logging
@@ -70,6 +81,7 @@ class TeammateLocationForecastDataset(BaseVideoDataset, Dataset):
         
         # Get data config section
         data_config = config['data']
+        self.config = config
         self.path_config = config["path"]
         
         # Load label CSV file
@@ -79,21 +91,28 @@ class TeammateLocationForecastDataset(BaseVideoDataset, Dataset):
         # Multi-agent future location prediction parameters
         self.num_agents = data_config['num_agents']  # Should be 5 for full team
         self.task_form = data_config['task_form']  # regression or classification
+        self.mask_minimap = data_config.get('mask_minimap', False)
         
         # Validate parameters
         if self.num_agents < 1 or self.num_agents > 5:
             raise ValueError(f"num_agents must be between 1 and 5, got {self.num_agents}")
             
-        if self.task_form not in ['regression', 'classification', 'generative']:
-            raise ValueError(f"task_form must be 'regression', 'classification', or 'generative', got {self.task_form}")
+        valid_task_forms = ['coord-reg', 'generative', 'multi-label-cls', 'multi-output-reg', 'grid-cls', 'density-cls']
+        if self.task_form not in valid_task_forms:
+            raise ValueError(f"task_form must be one of {valid_task_forms}, got {self.task_form}")
         
-        # Get unique place names for classification
-        if self.task_form == 'classification':
+        # Get unique place names for place-based classification tasks
+        if self.task_form in ['multi-label-cls', 'multi-output-reg']:
             self.place_names = self._extract_unique_places()
             self.place_to_idx = {place: idx for idx, place in enumerate(self.place_names)}
             self.idx_to_place = {idx: place for place, idx in self.place_to_idx.items()}
             self.num_places = len(self.place_names)
             logger.info(f"Found {self.num_places} unique places: {self.place_names}")
+        else:
+            self.place_names = None
+            self.place_to_idx = None
+            self.idx_to_place = None
+            self.num_places = None
         
         # Filter by partition if specified
         self.partition = data_config['partition']
@@ -108,23 +127,32 @@ class TeammateLocationForecastDataset(BaseVideoDataset, Dataset):
         # Store output directory for saving/loading scaler
         self.output_dir = Path(config['path']['exp'])
         
-        # Initialize coordinate scaler for regression
+        # Initialize coordinate scaler for coordinate-based tasks
         self.coordinate_scaler = None
         self.scaler_fitted = False
-        if self.task_form in ['regression', 'generative']:
+        if self.task_form in ['coord-reg', 'generative', 'grid-cls', 'density-cls']:
             self._init_coordinate_scaler()
+        
+        # Initialize label creator
+        self._init_label_creator()
             
         logger.info(f"Dataset initialized with {len(self.df)} samples")
-        logger.info(f"Number of agents: {self.num_agents}, Location form: {self.task_form}")
+        logger.info(f"Number of agents: {self.num_agents}, Task form: {self.task_form}")
+        logger.info(f"Minimap masking enabled: {self.mask_minimap}")
+        if self.task_form in ['grid-cls', 'density-cls']:
+            grid_res = data_config.get('grid_resolution', 10)
+            logger.info(f"Grid resolution: {grid_res}x{grid_res} = {grid_res*grid_res} cells")
+            if self.task_form == 'density-cls':
+                logger.info(f"Gaussian sigma: {data_config.get('gaussian_sigma', 1.0)}")
         logger.info("Using single team with future location prediction")
     
     def _extract_unique_places(self) -> List[str]:
         """Extract unique place names from the future location data."""
         places = set()
         
-        # Extract places from all player future location columns
-        for i in range(5):  # 5 players per team
-            place_col = f'player_{i}_future_place'
+        # Extract places from all teammate future location columns
+        for i in range(5):  # 5 teammates per team
+            place_col = f'teammate_{i}_future_place'
             if place_col in self.df.columns:
                 places.update(self.df[place_col].unique())
         
@@ -159,12 +187,12 @@ class TeammateLocationForecastDataset(BaseVideoDataset, Dataset):
         
         for idx in range(len(self.df)):
             row = self.df.iloc[idx]
-            # Get future coordinates for all 5 team players
+            # Get future coordinates for all 5 teammates
             for i in range(5):
                 try:
-                    x_col = f'player_{i}_future_X'
-                    y_col = f'player_{i}_future_Y'
-                    z_col = f'player_{i}_future_Z'
+                    x_col = f'teammate_{i}_future_X'
+                    y_col = f'teammate_{i}_future_Y'
+                    z_col = f'teammate_{i}_future_Z'
                     
                     if all(col in row.index for col in [x_col, y_col, z_col]):
                         coords = [float(row[x_col]), float(row[y_col]), float(row[z_col])]
@@ -230,25 +258,25 @@ class TeammateLocationForecastDataset(BaseVideoDataset, Dataset):
     def _get_team_player_data(self, row: pd.Series, player_idx: int) -> Dict:
         """Extract team player data from a row."""
         return {
-            'id': row[f'player_{player_idx}_id'],
-            'video_path': row[f'player_{player_idx}_video_path'],
-            'name': row[f'player_{player_idx}_name'],
-            'future_X': row[f'player_{player_idx}_future_X'],
-            'future_Y': row[f'player_{player_idx}_future_Y'],
-            'future_Z': row[f'player_{player_idx}_future_Z'],
-            'future_place': row[f'player_{player_idx}_future_place']
+            'id': row[f'teammate_{player_idx}_id'],
+            'name': row[f'teammate_{player_idx}_name'],
+            'side': row[f'teammate_{player_idx}_side'],
+            'future_X': row[f'teammate_{player_idx}_future_X'],
+            'future_Y': row[f'teammate_{player_idx}_future_Y'],
+            'future_Z': row[f'teammate_{player_idx}_future_Z'],
+            'future_place': row[f'teammate_{player_idx}_future_place']
         }
     
     def _get_all_team_players(self, row: pd.Series) -> List[Dict]:
-        """Get all 5 players from the team."""
+        """Get all 5 teammates from the team."""
         team_players = []
         
-        for i in range(5):  # 5 players per team in the future location dataset
+        for i in range(5):  # 5 teammates per team in the future location dataset
             try:
                 player_data = self._get_team_player_data(row, i)
                 team_players.append(player_data)
             except KeyError:
-                # Player column doesn't exist, skip
+                # Teammate column doesn't exist, skip
                 continue
         
         return team_players
@@ -267,10 +295,28 @@ class TeammateLocationForecastDataset(BaseVideoDataset, Dataset):
         # Take the first num_agents players
         return team_players[:self.num_agents]
     
+    def _construct_video_path(self, match_id: str, player_id: str, round_num: int) -> str:
+        """Construct video path for a player's round."""
+        video_folder = self.path_config.get('video_folder', 'video_544x306_30fps')
+        video_path = Path('data') / video_folder / str(match_id) / str(player_id) / f"round_{round_num}.mp4"
+        return str(video_path)
+    
     def __len__(self) -> int:
         return len(self.df)
     
-    
+    def _init_label_creator(self):
+        """Initialize label creator based on task form."""
+        kwargs = {}
+        
+        if self.task_form in ['coord-reg', 'generative', 'grid-cls', 'density-cls']:
+            kwargs['coordinate_scaler'] = self.coordinate_scaler if self.scaler_fitted else None
+        
+        if self.task_form in ['multi-label-cls', 'multi-output-reg']:
+            kwargs['place_to_idx'] = self.place_to_idx
+            kwargs['num_places'] = self.num_places
+        
+        self.label_creator = create_label_creator(self.config, **kwargs)
+        logger.info(f"Initialized label creator: {self.label_creator.__class__.__name__}")
     
     def _create_future_location_labels(self, team_players: List[Dict]) -> torch.Tensor:
         """
@@ -282,38 +328,18 @@ class TeammateLocationForecastDataset(BaseVideoDataset, Dataset):
         Returns:
             labels: Tensor containing future location labels
         """
-        if self.task_form in ['regression', 'generative']:
-            # Return XYZ coordinates for all 5 team players' future locations
-            # Shape: [5, 3] for 5 players with X, Y, Z coordinates
-            coords = []
-            for i in range(5):
-                if i < len(team_players):
-                    player = team_players[i]
-                    coords.append([float(player['future_X']), float(player['future_Y']), float(player['future_Z'])])
-                else:
-                    # Pad with zeros if not enough team players
-                    coords.append([0.0, 0.0, 0.0])
-            
-            coords = np.array(coords)
-            
-            # Scale coordinates if scaler is available
-            if self.coordinate_scaler is not None and self.scaler_fitted:
-                coords = self._scale_coordinates(coords)
-            
-            return torch.tensor(coords, dtype=torch.float32)
+        # Convert team_players to format expected by label_creator
+        # The label creator expects player dicts with X, Y, Z, place keys
+        players_for_label = []
+        for player in team_players:
+            players_for_label.append({
+                'X': player['future_X'],
+                'Y': player['future_Y'],
+                'Z': player['future_Z'],
+                'place': player['future_place']
+            })
         
-        elif self.task_form == 'classification':
-            # Return histogram of team player counts per place for multinomial loss
-            # Shape: [num_places] where each value is count of team players at that future place (0-5)
-            place_counts = torch.zeros(self.num_places, dtype=torch.float32)
-            
-            for player in team_players:
-                place = player['future_place']
-                if place in self.place_to_idx:
-                    place_idx = self.place_to_idx[place]
-                    place_counts[place_idx] += 1.0
-            
-            return place_counts
+        return self.label_creator.create_labels(players_for_label)
     
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         """
@@ -331,6 +357,8 @@ class TeammateLocationForecastDataset(BaseVideoDataset, Dataset):
         row = self.df.iloc[idx]
         start_seconds = row['normalized_start_seconds']
         end_seconds = row['normalized_end_seconds']
+        match_id = row['match_id']
+        round_num = row['round_num']
         team_side = row['team_side'].upper()  # Convert to uppercase (T or CT)
         
         # Get team players (both input and labels from same team)
@@ -344,7 +372,9 @@ class TeammateLocationForecastDataset(BaseVideoDataset, Dataset):
         agent_ids = []
         
         for agent in selected_agents:
-            video_clip = self._load_video_clip_with_torchcodec(agent['video_path'], start_seconds, end_seconds)
+            # Construct video path dynamically
+            video_path = self._construct_video_path(match_id, agent['id'], round_num)
+            video_clip = self._load_video_clip_with_torchcodec(video_path, start_seconds, end_seconds)
             video_features = self._transform_video(video_clip)
             agent_videos.append(video_features)
             agent_ids.append(agent['id'])

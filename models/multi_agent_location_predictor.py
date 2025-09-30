@@ -94,6 +94,23 @@ class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScaler
         """Initialize the video encoder."""
         return VideoEncoderBaseline(config)
     
+    def _get_target_locations(self, batch):
+        """
+        Get target locations from batch, supporting both enemy and teammate tasks.
+        
+        Args:
+            batch: Input batch dictionary
+            
+        Returns:
+            Target locations tensor
+        """
+        if 'enemy_locations' in batch:
+            return batch['enemy_locations']
+        elif 'future_locations' in batch:
+            return batch['future_locations']
+        else:
+            raise KeyError("Batch must contain either 'enemy_locations' or 'future_locations'")
+    
     def _init_agent_fusion(self):
         """Initialize agent fusion mechanism."""
         if self.agent_fusion_method == 'attention':
@@ -234,7 +251,7 @@ class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScaler
             batch: Input batch containing:
                 - video: [B, A, T, C, H, W] - multi-agent video
                 - team_side_encoded: [B] - team encoding (0=T, 1=CT)
-                - enemy_locations: [B, 5, 3] - targets (for training/full mode)
+                - enemy_locations or future_locations: [B, 5, 3] - targets (for training/full mode)
             mode: 'full' for full VAE forward pass, 'sampling' for sampling from prior
             
         Returns:
@@ -286,10 +303,7 @@ class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScaler
             }
         else:
             # Full VAE: encode, reparameterize, decode
-            if 'enemy_locations' not in batch:
-                raise ValueError("enemy_locations required for full VAE forward pass")
-            
-            target_locations = batch['enemy_locations']
+            target_locations = self._get_target_locations(batch)
             mu, logvar = self.encode(target_locations, combined_features)
             z = self.reparameterize(mu, logvar)
             predictions = self.decode(z, combined_features)
@@ -339,7 +353,7 @@ class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScaler
     def training_step(self, batch, batch_idx):
         """Training step."""
         batch_size = batch["video"].shape[0]
-        targets = batch["enemy_locations"]
+        targets = self._get_target_locations(batch)
         
         # Forward pass
         outputs = self.forward(batch, mode='full')
@@ -376,7 +390,7 @@ class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScaler
         """Validation step."""
         batch = self._tensor_only_batch(batch)
         batch_size = batch["video"].shape[0]
-        targets = batch["enemy_locations"]
+        targets = self._get_target_locations(batch)
         
         # Forward pass
         outputs = self.forward(batch, mode='full')
@@ -435,10 +449,12 @@ class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScaler
         for i in range(batch['video'].shape[0]):
             team_side = team_sides[i]
             if len(self.test_raw_samples_by_team[team_side]) < samples_per_team:
+                # Get target locations key dynamically
+                target_key = 'enemy_locations' if 'enemy_locations' in batch else 'future_locations'
                 sample = {
                     'video': batch['video'][i:i+1].clone(),
                     'team_side_encoded': batch['team_side_encoded'][i:i+1].clone(),
-                    'enemy_locations': batch['enemy_locations'][i:i+1].clone(),
+                    target_key: batch[target_key][i:i+1].clone(),
                     'team_side': team_side
                 }
                 self.test_raw_samples_by_team[team_side].append(sample)
@@ -451,7 +467,7 @@ class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScaler
         # Process batch
         batch = self._tensor_only_batch(batch)
         batch_size = batch["video"].shape[0]
-        targets = batch["enemy_locations"]
+        targets = self._get_target_locations(batch)
         
         # Forward pass
         outputs = self.forward(batch, mode='full')
@@ -675,7 +691,9 @@ class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScaler
             else:
                 scaled_pred = first_pred_unscaled
             
-            scaled_target = sample['enemy_locations']  # Already scaled
+            # Get target key dynamically (supports both enemy_locations and future_locations)
+            target_key = 'enemy_locations' if 'enemy_locations' in sample else 'future_locations'
+            scaled_target = sample[target_key]  # Already scaled
             
             # Move to device
             device = next(self.parameters()).device

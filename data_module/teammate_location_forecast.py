@@ -18,7 +18,7 @@ except ImportError:
     from dataset.teammate_location_forecast import TeammateLocationForecastDataset, teammate_location_forecast_collate_fn
 
 
-class SelfTeamFutureLocationPredictionDataModule(BaseDataModule):
+class TeammateLocationForecastDataModule(BaseDataModule):
     """
     Lightning DataModule for multi-agent self-team future location prediction dataset.
     
@@ -54,8 +54,8 @@ class SelfTeamFutureLocationPredictionDataModule(BaseDataModule):
         return teammate_location_forecast_collate_fn
     
     def _copy_dataset_attributes(self, base_dataset, partition_dataset):
-        """Copy dataset attributes for classification."""
-        if self.task_form == 'classification':
+        """Copy dataset attributes for place-based tasks."""
+        if self.task_form in ['multi-label-cls', 'multi-output-reg']:
             for attr in ['place_names', 'place_to_idx', 'idx_to_place', 'num_places']:
                 if hasattr(base_dataset, attr):
                     setattr(partition_dataset, attr, getattr(base_dataset, attr))
@@ -64,19 +64,19 @@ class SelfTeamFutureLocationPredictionDataModule(BaseDataModule):
         """Print partition information."""
         total_samples = len(df)
         logger.info(f"{partition_name} partition: {total_samples} samples")
-        logger.info(f"  Location form: {self.task_form}")
+        logger.info(f"  Task form: {self.task_form}")
         
         # Print team distribution
         if 'team_side' in df.columns:
             team_counts = df['team_side'].value_counts()
             logger.info(f"  Team distribution: {dict(team_counts)}")
         
-        if self.task_form == 'classification' and hasattr(self, 'place_names') and self.place_names:
+        if self.task_form in ['multi-label-cls', 'multi-output-reg'] and hasattr(self, 'place_names') and self.place_names:
             logger.info(f"  Number of places: {len(self.place_names)}")
     
     def _store_dataset_info(self, base_dataset):
         """Store dataset information in config."""
-        if self.task_form == 'classification':
+        if self.task_form in ['multi-label-cls', 'multi-output-reg']:
             self.num_places = base_dataset.num_places
             self.place_names = base_dataset.place_names
             self.place_to_idx = base_dataset.place_to_idx
@@ -84,12 +84,19 @@ class SelfTeamFutureLocationPredictionDataModule(BaseDataModule):
             # Update config with place information
             self.config['num_places'] = self.num_places
             self.config['place_names'] = self.place_names
+        elif self.task_form in ['grid-cls', 'density-cls']:
+            # Store grid resolution for grid-based tasks
+            grid_resolution = self.config['data'].get('grid_resolution', 10)
+            self.config['grid_output_dim'] = grid_resolution * grid_resolution
         
         logger.info(f"Full dataset: {len(base_dataset)} samples")
         logger.info(f"Number of agents: {self.num_agents}")
-        logger.info(f"Location form: {self.task_form}")
+        logger.info(f"Task form: {self.task_form}")
         logger.info("Task: Self-team future location prediction")
         
-        if self.task_form == 'classification':
+        if self.task_form in ['multi-label-cls', 'multi-output-reg']:
             logger.info(f"Number of unique places: {self.num_places}")
             logger.info(f"Places: {self.place_names[:10]}{'...' if len(self.place_names) > 10 else ''}")
+        elif self.task_form in ['grid-cls', 'density-cls']:
+            grid_resolution = self.config['data'].get('grid_resolution', 10)
+            logger.info(f"Grid resolution: {grid_resolution}x{grid_resolution} = {grid_resolution * grid_resolution} cells")

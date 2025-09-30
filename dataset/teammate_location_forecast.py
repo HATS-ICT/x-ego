@@ -69,29 +69,38 @@ class TeammateLocationForecastDataset(BaseVideoDataset, Dataset):
     of the same team K seconds into the future.
     """
     
-    def __init__(self, config: Dict):
+    def __init__(self, cfg: Dict):
         """
         Initialize Multi-Agent Self-Team Future Location Prediction Dataset.
         
         Args:
-            config: Configuration dictionary containing dataset parameters
+            cfg: Configuration dictionary containing dataset parameters
         """
         # Initialize base class first
-        super().__init__(config)
+        super().__init__(cfg)
         
         # Get data config section
+<<<<<<< HEAD
         data_config = config['data']
         self.config = config
         self.path_config = config["path"]
+=======
+        self.cfg = cfg
+>>>>>>> 5c54a4ed34dbedf915512ff27c7508d3e031388f
         
         # Load label CSV file
-        self.label_path = data_config['label_path']
+        self.label_path = cfg.data.label_path
         self.df = pd.read_csv(self.label_path, keep_default_na=False)
         
         # Multi-agent future location prediction parameters
+<<<<<<< HEAD
         self.num_agents = data_config['num_agents']  # Should be 5 for full team
         self.task_form = data_config['task_form']  # regression or classification
         self.mask_minimap = data_config.get('mask_minimap', False)
+=======
+        self.num_agents = cfg.data.num_agents  # Should be 5 for full team
+        self.task_form = cfg.data.task_form  # regression or classification
+>>>>>>> 5c54a4ed34dbedf915512ff27c7508d3e031388f
         
         # Validate parameters
         if self.num_agents < 1 or self.num_agents > 5:
@@ -115,7 +124,7 @@ class TeammateLocationForecastDataset(BaseVideoDataset, Dataset):
             self.num_places = None
         
         # Filter by partition if specified
-        self.partition = data_config['partition']
+        self.partition = cfg.data.partition
         if self.partition != 'all':
             initial_count = len(self.df)
             self.df = self.df[self.df['partition'] == self.partition].reset_index(drop=True)
@@ -125,7 +134,7 @@ class TeammateLocationForecastDataset(BaseVideoDataset, Dataset):
         # Store additional configuration parameters
         
         # Store output directory for saving/loading scaler
-        self.output_dir = Path(config['path']['exp'])
+        self.output_dir = Path(cfg.path.exp)
         
         # Initialize coordinate scaler for coordinate-based tasks
         self.coordinate_scaler = None

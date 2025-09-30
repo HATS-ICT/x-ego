@@ -26,19 +26,18 @@ class EnemyLocationNowcastDataModule(BaseDataModule):
     for multi-agent enemy location prediction tasks.
     """
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, cfg: Dict[str, Any]):
         """
         Initialize Enemy Location Prediction DataModule.
         
         Args:
-            config: Configuration dictionary containing all required parameters
+            cfg: Configuration dictionary containing all required parameters
         """
-        super().__init__(config)
+        super().__init__(cfg)
         
         # Multi-agent enemy location prediction parameters
-        data_config = config['data']
-        self.num_agents = data_config['num_agents'] # default to 3 agents
-        self.task_form = data_config['task_form']
+        self.num_agents = cfg.data.num_agents # default to 3 agents
+        self.task_form = cfg.data.task_form
         
         # Store dataset info for model configuration
         self.num_places = None
@@ -47,7 +46,7 @@ class EnemyLocationNowcastDataModule(BaseDataModule):
     
     def _create_base_dataset(self):
         """Create the base enemy location prediction dataset."""
-        return EnemyLocationNowcastDataset(config=self.config)
+        return EnemyLocationNowcastDataset(cfg=self.cfg)
     
     def _get_collate_fn(self):
         """Get the collate function for enemy location prediction."""
@@ -77,12 +76,12 @@ class EnemyLocationNowcastDataModule(BaseDataModule):
             self.place_to_idx = base_dataset.place_to_idx
             
             # Update config with place information
-            self.config['num_places'] = self.num_places
-            self.config['place_names'] = self.place_names
+            self.cfg.num_places = self.num_places
+            self.cfg.place_names = self.place_names
         elif self.task_form in ['grid-cls', 'density-cls']:
             # Store grid resolution for grid-based tasks
-            grid_resolution = self.config['data'].get('grid_resolution', 10)
-            self.config['grid_output_dim'] = grid_resolution * grid_resolution
+            grid_resolution = getattr(self.cfg.data, 'grid_resolution', 10)
+            self.cfg.grid_output_dim = grid_resolution * grid_resolution
         
         logger.info(f"Full dataset: {len(base_dataset)} samples")
         logger.info(f"Number of agents: {self.num_agents}")
@@ -92,5 +91,5 @@ class EnemyLocationNowcastDataModule(BaseDataModule):
             logger.info(f"Number of unique places: {self.num_places}")
             logger.info(f"Places: {self.place_names[:10]}{'...' if len(self.place_names) > 10 else ''}")
         elif self.task_form in ['grid-cls', 'density-cls']:
-            grid_resolution = self.config['data'].get('grid_resolution', 10)
+            grid_resolution = getattr(self.cfg.data, 'grid_resolution', 10)
             logger.info(f"Grid resolution: {grid_resolution}x{grid_resolution} = {grid_resolution * grid_resolution} cells")

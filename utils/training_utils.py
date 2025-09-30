@@ -16,8 +16,8 @@ def setup_callbacks(cfg):
     # Checkpoint callbacks (required if present in cfg)
     if 'checkpoint' in cfg:
         checkpoint_cfg = cfg.checkpoint
-        # Only create checkpoint callbacks if dirpath is set (not None)
-        if checkpoint_cfg.get('dirpath') is not None:
+        if 'dirpath' in checkpoint_cfg:
+            # Only create checkpoint callbacks if dirpath is set (not None)
             if 'epoch' in checkpoint_cfg and 'step' in checkpoint_cfg:
                 epoch_cfg = checkpoint_cfg.epoch
                 epoch_callback = ModelCheckpoint(
@@ -58,8 +58,8 @@ def setup_callbacks(cfg):
                     save_last=checkpoint_cfg.save_last,
                     auto_insert_metric_name=checkpoint_cfg.auto_insert_metric_name,
                     save_on_train_epoch_end=checkpoint_cfg.save_on_train_epoch_end,
-                    every_n_train_steps=checkpoint_cfg.get('every_n_train_steps'),
-                    every_n_epochs=checkpoint_cfg.get('every_n_epochs')
+                    every_n_train_steps=checkpoint_cfg.every_n_train_steps,
+                    every_n_epochs=checkpoint_cfg.every_n_epochs
                 )
                 callbacks.append(checkpoint_callback)
     
@@ -89,13 +89,13 @@ def setup_logger(cfg):
         return None
     
     # Only create logger if save_dir is set (not None)
-    if wandb_cfg.get('save_dir') is None:
+    if wandb_cfg.save_dir is None:
         return None
     
     # Initialize wandb
     logger = WandbLogger(
         project=wandb_cfg.project,
-        name=wandb_cfg.get('name'),  # name can be None for auto-generation
+        name=wandb_cfg.name,  # name can be None for auto-generation
         tags=wandb_cfg.tags,
         notes=wandb_cfg.notes,
         save_dir=wandb_cfg.save_dir

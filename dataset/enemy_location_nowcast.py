@@ -137,10 +137,10 @@ class EnemyLocationNowcastDataset(BaseVideoDataset, Dataset):
         logger.info(f"Number of agents: {self.num_agents}, Task form: {self.task_form}")
         logger.info(f"Minimap masking enabled: {self.mask_minimap}")
         if self.task_form in ['grid-cls', 'density-cls']:
-            grid_res = getattr(cfg.data, 'grid_resolution', 10)
+            grid_res = self.cfg.data.grid_resolution
             logger.info(f"Grid resolution: {grid_res}x{grid_res} = {grid_res*grid_res} cells")
             if self.task_form == 'density-cls':
-                logger.info(f"Gaussian sigma: {getattr(cfg.data, 'gaussian_sigma', 1.0)}")
+                logger.info(f"Gaussian sigma: {self.cfg.data.gaussian_sigma}")
         logger.info("Team side will be randomly selected for each sample")
     
     def _extract_unique_places(self) -> List[str]:
@@ -294,7 +294,7 @@ class EnemyLocationNowcastDataset(BaseVideoDataset, Dataset):
     
     def _construct_video_path(self, match_id: str, player_id: str, round_num: int) -> str:
         """Construct video path for a player's round."""
-        video_folder = getattr(self.cfg.path, 'video_folder', 'video_544x306_30fps')
+        video_folder = self.cfg.data.video_folder
         video_path = Path('data') / video_folder / str(match_id) / str(player_id) / f"round_{round_num}.mp4"
         return str(video_path)
     

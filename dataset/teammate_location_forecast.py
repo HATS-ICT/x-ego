@@ -80,27 +80,15 @@ class TeammateLocationForecastDataset(BaseVideoDataset, Dataset):
         super().__init__(cfg)
         
         # Get data config section
-<<<<<<< HEAD
-        data_config = config['data']
-        self.config = config
-        self.path_config = config["path"]
-=======
         self.cfg = cfg
->>>>>>> 5c54a4ed34dbedf915512ff27c7508d3e031388f
         
         # Load label CSV file
         self.label_path = cfg.data.label_path
         self.df = pd.read_csv(self.label_path, keep_default_na=False)
         
         # Multi-agent future location prediction parameters
-<<<<<<< HEAD
-        self.num_agents = data_config['num_agents']  # Should be 5 for full team
-        self.task_form = data_config['task_form']  # regression or classification
-        self.mask_minimap = data_config.get('mask_minimap', False)
-=======
         self.num_agents = cfg.data.num_agents  # Should be 5 for full team
         self.task_form = cfg.data.task_form  # regression or classification
->>>>>>> 5c54a4ed34dbedf915512ff27c7508d3e031388f
         
         # Validate parameters
         if self.num_agents < 1 or self.num_agents > 5:
@@ -149,10 +137,10 @@ class TeammateLocationForecastDataset(BaseVideoDataset, Dataset):
         logger.info(f"Number of agents: {self.num_agents}, Task form: {self.task_form}")
         logger.info(f"Minimap masking enabled: {self.mask_minimap}")
         if self.task_form in ['grid-cls', 'density-cls']:
-            grid_res = data_config.get('grid_resolution', 10)
+            grid_res = self.cfg.data.grid_resolution
             logger.info(f"Grid resolution: {grid_res}x{grid_res} = {grid_res*grid_res} cells")
             if self.task_form == 'density-cls':
-                logger.info(f"Gaussian sigma: {data_config.get('gaussian_sigma', 1.0)}")
+                logger.info(f"Gaussian sigma: {self.cfg.data.gaussian_sigma}")
         logger.info("Using single team with future location prediction")
     
     def _extract_unique_places(self) -> List[str]:
@@ -306,7 +294,7 @@ class TeammateLocationForecastDataset(BaseVideoDataset, Dataset):
     
     def _construct_video_path(self, match_id: str, player_id: str, round_num: int) -> str:
         """Construct video path for a player's round."""
-        video_folder = self.path_config.get('video_folder', 'video_544x306_30fps')
+        video_folder = self.cfg.data.video_folder
         video_path = Path('data') / video_folder / str(match_id) / str(player_id) / f"round_{round_num}.mp4"
         return str(video_path)
     
@@ -324,7 +312,7 @@ class TeammateLocationForecastDataset(BaseVideoDataset, Dataset):
             kwargs['place_to_idx'] = self.place_to_idx
             kwargs['num_places'] = self.num_places
         
-        self.label_creator = create_label_creator(self.config, **kwargs)
+        self.label_creator = create_label_creator(self.cfg, **kwargs)
         logger.info(f"Initialized label creator: {self.label_creator.__class__.__name__}")
     
     def _create_future_location_labels(self, team_players: List[Dict]) -> torch.Tensor:

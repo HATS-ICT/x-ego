@@ -3,7 +3,7 @@ Metrics Calculation for Multi-Agent Location Prediction
 
 This module provides comprehensive metrics calculation for different task formulations:
 - Coordinate regression: MSE, MAE, Chamfer distance, Wasserstein distance
-- Classification: Accuracy, precision, recall, F1
+- Multi-label classification: Hamming loss, subset accuracy, micro/macro F1
 - Count regression: Exact match, L1 error, KL divergence
 - Density estimation: MSE, MAE, KL divergence
 """
@@ -11,6 +11,7 @@ This module provides comprehensive metrics calculation for different task formul
 import numpy as np
 import torch
 from scipy.stats import wasserstein_distance
+from sklearn.metrics import hamming_loss, accuracy_score, f1_score
 
 from utils.metric_utils import (
     exact_match_accuracy, l1_count_error, 
@@ -80,27 +81,32 @@ class MetricsCalculator:
         }
     
     def _calculate_classification_metrics(self, predictions, targets):
-        """Calculate metrics for binary classification tasks."""
+        """Calculate metrics for multi-label classification tasks."""
         predictions_tensor = torch.tensor(predictions, dtype=torch.float32)
         pred_probs = torch.sigmoid(predictions_tensor).numpy()
-        pred_binary = (pred_probs > 0.5).astype(float)
+        pred_binary = (pred_probs > 0.5).astype(int)
+        targets_int = targets.astype(int)
         
-        # Overall metrics
-        accuracy = np.mean(pred_binary == targets)
-        precision = np.sum((pred_binary == 1) & (targets == 1)) / (np.sum(pred_binary == 1) + 1e-8)
-        recall = np.sum((pred_binary == 1) & (targets == 1)) / (np.sum(targets == 1) + 1e-8)
-        f1 = 2 * precision * recall / (precision + recall + 1e-8)
+        # Multi-label classification metrics using sklearn
+        hamming = hamming_loss(targets_int, pred_binary)
+        subset_accuracy = accuracy_score(targets_int, pred_binary)
+        micro_f1 = f1_score(targets_int, pred_binary, average='micro', zero_division=0)
+        macro_f1 = f1_score(targets_int, pred_binary, average='macro', zero_division=0)
+        
+        # Per-label F1 scores for detailed analysis
+        per_label_f1 = f1_score(targets_int, pred_binary, average=None, zero_division=0)
         
         # Per-cell metrics
         per_dim_metrics = {}
         for i in range(predictions.shape[1]):
-            per_dim_metrics[f'cell_{i}_accuracy'] = float(np.mean(pred_binary[:, i] == targets[:, i]))
+            per_dim_metrics[f'label_{i}_f1'] = float(per_label_f1[i])
+            per_dim_metrics[f'label_{i}_accuracy'] = float(np.mean(pred_binary[:, i] == targets_int[:, i]))
         
         return {
-            'accuracy': float(accuracy),
-            'precision': float(precision),
-            'recall': float(recall),
-            'f1_score': float(f1),
+            'hamming_loss': float(hamming),
+            'subset_accuracy': float(subset_accuracy),
+            'micro_f1': float(micro_f1),
+            'macro_f1': float(macro_f1),
             'per_dimension_metrics': per_dim_metrics,
             'num_samples': len(targets),
             'predictions_shape': list(predictions.shape),
@@ -313,23 +319,23 @@ class MetricsCalculator:
         return metrics
     
     def _calculate_team_classification_metrics(self, team_predictions, team_targets):
-        """Calculate classification metrics for a specific team."""
+        """Calculate multi-label classification metrics for a specific team."""
         team_pred_tensor = torch.tensor(team_predictions, dtype=torch.float32)
         team_pred_probs = torch.sigmoid(team_pred_tensor).numpy()
-        team_pred_binary = (team_pred_probs > 0.5).astype(float)
+        team_pred_binary = (team_pred_probs > 0.5).astype(int)
+        team_targets_int = team_targets.astype(int)
         
-        accuracy = np.mean(team_pred_binary == team_targets)
-        precision = np.sum((team_pred_binary == 1) & (team_targets == 1)) / \
-                   (np.sum(team_pred_binary == 1) + 1e-8)
-        recall = np.sum((team_pred_binary == 1) & (team_targets == 1)) / \
-                (np.sum(team_targets == 1) + 1e-8)
-        f1 = 2 * precision * recall / (precision + recall + 1e-8)
+        # Multi-label classification metrics using sklearn
+        hamming = hamming_loss(team_targets_int, team_pred_binary)
+        subset_accuracy = accuracy_score(team_targets_int, team_pred_binary)
+        micro_f1 = f1_score(team_targets_int, team_pred_binary, average='micro', zero_division=0)
+        macro_f1 = f1_score(team_targets_int, team_pred_binary, average='macro', zero_division=0)
         
         return {
-            'accuracy': float(accuracy),
-            'precision': float(precision),
-            'recall': float(recall),
-            'f1_score': float(f1),
+            'hamming_loss': float(hamming),
+            'subset_accuracy': float(subset_accuracy),
+            'micro_f1': float(micro_f1),
+            'macro_f1': float(macro_f1),
             'num_samples': len(team_predictions)
         }
     

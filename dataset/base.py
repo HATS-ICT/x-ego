@@ -223,7 +223,7 @@ class BaseVideoDataset(ABC):
             return torch.rand(expected_frames, 3, 306, 544)
             
         video_path = self._to_absolute_path(video_path)
-        decoder = VideoDecoder(video_path, device="cpu", seek_mode=self.seek_mode, num_ffmpeg_threads=self.num_ffmpeg_threads)
+        decoder = VideoDecoder(video_path, device="cpu")
         
         video_fps = decoder.metadata.average_fps
         duration_seconds = decoder.metadata.duration_seconds

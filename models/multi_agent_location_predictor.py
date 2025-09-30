@@ -22,6 +22,11 @@ import numpy as np
 import json
 from pathlib import Path
 from torchmetrics import MeanSquaredError, MeanAbsoluteError
+from torchmetrics.classification import (
+    MultilabelHammingDistance, 
+    MultilabelExactMatch,
+    MultilabelF1Score
+)
 
 from utils.plot_utils import create_prediction_plots, create_prediction_heatmaps_grid
 from utils.serialization_utils import json_serializable
@@ -162,6 +167,18 @@ class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScaler
                 self.combined_dim, self.output_dim, 
                 num_hidden_layers, hidden_dim, dropout
             )
+            
+            # Initialize multi-label classification metrics
+            if self.task_form == 'multi-label-cls':
+                num_labels = cfg.num_places
+                self.train_hamming = MultilabelHammingDistance(num_labels=num_labels)
+                self.val_hamming = MultilabelHammingDistance(num_labels=num_labels)
+                self.train_exact_match = MultilabelExactMatch(num_labels=num_labels)
+                self.val_exact_match = MultilabelExactMatch(num_labels=num_labels)
+                self.train_micro_f1 = MultilabelF1Score(num_labels=num_labels, average='micro')
+                self.val_micro_f1 = MultilabelF1Score(num_labels=num_labels, average='micro')
+                self.train_macro_f1 = MultilabelF1Score(num_labels=num_labels, average='macro')
+                self.val_macro_f1 = MultilabelF1Score(num_labels=num_labels, average='macro')
         
         elif self.task_form in ['grid-cls', 'density-cls']:
             # Grid-based tasks: output [grid_resolution^2]
@@ -171,6 +188,18 @@ class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScaler
                 self.combined_dim, self.output_dim, 
                 num_hidden_layers, hidden_dim, dropout
             )
+            
+            # Initialize multi-label classification metrics for grid-cls
+            if self.task_form == 'grid-cls':
+                num_labels = self.output_dim
+                self.train_hamming = MultilabelHammingDistance(num_labels=num_labels)
+                self.val_hamming = MultilabelHammingDistance(num_labels=num_labels)
+                self.train_exact_match = MultilabelExactMatch(num_labels=num_labels)
+                self.val_exact_match = MultilabelExactMatch(num_labels=num_labels)
+                self.train_micro_f1 = MultilabelF1Score(num_labels=num_labels, average='micro')
+                self.val_micro_f1 = MultilabelF1Score(num_labels=num_labels, average='micro')
+                self.train_macro_f1 = MultilabelF1Score(num_labels=num_labels, average='macro')
+                self.val_macro_f1 = MultilabelF1Score(num_labels=num_labels, average='macro')
     
     def _build_mlp(self, input_dim, output_dim, num_hidden_layers, hidden_dim, dropout):
         """Build a multi-layer perceptron with specified number of hidden layers."""
@@ -384,6 +413,28 @@ class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScaler
             self.safe_log('train/mae', self.train_mae, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=True)
         
+        # Log multi-label classification metrics
+        elif self.task_form in ['multi-label-cls', 'grid-cls']:
+            # Convert logits to probabilities and then to binary predictions
+            pred_probs = torch.sigmoid(predictions)
+            targets_int = targets.int()
+            
+            # Update metrics
+            self.train_hamming(pred_probs, targets_int)
+            self.train_exact_match(pred_probs, targets_int)
+            self.train_micro_f1(pred_probs, targets_int)
+            self.train_macro_f1(pred_probs, targets_int)
+            
+            # Log metrics
+            self.safe_log('train/hamming_loss', self.train_hamming, batch_size=batch_size,
+                         on_step=False, on_epoch=True, prog_bar=True)
+            self.safe_log('train/subset_accuracy', self.train_exact_match, batch_size=batch_size,
+                         on_step=False, on_epoch=True, prog_bar=True)
+            self.safe_log('train/micro_f1', self.train_micro_f1, batch_size=batch_size,
+                         on_step=False, on_epoch=True, prog_bar=True)
+            self.safe_log('train/macro_f1', self.train_macro_f1, batch_size=batch_size,
+                         on_step=False, on_epoch=True, prog_bar=True)
+        
         return loss
     
     def validation_step(self, batch, batch_idx):
@@ -429,6 +480,28 @@ class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScaler
             self.safe_log('val/mae', self.val_mae, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=True)
         
+        # Log multi-label classification metrics
+        elif self.task_form in ['multi-label-cls', 'grid-cls']:
+            # Convert logits to probabilities and then to binary predictions
+            pred_probs = torch.sigmoid(predictions)
+            targets_int = targets.int()
+            
+            # Update metrics
+            self.val_hamming(pred_probs, targets_int)
+            self.val_exact_match(pred_probs, targets_int)
+            self.val_micro_f1(pred_probs, targets_int)
+            self.val_macro_f1(pred_probs, targets_int)
+            
+            # Log metrics
+            self.safe_log('val/hamming_loss', self.val_hamming, batch_size=batch_size,
+                         on_step=False, on_epoch=True, prog_bar=True)
+            self.safe_log('val/subset_accuracy', self.val_exact_match, batch_size=batch_size,
+                         on_step=False, on_epoch=True, prog_bar=True)
+            self.safe_log('val/micro_f1', self.val_micro_f1, batch_size=batch_size,
+                         on_step=False, on_epoch=True, prog_bar=True)
+            self.safe_log('val/macro_f1', self.val_macro_f1, batch_size=batch_size,
+                         on_step=False, on_epoch=True, prog_bar=True)
+        
         return loss
     
     def on_test_start(self):
@@ -439,6 +512,14 @@ class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScaler
         self.test_targets_unscaled = []
         self.test_predictions_unscaled = []
         self.test_raw_samples_by_team = {'T': [], 'CT': []}
+        
+        # Initialize test metrics for multi-label classification
+        if self.task_form in ['multi-label-cls', 'grid-cls']:
+            num_labels = self.output_dim
+            self.test_hamming = MultilabelHammingDistance(num_labels=num_labels).to(self.device)
+            self.test_exact_match = MultilabelExactMatch(num_labels=num_labels).to(self.device)
+            self.test_micro_f1 = MultilabelF1Score(num_labels=num_labels, average='micro').to(self.device)
+            self.test_macro_f1 = MultilabelF1Score(num_labels=num_labels, average='macro').to(self.device)
     
     def test_step(self, batch, batch_idx):
         """Test step with sample collection for visualization."""
@@ -508,6 +589,28 @@ class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScaler
             self.safe_log('test/mse', self.test_mse, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=True)
             self.safe_log('test/mae', self.test_mae, batch_size=batch_size,
+                         on_step=False, on_epoch=True, prog_bar=True)
+        
+        # Log multi-label classification metrics
+        elif self.task_form in ['multi-label-cls', 'grid-cls']:
+            # Convert logits to probabilities and then to binary predictions
+            pred_probs = torch.sigmoid(predictions)
+            targets_int = targets.int()
+            
+            # Update metrics
+            self.test_hamming(pred_probs, targets_int)
+            self.test_exact_match(pred_probs, targets_int)
+            self.test_micro_f1(pred_probs, targets_int)
+            self.test_macro_f1(pred_probs, targets_int)
+            
+            # Log metrics
+            self.safe_log('test/hamming_loss', self.test_hamming, batch_size=batch_size,
+                         on_step=False, on_epoch=True, prog_bar=True)
+            self.safe_log('test/subset_accuracy', self.test_exact_match, batch_size=batch_size,
+                         on_step=False, on_epoch=True, prog_bar=True)
+            self.safe_log('test/micro_f1', self.test_micro_f1, batch_size=batch_size,
+                         on_step=False, on_epoch=True, prog_bar=True)
+            self.safe_log('test/macro_f1', self.test_macro_f1, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=True)
         
         # Store predictions and targets
@@ -608,7 +711,22 @@ class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScaler
                     self.safe_log(f'{team_prefix}_wasserstein_distance',
                                  geom['wasserstein_distance_mean'], on_epoch=True)
             
-            elif self.task_form in ['multi-label-cls', 'multi-output-reg', 'grid-cls', 'density-cls']:
+            elif self.task_form in ['multi-label-cls', 'grid-cls']:
+                # Multi-label classification metrics
+                if 'hamming_loss' in metrics:
+                    self.safe_log(f'{team_prefix}_hamming_loss', 
+                                 metrics['hamming_loss'], on_epoch=True)
+                if 'subset_accuracy' in metrics:
+                    self.safe_log(f'{team_prefix}_subset_accuracy',
+                                 metrics['subset_accuracy'], on_epoch=True)
+                if 'micro_f1' in metrics:
+                    self.safe_log(f'{team_prefix}_micro_f1',
+                                 metrics['micro_f1'], on_epoch=True)
+                if 'macro_f1' in metrics:
+                    self.safe_log(f'{team_prefix}_macro_f1',
+                                 metrics['macro_f1'], on_epoch=True)
+            
+            elif self.task_form in ['multi-output-reg', 'density-cls']:
                 if 'exact_accuracy' in metrics:
                     self.safe_log(f'{team_prefix}_exact_accuracy', 
                                  metrics['exact_accuracy'], on_epoch=True)
@@ -629,7 +747,15 @@ class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScaler
                 self.safe_log('test/wasserstein_distance',
                              geom['wasserstein_distance_mean'], on_epoch=True)
         
-        elif self.task_form in ['multi-label-cls', 'multi-output-reg', 'grid-cls', 'density-cls']:
+        elif self.task_form in ['multi-label-cls', 'grid-cls']:
+            # Multi-label classification metrics
+            metric_names = ['hamming_loss', 'subset_accuracy', 'micro_f1', 'macro_f1']
+            for metric_name in metric_names:
+                if metric_name in test_results:
+                    self.safe_log(f'test/{metric_name}', 
+                                 test_results[metric_name], on_epoch=True)
+        
+        elif self.task_form in ['multi-output-reg', 'density-cls']:
             metric_names = ['exact_accuracy', 'l1_count_error', 'kl_divergence', 'multinomial_loss']
             for metric_name in metric_names:
                 if metric_name in test_results:

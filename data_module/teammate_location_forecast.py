@@ -26,19 +26,18 @@ class SelfTeamFutureLocationPredictionDataModule(BaseDataModule):
     for multi-agent self-team future location prediction tasks.
     """
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, cfg: Dict[str, Any]):
         """
         Initialize Self-Team Future Location Prediction DataModule.
         
         Args:
-            config: Configuration dictionary containing all required parameters
+            cfg: Configuration dictionary containing all required parameters
         """
-        super().__init__(config)
+        super().__init__(cfg)
         
         # Multi-agent future location prediction parameters
-        data_config = config['data']
-        self.num_agents = data_config['num_agents'] # default to 5 agents (full team)
-        self.task_form = data_config['task_form']
+        self.num_agents = cfg.data.num_agents # default to 5 agents (full team)
+        self.task_form = cfg.data.task_form
         
         # Store dataset info for model configuration
         self.num_places = None
@@ -47,7 +46,7 @@ class SelfTeamFutureLocationPredictionDataModule(BaseDataModule):
     
     def _create_base_dataset(self):
         """Create the base self location prediction dataset."""
-        return TeammateLocationForecastDataset(config=self.config)
+        return TeammateLocationForecastDataset(cfg=self.cfg)
     
     def _get_collate_fn(self):
         """Get the collate function for self location prediction."""
@@ -82,8 +81,8 @@ class SelfTeamFutureLocationPredictionDataModule(BaseDataModule):
             self.place_to_idx = base_dataset.place_to_idx
             
             # Update config with place information
-            self.config['num_places'] = self.num_places
-            self.config['place_names'] = self.place_names
+            self.cfg.num_places = self.num_places
+            self.cfg.place_names = self.place_names
         
         logger.info(f"Full dataset: {len(base_dataset)} samples")
         logger.info(f"Number of agents: {self.num_agents}")

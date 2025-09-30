@@ -54,7 +54,6 @@ class VideoEncoderClip(nn.Module):
         
         self.from_pretrained = cfg.from_pretrained
         self.freeze_backbone = cfg.freeze_backbone
-        self.return_unpooled = cfg.return_unpooled
         
         self.vision_model = CLIPModel.from_pretrained(self.from_pretrained).vision_model
         
@@ -88,8 +87,6 @@ class VideoEncoderClip(nn.Module):
         # following https://github.com/huggingface/transformers/blob/main/src/transformers/models/clip/modeling_clip.py#L1170-L1251
         frame_features = torch.mean(sequence_output[:, 1:, :], dim=1)  # [batch_size * num_frames, hidden_size]
         frame_features = frame_features.view(batch_size, num_frames, -1)  # [batch_size, num_frames, hidden_size]
-        if self.return_unpooled or return_last_hidden_state:
-            return frame_features
         video_features = torch.mean(frame_features, dim=1)  # [batch_size, hidden_size]
         return video_features
 
@@ -107,7 +104,6 @@ class VideoEncoderSigLIP(nn.Module):
         
         self.from_pretrained = cfg.from_pretrained
         self.freeze_backbone = cfg.freeze_backbone
-        self.return_unpooled = cfg.return_unpooled
         
         self.vision_model = SiglipModel.from_pretrained(self.from_pretrained).vision_model
         self.embed_dim = self.vision_model.config.hidden_size
@@ -140,8 +136,6 @@ class VideoEncoderSigLIP(nn.Module):
         # following https://github.com/huggingface/transformers/blob/main/src/transformers/models/siglip/modeling_siglip.py#L1007-L1109
         frame_features = torch.mean(sequence_output, dim=1)  # [batch_size * num_frames, hidden_size]
         frame_features = frame_features.view(batch_size, num_frames, -1)  # [batch_size, num_frames, hidden_size]
-        if self.return_unpooled or return_last_hidden_state:
-            return frame_features
         video_features = torch.mean(frame_features, dim=1)  # [batch_size, hidden_size]
         
         return video_features
@@ -160,7 +154,6 @@ class VideoEncoderDinov2(nn.Module):
         
         self.from_pretrained = cfg.from_pretrained
         self.freeze_backbone = cfg.freeze_backbone
-        self.return_unpooled = cfg.return_unpooled
         
         self.vision_model = Dinov2Model.from_pretrained(self.from_pretrained)
         self.embed_dim = self.vision_model.config.hidden_size * 2
@@ -197,8 +190,6 @@ class VideoEncoderDinov2(nn.Module):
         
         # pool to get video features
         frame_features = frame_features.view(batch_size, num_frames, -1)  # [batch_size, num_frames, hidden_size * 2]
-        if self.return_unpooled or return_last_hidden_state:
-            return frame_features
         video_features = torch.mean(frame_features, dim=1)  # [batch_size, hidden_size * 2]
         
         return video_features
@@ -218,7 +209,6 @@ class VideoEncoderVivit(nn.Module):
         
         self.from_pretrained = cfg.from_pretrained
         self.freeze_backbone = cfg.freeze_backbone
-        self.return_unpooled = cfg.return_unpooled
         
         self.vision_model = VivitModel.from_pretrained(self.from_pretrained)
         
@@ -249,9 +239,6 @@ class VideoEncoderVivit(nn.Module):
         outputs = self.vision_model(pixel_values=pixel_values)
         sequence_output = outputs.last_hidden_state  # [batch_size, sequence_length, hidden_size]
         
-        if self.return_unpooled or return_last_hidden_state:
-            return sequence_output  # [batch_size, sequence_length, hidden_size]
-        
         # following https://github.com/huggingface/transformers/blob/bb45d3631ec7026db04a77d33a52b31766372160/src/transformers/models/vivit/modeling_vivit.py#L566-L687
         video_features = sequence_output[:, 0, :]  # [batch_size, hidden_size]
         
@@ -272,7 +259,6 @@ class VideoEncoderVideoMAE(nn.Module):
         
         self.from_pretrained = cfg.from_pretrained
         self.freeze_backbone = cfg.freeze_backbone
-        self.return_unpooled = cfg.return_unpooled
         
         self.vision_model = VideoMAEModel.from_pretrained(self.from_pretrained)
         
@@ -310,9 +296,6 @@ class VideoEncoderVideoMAE(nn.Module):
         outputs = self.vision_model(pixel_values=pixel_values)
         sequence_output = outputs.last_hidden_state  # [batch_size, sequence_length, hidden_size]
         
-        if self.return_unpooled or return_last_hidden_state:
-            return sequence_output  # [batch_size, sequence_length, hidden_size]
-        
         if self.use_mean_pooling:
             # Use mean pooling over all tokens (following VideoMAE classification head)
             video_features = sequence_output.mean(1)  # [batch_size, hidden_size]
@@ -340,7 +323,6 @@ class VideoEncoderVJEPA2(nn.Module):
         
         self.from_pretrained = cfg.from_pretrained
         self.freeze_backbone = cfg.freeze_backbone
-        self.return_unpooled = cfg.return_unpooled
         
         self.vision_model = VJEPA2Model.from_pretrained(self.from_pretrained)
         self.pooler = VJEPA2AttentivePooler(self.vision_model.config)
@@ -377,9 +359,6 @@ class VideoEncoderVJEPA2(nn.Module):
         
         last_hidden_state = outputs.last_hidden_state  # [batch_size, sequence_length, hidden_size]
         
-        if self.return_unpooled or return_last_hidden_state:
-            return last_hidden_state  # [batch_size, sequence_length, hidden_size]
-        
         # Use attentive pooling to get video-level features
         # following https://github.com/huggingface/transformers/blob/bb45d3631ec7026db04a77d33a52b31766372160/src/transformers/models/vjepa2/modeling_vjepa2.py#L1137-1214
         video_features = self.pooler(last_hidden_state)  # [batch_size, hidden_size]
@@ -400,7 +379,6 @@ class VideoEncoderFromContrastive(nn.Module):
         
         self.contrastive_checkpoint_path = cfg.contrastive_checkpoint_path
         self.freeze_backbone = cfg.freeze_backbone
-        self.return_unpooled = cfg.return_unpooled
         
         # Load the contrastive model and extract video encoder
         self.video_encoder = self._load_video_encoder_from_contrastive()
@@ -505,11 +483,6 @@ class VideoEncoderFromContrastive(nn.Module):
             # Fallback if it's just a tensor
             video_features = output
         
-        if self.return_unpooled or return_last_hidden_state:
-            # For unpooled features, we might need to handle the case where the encoder
-            # already pooled the features. In that case, we can't return unpooled features.
-            print("Warning: return_unpooled=True but encoder may have already pooled features")
-            
         return video_features
     
     def get_embeddings(self, pixel_values: torch.Tensor) -> Tensor:
@@ -538,11 +511,10 @@ class VideoEncoderBaseline(nn.Module):
         # Check if we should load from contrastive checkpoint
         if 'contrastive_checkpoint_path' in cfg and cfg['contrastive_checkpoint_path'] is not None:
             print("Loading video encoder from contrastive checkpoint")
-            self.video_encoder = VideoEncoderFromContrastive(config)
+            self.video_encoder = VideoEncoderFromContrastive(cfg)
         else:
             # Use the standard pretrained model approach
             self.from_pretrained = cfg.from_pretrained
-            self.return_unpooled = cfg.return_unpooled
             
             if 'clip' in self.from_pretrained.lower():
                 self.video_encoder = VideoEncoderClip(cfg)

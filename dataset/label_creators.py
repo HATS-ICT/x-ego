@@ -269,29 +269,29 @@ def create_label_creator(cfg: Dict, **kwargs) -> LabelCreatorBase:
     elif task_form == 'generative':
         # Generative uses same labels as coord-reg
         return CoordRegLabelCreator(
-            config,
+            cfg, 
             coordinate_scaler=kwargs.get('coordinate_scaler')
         )
     elif task_form == 'multi-label-cls':
         return MultiLabelClsLabelCreator(
-            config,
+            cfg,
             place_to_idx=kwargs.get('place_to_idx'),
             num_places=kwargs.get('num_places')
         )
     elif task_form == 'multi-output-reg':
         return MultiOutputRegLabelCreator(
-            config,
+            cfg,
             place_to_idx=kwargs.get('place_to_idx'),
             num_places=kwargs.get('num_places')
         )
     elif task_form == 'grid-cls':
         return GridClsLabelCreator(
-            config,
+            cfg,
             coordinate_scaler=kwargs.get('coordinate_scaler')
         )
     elif task_form == 'density-cls':
         return DensityClsLabelCreator(
-            config,
+            cfg,
             coordinate_scaler=kwargs.get('coordinate_scaler')
         )
     else:

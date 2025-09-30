@@ -6,8 +6,8 @@ import argparse
 from omegaconf import OmegaConf
 
 # Local imports
-from utils.config_utils import load_config, apply_config_overrides
-from utils.experiment_utils import create_experiment_dir, save_hyperparameters, setup_resume_config
+from utils.config_utils import load_cfg, apply_cfg_overrides
+from utils.experiment_utils import create_experiment_dir, save_hyperparameters, setup_resume_cfg
 from train.train_tasks import (
     train_enemy_location_nowcast,
     train_enemy_location_forecast,
@@ -67,10 +67,10 @@ Every settings in config file can be overridden. Examples:
     return parser
 
 
-def setup_base_pathing(config):
+def setup_base_pathing(cfg):
     """Setup base paths for the project"""
     
-    path_config = OmegaConf.create({
+    path_cfg = OmegaConf.create({
         'path': {
             'src': get_src_base_path(),
             'data': get_data_base_path(),
@@ -78,28 +78,28 @@ def setup_base_pathing(config):
         }
     })
     
-    config = OmegaConf.merge(config, path_config)
-    return config
+    cfg = OmegaConf.merge(cfg, path_cfg)
+    return cfg
 
 
-def setup_directory(config):
+def setup_directory(cfg):
     """Setup all directories and paths for the experiment"""
-    resume_exp = config.meta.resume_exp
+    resume_exp = cfg.meta.resume_exp
     
     if resume_exp:
-        output_dir = config.path.output
-        config = setup_resume_config(config, resume_exp, output_dir)
-        experiment_dir = config.path.exp
-        checkpoint_dir = config.path.ckpt
-        plots_dir = config.path.plots
+        output_dir = cfg.path.output
+        cfg = setup_resume_cfg(cfg, resume_exp, output_dir)
+        experiment_dir = cfg.path.exp
+        checkpoint_dir = cfg.path.ckpt
+        plots_dir = cfg.path.plots
         experiment_name = resume_exp
     else:
-        run_name = config.meta.run_name
-        output_base_path = config.path.output
+        run_name = cfg.meta.run_name
+        output_base_path = cfg.path.output
         experiment_dir, checkpoint_dir, plots_dir = create_experiment_dir(run_name, output_base_path)
         print(f"Created experiment directory: {experiment_dir}")
         
-        save_hyperparameters(config, experiment_dir)
+        save_hyperparameters(cfg, experiment_dir)
         experiment_name = Path(experiment_dir).name
         print(f"Setting WandB run name to: {experiment_name}")
         
@@ -111,21 +111,21 @@ def setup_directory(config):
                 'plots': plots_dir
             }
         })
-        config = OmegaConf.merge(config, path_updates)
+        cfg = OmegaConf.merge(cfg, path_updates)
         
         # Update checkpoint and wandb configs if they exist
-        if 'checkpoint' in config:
+        if 'checkpoint' in cfg:
             checkpoint_update = OmegaConf.create({'checkpoint': {'dirpath': checkpoint_dir}})
-            config = OmegaConf.merge(config, checkpoint_update)
-        if 'wandb' in config:
+            cfg = OmegaConf.merge(cfg, checkpoint_update)
+        if 'wandb' in cfg:
             wandb_update = OmegaConf.create({
                 'wandb': {
                     'save_dir': experiment_dir,
                     'name': experiment_name
                 }
             })
-            config = OmegaConf.merge(config, wandb_update)
-    return config
+            cfg = OmegaConf.merge(cfg, wandb_update)
+    return cfg
 
 def main():
     """Main function with argument parsing"""
@@ -134,39 +134,39 @@ def main():
     
     if args.config is None:
         # Always start with train config as base
-        base_config_path = f'configs/train/{args.task}.yaml'
+        base_cfg_path = f'configs/train/{args.task}.yaml'
         
         if args.mode == 'dev':
             # Load base train config first
-            print(f"Loading base config from: {base_config_path}")
-            config = load_config(base_config_path)
+            print(f"Loading base config from: {base_cfg_path}")
+            cfg = load_cfg(base_cfg_path)
             
             # Then apply dev overrides
-            dev_config_path = f'configs/dev/{args.task}.yaml'
-            print(f"Applying dev overrides from: {dev_config_path}")
-            dev_config = load_config(dev_config_path)
-            config = OmegaConf.merge(config, dev_config)
+            dev_cfg_path = f'configs/dev/{args.task}.yaml'
+            print(f"Applying dev overrides from: {dev_cfg_path}")
+            dev_cfg = load_cfg(dev_cfg_path)
+            cfg = OmegaConf.merge(cfg, dev_cfg)
         else:  # train or test mode
-            print(f"Loading config from: {base_config_path}")
-            config = load_config(base_config_path)
+            print(f"Loading config from: {base_cfg_path}")
+            cfg = load_cfg(base_cfg_path)
     else:
         print(f"Loading config from: {args.config}")
-        config = load_config(args.config)
-    config = apply_config_overrides(config, args.overrides)
-    config = setup_base_pathing(config)
+        cfg = load_cfg(args.config)
+    cfg = apply_cfg_overrides(cfg, args.overrides)
+    cfg = setup_base_pathing(cfg)
     
     # TODO: Validation need to be adjusted per training mode at the end
-    # validate_config(config)
+    # validate_cfg(cfg)
     
-    config = setup_directory(config)
+    cfg = setup_directory(cfg)
     
     # Dispatch based on task and mode
     if args.task == 'enemy_location_nowcast':
-        train_enemy_location_nowcast(config)
+        train_enemy_location_nowcast(cfg)
     elif args.task == 'enemy_location_forecast':
-        train_enemy_location_forecast(config)
+        train_enemy_location_forecast(cfg)
     elif args.task == 'teammate_location_forecast':
-        train_teammate_location_forecast(config)
+        train_teammate_location_forecast(cfg)
     else:
         raise ValueError(f"Unknown task: {args.task}")
 

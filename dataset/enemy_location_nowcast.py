@@ -5,7 +5,6 @@ from typing import Dict, List
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
-from transformers import AutoTokenizer
 import numpy as np
 import pickle
 import random
@@ -19,12 +18,12 @@ except ImportError:
     from label_creators import create_label_creator
 
 try:
-    from utils.dataset_utils import get_team_transcription_path_from_video_path, extract_text_segments_from_transcription, apply_minimap_mask
+    from utils.dataset_utils import apply_minimap_mask
 except ImportError:
     import sys
     from pathlib import Path
     sys.path.append(str(Path(__file__).parent.parent))
-    from utils.dataset_utils import get_team_transcription_path_from_video_path, extract_text_segments_from_transcription, apply_minimap_mask
+    from utils.dataset_utils import apply_minimap_mask
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -41,9 +40,6 @@ def enemy_location_nowcast_collate_fn(batch):
             - 'enemy_locations': Enemy location labels (regression or classification)
             - 'team_side': String indicating team side
             - 'agent_ids': List of agent IDs used
-            - 'text': Text features tensor (optional, when with_communication=True)
-            - 'text_attention_mask': Text attention mask tensor (optional, when with_communication=True)
-            - 'raw_text': Raw text string (optional, when with_communication=True)
     
     Returns:
         Dictionary with batched tensors and lists of string values
@@ -54,11 +50,11 @@ def enemy_location_nowcast_collate_fn(batch):
     for key in batch[0].keys():
         values = [item[key] for item in batch]
         
-        if key in ['team_side', 'agent_ids', 'raw_text']:
+        if key in ['team_side', 'agent_ids']:
             # Keep string/list values as lists
             collated[key] = values
         else:
-            # For tensors (video, enemy_locations, team_side_encoded, text, text_attention_mask), use default collate
+            # For tensors (video, enemy_locations, team_side_encoded), use default collate
             collated[key] = torch.utils.data.default_collate(values)
     
     return collated
@@ -94,9 +90,7 @@ class EnemyLocationNowcastDataset(BaseVideoDataset, Dataset):
         # Multi-agent enemy location prediction parameters
         self.num_agents = data_config['num_agents']
         self.task_form = data_config['task_form']  # regression or classification
-        self.with_communication = data_config['with_communication']
         self.mask_minimap = data_config.get('mask_minimap', False)
-        self.communication_types_to_exclude = data_config.get('communication_types_to_exclude', [])
         
         # Validate parameters
         if self.num_agents < 1 or self.num_agents > 5:
@@ -129,11 +123,6 @@ class EnemyLocationNowcastDataset(BaseVideoDataset, Dataset):
         
         # Store additional configuration parameters
         
-        # Text-related configuration (for communication features)
-        if self.with_communication:
-            self.transcription_folder = data_config['transcription_folder']
-            self.video_folder = data_config['recording_folder']
-        
         # Store output directory for saving/loading scaler
         self.output_dir = Path(config['path']['exp'])
         
@@ -145,18 +134,10 @@ class EnemyLocationNowcastDataset(BaseVideoDataset, Dataset):
         
         # Initialize label creator
         self._init_label_creator()
-        
-        # Initialize text tokenizer if communication is enabled
-        if self.with_communication:
-            text_processor_model = data_config['text_processor_model']
-            self.text_tokenizer = AutoTokenizer.from_pretrained(text_processor_model)
-            logger.info(f"Initialized text tokenizer: {text_processor_model}")
             
         logger.info(f"Dataset initialized with {len(self.df)} samples")
         logger.info(f"Number of agents: {self.num_agents}, Task form: {self.task_form}")
-        logger.info(f"Communication enabled: {self.with_communication}")
         logger.info(f"Minimap masking enabled: {self.mask_minimap}")
-        logger.info(f"Communication types to exclude: {self.communication_types_to_exclude}")
         if self.task_form in ['grid-cls', 'density-cls']:
             grid_res = data_config.get('grid_resolution', 10)
             logger.info(f"Grid resolution: {grid_res}x{grid_res} = {grid_res*grid_res} cells")
@@ -314,64 +295,6 @@ class EnemyLocationNowcastDataset(BaseVideoDataset, Dataset):
         # Take the first num_agents players
         return team_players[:self.num_agents]
     
-    
-    def _sample_text_clip(self, video_path: str, start_seconds: float, end_seconds: float) -> List[str]:
-        """Sample text clip for communication features.
-        
-        Args:
-            video_path: Path to the video file
-            start_seconds: Start time of the clip
-            end_seconds: End time of the clip
-            
-        Returns:
-            List of text segments from the time range
-        """
-        return self._get_text_clip_from_recording(video_path, start_seconds, end_seconds)
-    
-    def _get_text_clip_from_recording(self, video_path: str, start_seconds: float, end_seconds: float) -> List[str]:
-        """Get text clip from recording using only team voice transcription."""
-        # Use team voice transcription only (no trajectory descriptions)
-        transcription_path = get_team_transcription_path_from_video_path(video_path, str(self.data_root))
-        if not Path(transcription_path).exists():
-            return [""]
-        transcription_text = extract_text_segments_from_transcription(
-            transcription_path, 
-            start_seconds, 
-            end_seconds, 
-            exclude_labels=self.communication_types_to_exclude,
-            allow_overflow=True
-        )
-        return [transcription_text]
-    
-    def _tokenize_text(self, text_clip: List[str]) -> tuple:
-        """
-        Tokenize text clip with padding and attention mask.
-        
-        Args:
-            text_clip: List of text segments
-            
-        Returns:
-            Tuple of (text_features, text_attention_mask)
-        """
-        if not self.with_communication or not text_clip:
-            return None, None
-            
-        # Handle problematic text input
-        if isinstance(text_clip, (list, tuple)):
-            text_clip = " ".join(str(item) for item in text_clip if item)
-            if not text_clip.strip():
-                text_clip = ""
-        text_processed = self.text_tokenizer(
-            text_clip, 
-            padding="max_length", 
-            truncation=True, 
-            return_tensors="pt", 
-            return_attention_mask=True
-        )
-        text_features = text_processed.input_ids.squeeze(0)
-        text_attention_mask = text_processed.attention_mask.squeeze(0)
-        return text_features, text_attention_mask
-    
     def __len__(self) -> int:
         return len(self.df)
     
@@ -412,9 +335,6 @@ class EnemyLocationNowcastDataset(BaseVideoDataset, Dataset):
                 - 'team_side': Team side used for input (string)
                 - 'team_side_encoded': Team side encoded as boolean (0 for T, 1 for CT)
                 - 'agent_ids': List of agent IDs used
-                - 'text': Text features tensor (optional, when with_communication=True)
-                - 'text_attention_mask': Text attention mask tensor (optional, when with_communication=True)
-                - 'raw_text': Raw text string (optional, when with_communication=True)
         """
         # Get sample information
         row = self.df.iloc[idx]
@@ -459,18 +379,6 @@ class EnemyLocationNowcastDataset(BaseVideoDataset, Dataset):
             'team_side_encoded': torch.tensor(team_side_encoded, dtype=torch.long),
             'agent_ids': agent_ids
         }
-        
-        # Add text features if communication is enabled
-        if self.with_communication:
-            # Sample text from one of the selected agents (use first agent's video path as representative)
-            representative_video_path = selected_agents[0]['video_path']
-            representative_video_path_full = Path(self.config['path']['data']).parent / representative_video_path
-            text_clip = self._sample_text_clip(representative_video_path_full, start_seconds, end_seconds)
-            text_features, text_attention_mask = self._tokenize_text(text_clip)
-            if text_features is not None:
-                result['text'] = text_features
-                result['text_attention_mask'] = text_attention_mask
-                result['raw_text'] = " ".join(text_clip) if text_clip else ""
         
         return result
 

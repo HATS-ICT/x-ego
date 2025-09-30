@@ -262,7 +262,6 @@ class EnemyLocationNowcastDataset(BaseVideoDataset, Dataset):
             'Z': row[f'player_{player_idx}_Z'],
             'side': row[f'player_{player_idx}_side'],
             'place': row[f'player_{player_idx}_place'],
-            'video_path': row[f'player_{player_idx}_video_path'],
             'name': row[f'player_{player_idx}_name']
         }
     
@@ -294,6 +293,12 @@ class EnemyLocationNowcastDataset(BaseVideoDataset, Dataset):
         
         # Take the first num_agents players
         return team_players[:self.num_agents]
+    
+    def _construct_video_path(self, match_id: str, player_id: str, round_num: int) -> str:
+        """Construct video path for a player's round."""
+        video_folder = self.path_config.get('video_folder', 'video_544x306_30fps')
+        video_path = Path('data') / video_folder / str(match_id) / str(player_id) / f"round_{round_num}.mp4"
+        return str(video_path)
     
     def __len__(self) -> int:
         return len(self.df)
@@ -340,6 +345,8 @@ class EnemyLocationNowcastDataset(BaseVideoDataset, Dataset):
         row = self.df.iloc[idx]
         start_seconds = row['normalized_start_seconds']
         end_seconds = row['normalized_end_seconds']
+        match_id = row['match_id']
+        round_num = row['round_num']
         
         # Randomly select team side for this sample
         selected_team_side = random.choice(['CT', 'T'])
@@ -357,7 +364,9 @@ class EnemyLocationNowcastDataset(BaseVideoDataset, Dataset):
         agent_ids = []
         
         for agent in selected_agents:
-            video_clip = self._load_video_clip_with_torchcodec(agent['video_path'], start_seconds, end_seconds)
+            # Construct video path dynamically
+            video_path = self._construct_video_path(match_id, agent['id'], round_num)
+            video_clip = self._load_video_clip_with_torchcodec(video_path, start_seconds, end_seconds)
             video_features = self._transform_video(video_clip)
             agent_videos.append(video_features)
             agent_ids.append(agent['id'])

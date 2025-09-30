@@ -40,7 +40,7 @@ model:
   hidden_dim: 256
   num_hidden_layers: 3
   dropout: 0.1
-  agent_fusion_method: "tublet_attentive_pooler"  # Options: "mean", "max", "attention", "concat", "tublet_attentive_pooler"
+  agent_fusion_method: "mean"  # Options: "mean", "max", "attention", "concat", "tublet_attentive_pooler"
   vae:
     latent_dim: 64
     kl_weight: 0.5
@@ -91,7 +91,7 @@ wandb:
   enabled: true
   project: xego
   tags: ['${meta.exp_name}']
-  notes: 'Multi-agent enemy location prediction'
+  notes: 'enemy location nowcast'
 
 checkpoint:
   epoch:

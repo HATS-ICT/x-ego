@@ -7,10 +7,10 @@ from data_module.teammate_location_forecast import SelfTeamFutureLocationPredict
 from train.train_pipeline import run_training_pipeline
 
 
-def train_teammate_location_forecast(config):
+def train_teammate_location_forecast(cfg):
     """Training mode implementation for multi-agent self-team future location prediction"""
     run_training_pipeline(
-        config=config,
+        cfg=cfg,
         model_class=MultiAgentEnemyLocationPredictionModel,
         datamodule_class=SelfTeamFutureLocationPredictionDataModule,
         task_name="teammate_location_forecast",
@@ -18,10 +18,10 @@ def train_teammate_location_forecast(config):
     )
 
 
-def train_enemy_location_nowcast(config):
+def train_enemy_location_nowcast(cfg):
     """Training mode implementation for multi-agent enemy location nowcast"""
     run_training_pipeline(
-        config=config,
+        cfg=cfg,
         model_class=MultiAgentEnemyLocationPredictionModel,
         datamodule_class=EnemyLocationPredictionDataModule,
         task_name="enemy_location_nowcast",
@@ -29,10 +29,10 @@ def train_enemy_location_nowcast(config):
     )
 
 
-def train_enemy_location_forecast(config):
+def train_enemy_location_forecast(cfg):
     """Training mode implementation for multi-agent enemy location forecast"""
     run_training_pipeline(
-        config=config,
+        cfg=cfg,
         model_class=MultiAgentEnemyLocationPredictionModel,
         datamodule_class=EnemyLocationPredictionDataModule,
         task_name="enemy_location_forecast",
@@ -40,10 +40,10 @@ def train_enemy_location_forecast(config):
     )
 
 
-# def train_contrastive(config):
+# def train_contrastive(cfg):
 #     """Training mode implementation for contrastive learning"""
 #     run_training_pipeline(
-#         config=config,
+#         cfg=cfg,
 #         model_class=CTFMContrastive,
 #         datamodule_class=CTFMContrastiveDataModule,
 #         task_name="contrastive",

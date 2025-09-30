@@ -37,11 +37,11 @@ def create_experiment_dir(exp_name_prefix=None, output_base_path=None):
     return str(experiment_dir), str(checkpoint_dir), str(plots_dir)
 
 
-def save_hyperparameters(config, experiment_dir):
+def save_hyperparameters(cfg, experiment_dir):
     """Save hyperparameters to hparam.yaml"""
     experiment_path = Path(experiment_dir)
     hparam_path = experiment_path / "hparam.yaml"
-    OmegaConf.save(config, hparam_path)
+    OmegaConf.save(cfg, hparam_path)
     print(f"Saved hyperparameters to: {hparam_path}")
     return hparam_path
 
@@ -68,7 +68,7 @@ def find_experiment_directory(exp_dir: str) -> Path:
     raise FileNotFoundError(f"Experiment directory not found: {candidate}")
 
 
-def load_experiment_config(exp_dir: str):
+def load_experiment_cfg(exp_dir: str):
     """Load configuration from experiment directory"""
     exp_path = find_experiment_directory(exp_dir)
     print(f"Found experiment directory: {exp_path}")
@@ -78,9 +78,9 @@ def load_experiment_config(exp_dir: str):
     if not hparams_path.exists():
         raise FileNotFoundError(f"Hyperparameters file not found: {hparams_path}")
     
-    config = OmegaConf.load(hparams_path)
+    cfg = OmegaConf.load(hparams_path)
     
-    return config, exp_path
+    return cfg, exp_path
 
 
 def find_checkpoint(exp_path: Path, prefer_best: bool = True, ckpt_name: str = None):
@@ -181,19 +181,19 @@ def find_resume_checkpoint(resume_exp, output_dir="output"):
     return latest_ckpt, experiment_dir
 
 
-def setup_resume_config(config, resume_exp, output_dir="output"):
+def setup_resume_cfg(cfg, resume_exp, output_dir="output"):
     """Setup configuration for resuming from an existing experiment
     
     Args:
-        config (dict): Current configuration
+        cfg (dict): Current configuration
         resume_exp (str): Experiment name to resume from
         output_dir (str): Output directory containing experiments
         
     Returns:
-        tuple: (updated_config, checkpoint_path)
+        tuple: (updated_cfg, checkpoint_path)
     """
     if not resume_exp:
-        return config, None
+        return cfg, None
     
     print(f"=== RESUMING FROM EXPERIMENT: {resume_exp} ===")
     
@@ -206,34 +206,34 @@ def setup_resume_config(config, resume_exp, output_dir="output"):
     hparam_path = experiment_path / "hparam.yaml"
     if hparam_path.exists():
         print(f"Loading original hyperparameters from: {hparam_path}")
-        original_config = OmegaConf.load(hparam_path)
+        original_cfg = OmegaConf.load(hparam_path)
         
         # Use OmegaConf to merge configurations
-        config = OmegaConf.merge(original_config, config)
+        cfg = OmegaConf.merge(original_cfg, cfg)
     else:
-        print(f"Warning: Could not find hparam.yaml at {hparam_path}, using current config")
+        print(f"Warning: Could not find hparam.yaml at {hparam_path}, using current cfg")
     
     checkpoint_dir = experiment_path / "checkpoint"
     plots_dir = experiment_path / "plots"
     
-    if 'path' not in config:
-        config['path'] = {}
+    if 'path' not in cfg:
+        cfg['path'] = {}
     
-    config['path']['exp'] = experiment_dir
-    config['path']['ckpt'] = checkpoint_dir
-    config['path']['plots'] = plots_dir
+    cfg['path']['exp'] = experiment_dir
+    cfg['path']['ckpt'] = checkpoint_dir
+    cfg['path']['plots'] = plots_dir
     
-    if 'checkpoint' in config:
-        config['checkpoint']['dirpath'] = str(checkpoint_dir)
-        config['checkpoint']['resume_checkpoint_path'] = str(checkpoint_path)
-    if 'wandb' in config:
-        config['wandb']['save_dir'] = str(experiment_dir)
-        config['wandb']['name'] = resume_exp
+    if 'checkpoint' in cfg:
+        cfg['checkpoint']['dirpath'] = str(checkpoint_dir)
+        cfg['checkpoint']['resume_checkpoint_path'] = str(checkpoint_path)
+    if 'wandb' in cfg:
+        cfg['wandb']['save_dir'] = str(experiment_dir)
+        cfg['wandb']['name'] = resume_exp
     
     print(f"Will resume from checkpoint: {checkpoint_path}")
     print(f"Continuing in experiment directory: {experiment_dir}")
     
-    return config
+    return cfg
 
 
 def save_evaluation_results(results: dict, exp_path: Path, eval_type: str) -> Path:

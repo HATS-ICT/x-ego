@@ -125,9 +125,9 @@ optimization:
 
 wandb:
   enabled: true
-  project: ctfm
+  project: xego
   tags: ['${meta.exp_name}']
-  notes: 'CTFM contrastive learning training'
+  notes: 'X-EGO contrastive learning training'
 
 checkpoint:
   epoch:

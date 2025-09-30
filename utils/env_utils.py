@@ -25,7 +25,7 @@ def get_output_base_path() -> str:
 def print_env_info():
     """Print current environment configuration for debugging."""
     print("=" * 50)
-    print("CTFM Environment Configuration:")
+    print("X-EGO Environment Configuration:")
     print("=" * 50)
     print(f"Src Base Path:     {get_src_base_path()}")
     print(f"Data Base Path:      {get_data_base_path()}")

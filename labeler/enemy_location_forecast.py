@@ -24,20 +24,20 @@ class EnemyLocationForecastCreator(LocationPredictionBase):
     """
     
     def _extract_segments_from_round(self, match_id: str, round_num: int, 
-                                   config: Dict[str, Any]) -> List[Dict]:
+                                   cfg: Dict[str, Any]) -> List[Dict]:
         """
         Extract segments for enemy location forecast from a specific round.
         
         Args:
             match_id: Match identifier
             round_num: Round number
-            config: Configuration dictionary containing all parameters
+            cfg: Configuration dictionary containing all parameters
         
         Returns:
             List of segment dictionaries with all players' data
         """
-        segment_length_sec = config['segment_length_sec']
-        forecast_interval_sec = config.get('forecast_interval_sec', 10)
+        segment_length_sec = cfg.segment_length_sec
+        forecast_interval_sec = cfg.forecast_interval_sec
         
         # Load all player trajectories for this round
         player_trajectories = self._load_player_trajectories(match_id, round_num)
@@ -118,7 +118,7 @@ class EnemyLocationForecastCreator(LocationPredictionBase):
         
         return segments
     
-    def _create_output_csv(self, all_segments: List[Dict], config: Dict[str, Any]) -> pd.DataFrame:
+    def _create_output_csv(self, all_segments: List[Dict], cfg: Dict[str, Any]) -> pd.DataFrame:
         """Create the final CSV output for enemy location forecast data."""
         output_rows = []
         idx = 0

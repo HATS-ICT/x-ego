@@ -46,39 +46,39 @@ class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScaler
     enemy locations using various output representations based on the task form.
     """
     
-    def __init__(self, config):
+    def __init__(self, cfg):
         super().__init__()
         self.save_hyperparameters()
-        self.config = config
+        self.cfg = cfg
         
         # Core model components
-        self.video_encoder = self.init_video_encoder(config['model']['encoder']['video'])
-        self.num_agents = config['data']['num_agents']
-        self.task_form = config['data']['task_form']
+        self.video_encoder = self.init_video_encoder(cfg.model.encoder.video)
+        self.num_agents = cfg.data.num_agents
+        self.task_form = cfg.data.task_form
         
         # Team encoder: embed team side (T=0, CT=1) into a vector
-        self.team_embed_dim = config['model']['team_embed_dim']
+        self.team_embed_dim = cfg.model.team_embed_dim
         self.team_encoder = nn.Embedding(2, self.team_embed_dim)  # 2 teams: T, CT
         
         # Agent fusion configuration
-        self.agent_fusion_method = config['model']['agent_fusion_method']
+        self.agent_fusion_method = cfg.model.agent_fusion_method
         self._init_agent_fusion()
         
         # Predictor head configuration
-        hidden_dim = config['model']['hidden_dim']
-        dropout = config['model']['dropout']
-        num_hidden_layers = config['model']['num_hidden_layers']
+        hidden_dim = cfg.model.hidden_dim
+        dropout = cfg.model.dropout
+        num_hidden_layers = cfg.model.num_hidden_layers
         
         # Combined dimension: video + team embeddings
         self.combined_dim = self.video_encoder.embed_dim + self.team_embed_dim
         
         # Initialize task-specific components
-        self._init_task_specific_components(config, hidden_dim, dropout, num_hidden_layers)
+        self._init_task_specific_components(cfg, hidden_dim, dropout, num_hidden_layers)
         
         # Initialize loss and metrics calculators
-        loss_fn = config['data']['loss_fn']
-        sinkhorn_blur = config['data'].get('sinkhorn_blur', 0.05)
-        sinkhorn_scaling = config['data'].get('sinkhorn_scaling', 0.9)
+        loss_fn = cfg.data.loss_fn
+        sinkhorn_blur = cfg.data.sinkhorn_blur
+        sinkhorn_scaling = cfg.data.sinkhorn_scaling
         self.loss_computer = LossComputer(self.task_form, loss_fn, sinkhorn_blur, sinkhorn_scaling)
         self.metrics_calculator = MetricsCalculator(self.task_form)
         
@@ -88,11 +88,11 @@ class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScaler
         # Test tracking
         self.test_predictions = []
         self.test_targets = []
-        self.output_dir = config['path']['exp']
+        self.output_dir = cfg.path.exp
     
-    def init_video_encoder(self, config):
+    def init_video_encoder(self, video_encoder_cfg):
         """Initialize the video encoder."""
-        return VideoEncoderBaseline(config)
+        return VideoEncoderBaseline(video_encoder_cfg)
     
     def _get_target_locations(self, batch):
         """
@@ -125,11 +125,11 @@ class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScaler
                 self.video_encoder.embed_dim
             )
     
-    def _init_task_specific_components(self, config, hidden_dim, dropout, num_hidden_layers):
+    def _init_task_specific_components(self, cfg, hidden_dim, dropout, num_hidden_layers):
         """Initialize task-specific output heads and metrics."""
         if self.task_form in ['coord-reg', 'generative']:
             # Coordinate regression: output [num_agents * 3 coordinates]
-            self.output_dim = config['model']['num_target_agents'] * 3
+            self.output_dim = cfg.model.num_target_agents * 3
             self.train_mse = MeanSquaredError()
             self.val_mse = MeanSquaredError()
             self.train_mae = MeanAbsoluteError()
@@ -137,7 +137,7 @@ class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScaler
             
             if self.task_form == 'generative':
                 # VAE-specific components
-                self.latent_dim = config['model']['vae']['latent_dim']
+                self.latent_dim = cfg.model.vae.latent_dim
                 encoder_input_dim = self.output_dim + self.combined_dim
                 self.vae_encoder = self._build_mlp(
                     encoder_input_dim, self.latent_dim * 2, 
@@ -157,7 +157,7 @@ class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScaler
         
         elif self.task_form in ['multi-label-cls', 'multi-output-reg']:
             # Place-based tasks: output [num_places]
-            self.output_dim = config['num_places']
+            self.output_dim = cfg.num_places
             self.predictor = self._build_mlp(
                 self.combined_dim, self.output_dim, 
                 num_hidden_layers, hidden_dim, dropout
@@ -165,7 +165,7 @@ class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScaler
         
         elif self.task_form in ['grid-cls', 'density-cls']:
             # Grid-based tasks: output [grid_resolution^2]
-            grid_resolution = config['data'].get('grid_resolution', 10)
+            grid_resolution = cfg.data.grid_resolution
             self.output_dim = grid_resolution * grid_resolution
             self.predictor = self._build_mlp(
                 self.combined_dim, self.output_dim, 
@@ -360,7 +360,7 @@ class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScaler
         predictions = outputs['predictions']
         
         # Compute loss
-        kl_weight = self.config['model']['vae']['kl_weight'] if self.task_form == 'generative' else None
+        kl_weight = self.cfg.model.vae.kl_weight if self.task_form == 'generative' else None
         loss, loss_components = self.loss_computer.compute_loss(
             predictions, targets, outputs, kl_weight
         )
@@ -397,7 +397,7 @@ class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScaler
         predictions = outputs['predictions']
         
         # Compute loss
-        kl_weight = self.config['model']['vae']['kl_weight'] if self.task_form == 'generative' else None
+        kl_weight = self.cfg.model.vae.kl_weight if self.task_form == 'generative' else None
         loss, loss_components = self.loss_computer.compute_loss(
             predictions, targets, outputs, kl_weight
         )
@@ -474,7 +474,7 @@ class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScaler
         predictions = outputs['predictions']
         
         # Compute loss
-        kl_weight = self.config['model']['vae']['kl_weight'] if self.task_form == 'generative' else None
+        kl_weight = self.cfg.model.vae.kl_weight if self.task_form == 'generative' else None
         loss, loss_components = self.loss_computer.compute_loss(
             predictions, targets, outputs, kl_weight
         )
@@ -566,7 +566,7 @@ class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScaler
         self._log_overall_metrics(test_results)
         
         # Add experiment metadata
-        test_results['num_agents'] = self.config['data']['num_agents']
+        test_results['num_agents'] = self.cfg.data.num_agents
         test_results['agent_fusion_method'] = self.agent_fusion_method
         test_results['task_form'] = self.task_form
         test_results['team_distribution'] = dict(zip(unique_teams.tolist(), team_counts.tolist()))
@@ -652,7 +652,7 @@ class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScaler
         
         if self.task_form == 'generative':
             test_results['latent_dim'] = self.latent_dim
-            test_results['kl_weight'] = self.config['model']['vae']['kl_weight']
+            test_results['kl_weight'] = self.cfg.model.vae.kl_weight
     
     def _create_prediction_heatmaps(self, plots_dir):
         """Create KDE heatmaps for selected test samples."""
@@ -719,10 +719,10 @@ class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScaler
     
     def configure_optimizers(self):
         """Configure optimizer for training."""
-        opt_config = self.config['optimization']
-        lr = opt_config['lr']
-        weight_decay = opt_config['weight_decay']
-        fused_optimizer = opt_config['fused_optimizer']
+        opt_config = self.cfg.optimization
+        lr = opt_config.lr
+        weight_decay = opt_config.weight_decay
+        fused_optimizer = opt_config.fused_optimizer
         
         optimizer = AdamW(
             filter(lambda p: p.requires_grad, self.parameters()),

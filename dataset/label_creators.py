@@ -20,15 +20,15 @@ from sklearn.preprocessing import MinMaxScaler
 class LabelCreatorBase:
     """Base class for label creators."""
     
-    def __init__(self, config: Dict):
+    def __init__(self, cfg: Dict):
         """
         Initialize label creator with configuration.
         
         Args:
-            config: Configuration dictionary containing task parameters
+            cfg: Configuration dictionary containing task parameters
         """
-        self.config = config
-        self.task_form = config['data']['task_form']
+        self.cfg = cfg
+        self.task_form = cfg.data.task_form
     
     def create_labels(self, enemy_players: List[Dict]) -> torch.Tensor:
         """
@@ -51,10 +51,10 @@ class CoordRegLabelCreator(LabelCreatorBase):
     Output shape: [5, 3] for 5 agents with X, Y, Z coordinates
     """
     
-    def __init__(self, config: Dict, coordinate_scaler: MinMaxScaler = None):
-        super().__init__(config)
+    def __init__(self, cfg: Dict, coordinate_scaler: MinMaxScaler = None):
+        super().__init__(cfg)
         self.coordinate_scaler = coordinate_scaler
-        self.num_target_agents = config['model']['num_target_agents']
+        self.num_target_agents = cfg.model.num_target_agents
     
     def create_labels(self, enemy_players: List[Dict]) -> torch.Tensor:
         """Create coordinate regression labels."""
@@ -98,8 +98,8 @@ class MultiLabelClsLabelCreator(LabelCreatorBase):
     Output shape: [num_places]
     """
     
-    def __init__(self, config: Dict, place_to_idx: Dict[str, int], num_places: int):
-        super().__init__(config)
+    def __init__(self, cfg: Dict, place_to_idx: Dict[str, int], num_places: int):
+        super().__init__(cfg)
         self.place_to_idx = place_to_idx
         self.num_places = num_places
     
@@ -126,8 +126,8 @@ class MultiOutputRegLabelCreator(LabelCreatorBase):
     Output shape: [num_places]
     """
     
-    def __init__(self, config: Dict, place_to_idx: Dict[str, int], num_places: int):
-        super().__init__(config)
+    def __init__(self, cfg: Dict, place_to_idx: Dict[str, int], num_places: int):
+        super().__init__(cfg)
         self.place_to_idx = place_to_idx
         self.num_places = num_places
     
@@ -154,9 +154,9 @@ class GridClsLabelCreator(LabelCreatorBase):
     Output shape: [grid_resolution * grid_resolution]
     """
     
-    def __init__(self, config: Dict, coordinate_scaler: MinMaxScaler = None):
-        super().__init__(config)
-        self.grid_resolution = config['data'].get('grid_resolution', 10)
+    def __init__(self, cfg: Dict, coordinate_scaler: MinMaxScaler = None):
+        super().__init__(cfg)
+        self.grid_resolution = cfg.data.grid_resolution
         self.coordinate_scaler = coordinate_scaler
         self.output_dim = self.grid_resolution * self.grid_resolution
     
@@ -203,10 +203,10 @@ class DensityClsLabelCreator(LabelCreatorBase):
     Output shape: [grid_resolution * grid_resolution]
     """
     
-    def __init__(self, config: Dict, coordinate_scaler: MinMaxScaler = None):
-        super().__init__(config)
-        self.grid_resolution = config['data'].get('grid_resolution', 10)
-        self.gaussian_sigma = config['data'].get('gaussian_sigma', 1.0)
+    def __init__(self, cfg: Dict, coordinate_scaler: MinMaxScaler = None):
+        super().__init__(cfg)
+        self.grid_resolution = cfg.data.grid_resolution
+        self.gaussian_sigma = cfg.data.gaussian_sigma
         self.coordinate_scaler = coordinate_scaler
         self.output_dim = self.grid_resolution * self.grid_resolution
     
@@ -248,22 +248,22 @@ class DensityClsLabelCreator(LabelCreatorBase):
         return torch.tensor(grid.flatten(), dtype=torch.float32)
 
 
-def create_label_creator(config: Dict, **kwargs) -> LabelCreatorBase:
+def create_label_creator(cfg: Dict, **kwargs) -> LabelCreatorBase:
     """
     Factory function to create appropriate label creator based on task form.
     
     Args:
-        config: Configuration dictionary
+        cfg: Configuration dictionary
         **kwargs: Additional arguments like coordinate_scaler, place_to_idx, num_places
         
     Returns:
         Label creator instance
     """
-    task_form = config['data']['task_form']
+    task_form = cfg.data.task_form
     
     if task_form == 'coord-reg':
         return CoordRegLabelCreator(
-            config, 
+            cfg, 
             coordinate_scaler=kwargs.get('coordinate_scaler')
         )
     elif task_form == 'generative':

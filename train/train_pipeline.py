@@ -96,10 +96,10 @@ def print_task_info(cfg, datamodule, task_name):
             cfg.num_places = datamodule.num_places
             print(f"Number of places: {cfg.num_places}")
         elif cfg.data.task_form in ['grid-cls', 'density-cls']:
-            grid_resolution = cfg.data.get('grid_resolution', 10)
+            grid_resolution = cfg.data.grid_resolution
             print(f"Grid resolution: {grid_resolution}x{grid_resolution} = {grid_resolution * grid_resolution} cells")
             if cfg.data.task_form == 'density-cls':
-                print(f"Gaussian sigma: {cfg.data.get('gaussian_sigma', 1.0)}")
+                print(f"Gaussian sigma: {cfg.data.gaussian_sigma}")
 
 
 def setup_model_with_dataset_info(cfg, datamodule, model):

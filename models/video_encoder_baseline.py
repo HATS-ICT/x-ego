@@ -48,13 +48,13 @@ class VideoEncoderClip(nn.Module):
     Processes video frames through CLIP vision model and pools across time dimension.
     """
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, cfg: Dict[str, Any]):
         super().__init__()
-        self.config = config
+        self.cfg = cfg
         
-        self.from_pretrained = config['from_pretrained']
-        self.freeze_backbone = config['freeze_backbone']
-        self.return_unpooled = config.get('return_unpooled', False)
+        self.from_pretrained = cfg.from_pretrained
+        self.freeze_backbone = cfg.freeze_backbone
+        self.return_unpooled = cfg.return_unpooled
         
         self.vision_model = CLIPModel.from_pretrained(self.from_pretrained).vision_model
         
@@ -101,13 +101,13 @@ class VideoEncoderSigLIP(nn.Module):
     Processes video frames through SigLIP vision model and pools across time dimension.
     """
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, cfg: Dict[str, Any]):
         super().__init__()
-        self.config = config
+        self.cfg = cfg
         
-        self.from_pretrained = config['from_pretrained']
-        self.freeze_backbone = config['freeze_backbone']
-        self.return_unpooled = config.get('return_unpooled', False)
+        self.from_pretrained = cfg.from_pretrained
+        self.freeze_backbone = cfg.freeze_backbone
+        self.return_unpooled = cfg.return_unpooled
         
         self.vision_model = SiglipModel.from_pretrained(self.from_pretrained).vision_model
         self.embed_dim = self.vision_model.config.hidden_size
@@ -154,13 +154,13 @@ class VideoEncoderDinov2(nn.Module):
     Processes video frames through DINOv2 vision model and pools across time dimension.
     """
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, cfg: Dict[str, Any]):
         super().__init__()
-        self.config = config
+        self.cfg = cfg
         
-        self.from_pretrained = config['from_pretrained']
-        self.freeze_backbone = config['freeze_backbone']
-        self.return_unpooled = config.get('return_unpooled', False)
+        self.from_pretrained = cfg.from_pretrained
+        self.freeze_backbone = cfg.freeze_backbone
+        self.return_unpooled = cfg.return_unpooled
         
         self.vision_model = Dinov2Model.from_pretrained(self.from_pretrained)
         self.embed_dim = self.vision_model.config.hidden_size * 2
@@ -212,13 +212,13 @@ class VideoEncoderVivit(nn.Module):
     ViViT is designed to handle video sequences directly.
     """
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, cfg: Dict[str, Any]):
         super().__init__()
-        self.config = config
+        self.cfg = cfg
         
-        self.from_pretrained = config['from_pretrained']
-        self.freeze_backbone = config['freeze_backbone']
-        self.return_unpooled = config.get('return_unpooled', False)
+        self.from_pretrained = cfg.from_pretrained
+        self.freeze_backbone = cfg.freeze_backbone
+        self.return_unpooled = cfg.return_unpooled
         
         self.vision_model = VivitModel.from_pretrained(self.from_pretrained)
         
@@ -266,13 +266,13 @@ class VideoEncoderVideoMAE(nn.Module):
     VideoMAE is designed to handle video sequences directly with masked autoencoding pretraining.
     """
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, cfg: Dict[str, Any]):
         super().__init__()
-        self.config = config
+        self.cfg = cfg
         
-        self.from_pretrained = config['from_pretrained']
-        self.freeze_backbone = config['freeze_backbone']
-        self.return_unpooled = config.get('return_unpooled', False)
+        self.from_pretrained = cfg.from_pretrained
+        self.freeze_backbone = cfg.freeze_backbone
+        self.return_unpooled = cfg.return_unpooled
         
         self.vision_model = VideoMAEModel.from_pretrained(self.from_pretrained)
         
@@ -334,13 +334,13 @@ class VideoEncoderVJEPA2(nn.Module):
     predictive architecture.
     """
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, cfg: Dict[str, Any]):
         super().__init__()
-        self.config = config
+        self.cfg = cfg
         
-        self.from_pretrained = config['from_pretrained']
-        self.freeze_backbone = config['freeze_backbone']
-        self.return_unpooled = config.get('return_unpooled', False)
+        self.from_pretrained = cfg.from_pretrained
+        self.freeze_backbone = cfg.freeze_backbone
+        self.return_unpooled = cfg.return_unpooled
         
         self.vision_model = VJEPA2Model.from_pretrained(self.from_pretrained)
         self.pooler = VJEPA2AttentivePooler(self.vision_model.config)
@@ -394,13 +394,13 @@ class VideoEncoderFromContrastive(nn.Module):
     and uses it for video classification tasks.
     """
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, cfg: Dict[str, Any]):
         super().__init__()
-        self.config = config
+        self.cfg = cfg
         
-        self.contrastive_checkpoint_path = config['contrastive_checkpoint_path']
-        self.freeze_backbone = config.get('freeze_backbone', False)
-        self.return_unpooled = config.get('return_unpooled', False)
+        self.contrastive_checkpoint_path = cfg.contrastive_checkpoint_path
+        self.freeze_backbone = cfg.freeze_backbone
+        self.return_unpooled = cfg.return_unpooled
         
         # Load the contrastive model and extract video encoder
         self.video_encoder = self._load_video_encoder_from_contrastive()
@@ -531,34 +531,34 @@ class VideoEncoderBaseline(nn.Module):
     - VJEPA2 models (facebook/vjepa2-*)
     """
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, cfg: Dict[str, Any]):
         super().__init__()
-        self.config = config
+        self.cfg = cfg
         
         # Check if we should load from contrastive checkpoint
-        if 'contrastive_checkpoint_path' in config and config['contrastive_checkpoint_path'] is not None:
+        if 'contrastive_checkpoint_path' in cfg and cfg['contrastive_checkpoint_path'] is not None:
             print("Loading video encoder from contrastive checkpoint")
             self.video_encoder = VideoEncoderFromContrastive(config)
         else:
             # Use the standard pretrained model approach
-            self.from_pretrained = config['from_pretrained']
-            self.return_unpooled = config.get('return_unpooled', False)
+            self.from_pretrained = cfg.from_pretrained
+            self.return_unpooled = cfg.return_unpooled
             
             if 'clip' in self.from_pretrained.lower():
-                self.video_encoder = VideoEncoderClip(config)
+                self.video_encoder = VideoEncoderClip(cfg)
             elif 'siglip' in self.from_pretrained.lower():
-                self.video_encoder = VideoEncoderSigLIP(config)
+                self.video_encoder = VideoEncoderSigLIP(cfg)
             elif 'dinov2' in self.from_pretrained.lower():
-                self.video_encoder = VideoEncoderDinov2(config)
+                self.video_encoder = VideoEncoderDinov2(cfg)
             elif 'vivit' in self.from_pretrained.lower():
-                self.video_encoder = VideoEncoderVivit(config)
+                self.video_encoder = VideoEncoderVivit(cfg)
             elif 'videomae' in self.from_pretrained.lower():
-                self.video_encoder = VideoEncoderVideoMAE(config)
+                self.video_encoder = VideoEncoderVideoMAE(cfg)
             elif 'vjepa2' in self.from_pretrained.lower():
-                self.video_encoder = VideoEncoderVJEPA2(config)
+                self.video_encoder = VideoEncoderVJEPA2(cfg)
             else:
                 print(f"Warning: Model type unclear from '{self.from_pretrained}', defaulting to CLIP")
-                self.video_encoder = VideoEncoderClip(config)
+                self.video_encoder = VideoEncoderClip(cfg)
         
         self.embed_dim = self.video_encoder.embed_dim
     

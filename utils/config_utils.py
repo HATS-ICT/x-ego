@@ -76,7 +76,7 @@ def validate_cfg(cfg):
     
     # Validate contrastive style is supported
     if 'training' in cfg and 'contrastive' in cfg.training:
-        contrastive_style = cfg.training.contrastive.get('style')
+        contrastive_style = cfg.training.contrastive.style
         if contrastive_style not in ['clip', 'siglip']:
             raise ValueError(f"Invalid contrastive style: {contrastive_style}. Only 'clip' and 'siglip' are supported.")
     

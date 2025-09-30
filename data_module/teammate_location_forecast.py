@@ -85,7 +85,7 @@ class TeammateLocationForecastDataModule(BaseDataModule):
             self.cfg.place_names = self.place_names
         elif self.task_form in ['grid-cls', 'density-cls']:
             # Store grid resolution for grid-based tasks
-            grid_resolution = self.cfg.data.get('grid_resolution', 10)
+            grid_resolution = self.cfg.data.get.grid_resolution
             self.cfg.grid_output_dim = grid_resolution * grid_resolution
         logger.info(f"Full dataset: {len(base_dataset)} samples")
         logger.info(f"Number of agents: {self.num_agents}")
@@ -96,5 +96,5 @@ class TeammateLocationForecastDataModule(BaseDataModule):
             logger.info(f"Number of unique places: {self.num_places}")
             logger.info(f"Places: {self.place_names[:10]}{'...' if len(self.place_names) > 10 else ''}")
         elif self.task_form in ['grid-cls', 'density-cls']:
-            grid_resolution = self.cfg.data.get('grid_resolution', 10)
+            grid_resolution = self.cfg.data.grid_resolution
             logger.info(f"Grid resolution: {grid_resolution}x{grid_resolution} = {grid_resolution * grid_resolution} cells")

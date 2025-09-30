@@ -230,16 +230,15 @@ class LocationPredictionBase(ABC):
         if not exact_data.empty:
             row = exact_data.iloc[0]
             return {
-                'steamid': row.get('steamid', ''),
-                'name': row.get('name', ''),
-                'side': row.get('side', ''),
-                'X': row.get('X', 0),
-                'Y': row.get('Y', 0), 
-                'Z': row.get('Z', 0),
-                'place': row.get('place', ''),
-                'health': row.get('health', 0)
+                'steamid': row.get('steamid'),
+                'name': row.get('name'),
+                'side': row.get('side'),
+                'X': row.get('X'),
+                'Y': row.get('Y'), 
+                'Z': row.get('Z'),
+                'place': row.get('place'),
+                'health': row.get('health')
             }
-        
         # Try to find closest tick within a small window
         window_size = 5
         window_data = df[(df['tick'] >= target_tick - window_size) & 
@@ -250,35 +249,32 @@ class LocationPredictionBase(ABC):
             closest_idx = (window_data['tick'] - target_tick).abs().idxmin()
             row = df.loc[closest_idx]
             return {
-                'steamid': row.get('steamid', ''),
-                'name': row.get('name', ''),
-                'side': row.get('side', ''),
-                'X': row.get('X', 0),
-                'Y': row.get('Y', 0),
-                'Z': row.get('Z', 0),
-                'place': row.get('place', ''),
-                'health': row.get('health', 0)
+                'steamid': row.get('steamid'),
+                'name': row.get('name'),
+                'side': row.get('side'),
+                'X': row.get('X'),
+                'Y': row.get('Y'), 
+                'Z': row.get('Z'),
+                'place': row.get('place'),
+                'health': row.get('health')
             }
         
         return None
     
     def _construct_video_path(self, match_id: str, steamid: str, round_num: int) -> str:
-        """Construct video path for a player's round."""
-        if os.name == 'nt':  # Windows
-            return f"data\\{self.video_folder}\\{match_id}\\{steamid}\\round_{round_num}.mp4"
-        else:  # Unix-like systems
-            return f"data/{self.video_folder}/{match_id}/{steamid}/round_{round_num}.mp4"
+        """Construct video path for a player's round using pathlib for cross-platform compatibility."""
+        return str((Path("data") / self.video_folder / match_id / steamid / f"round_{round_num}.mp4"))
     
     @abstractmethod
     def _extract_segments_from_round(self, match_id: str, round_num: int, 
-                                   config: Dict[str, Any]) -> List[Dict]:
+                                   cfg: Dict[str, Any]) -> List[Dict]:
         """
         Extract segments from a specific round. Must be implemented by subclasses.
         
         Args:
             match_id: Match identifier
             round_num: Round number
-            config: Configuration dictionary containing all parameters
+            cfg: Configuration dictionary containing all parameters
         
         Returns:
             List of segment dictionaries
@@ -286,25 +282,25 @@ class LocationPredictionBase(ABC):
         pass
     
     @abstractmethod
-    def _create_output_csv(self, all_segments: List[Dict], config: Dict[str, Any]) -> pd.DataFrame:
+    def _create_output_csv(self, all_segments: List[Dict], cfg: Dict[str, Any]) -> pd.DataFrame:
         """
         Create the final CSV output. Must be implemented by subclasses.
         
         Args:
             all_segments: List of all extracted segments
-            config: Configuration dictionary
+            cfg: Configuration dictionary
         
         Returns:
             DataFrame with the created CSV data
         """
         pass
     
-    def process_segments(self, config: Dict[str, Any]):
+    def process_segments(self, cfg: Dict[str, Any]):
         """
         Main method to process segments and create labeled data.
         
         Args:
-            config: Configuration dictionary with keys:
+            cfg: Configuration dictionary with keys:
                 - output_file_name: Name of the output CSV file
                 - segment_length_sec: Length of segments in seconds
                 - partition: List of partitions to include ['train', 'val', 'test']
@@ -313,16 +309,16 @@ class LocationPredictionBase(ABC):
         # Validate configuration
         required_keys = ['output_file_name', 'segment_length_sec', 'partition']
         for key in required_keys:
-            if key not in config:
+            if key not in cfg:
                 raise ValueError(f"Missing required configuration key: {key}")
         
         print(f"Processing segments with configuration:")
-        print(f"  Segment length: {config['segment_length_sec']} seconds")
-        print(f"  Partitions: {config['partition']}")
+        print(f"  Segment length: {cfg.segment_length_sec} seconds")
+        print(f"  Partitions: {cfg.partition}")
         
         # Filter partition data for desired partitions
         filtered_partition_df = self.partition_df[
-            self.partition_df['split'].isin(config['partition'])
+            self.partition_df['split'].isin(cfg.partition)
         ]
         
         print(f"Found {len(filtered_partition_df)} match-round combinations in desired partitions")
@@ -370,7 +366,7 @@ class LocationPredictionBase(ABC):
         print("\nCreating output CSV...")
         df = self._create_output_csv(all_segments, config)
         
-        output_path = self.output_dir / config['output_file_name']
+        output_path = self.output_dir / cfg.output_file_name
         df.to_csv(output_path, index=False)
         
         print(f"Saved {len(df)} segments to {output_path}")

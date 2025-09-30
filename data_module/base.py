@@ -33,14 +33,14 @@ class BaseDataModule(L.LightningDataModule, ABC):
         
         # Store config
         self.cfg = cfg
-        data_config = cfg.data
+        data_cfg = cfg.data
         
         # Extract common dataloader parameters from config
-        self.batch_size = data_config.batch_size
-        self.num_workers = data_config.num_workers
-        self.persistent_workers = data_config.persistent_workers
-        self.pin_memory = data_config.pin_mem
-        self.prefetch_factor = data_config.prefetch_factor
+        self.batch_size = data_cfg.batch_size
+        self.num_workers = data_cfg.num_workers
+        self.persistent_workers = data_cfg.persistent_workers
+        self.pin_memory = data_cfg.pin_mem
+        self.prefetch_factor = data_cfg.prefetch_factor
         
         # Will be set in setup()
         self.train_dataset = None
@@ -53,21 +53,21 @@ class BaseDataModule(L.LightningDataModule, ABC):
     
     def _build_label_path(self) -> Path:
         """Build label path from config components."""
-        data_config = self.cfg.data
-        return Path(self.cfg.path.data) / data_config.labels_folder / data_config.labels_filename
+        data_cfg = self.cfg.data
+        return Path(self.cfg.path.data) / data_cfg.labels_folder / data_cfg.labels_filename
     
     def _build_data_root_path(self) -> Path:
         """Build data root path from config."""
-        data_config = self.cfg.data
+        data_cfg = self.cfg.data
         return Path(self.cfg.path.data)
     
     def _validate_paths(self) -> None:
         """Validate that required paths exist."""
         # Check label path if it exists in config
-        data_config = self.cfg.data
-        if hasattr(data_config, 'labels_filename'):
+        data_cfg = self.cfg.data
+        if hasattr(data_cfg, 'labels_filename'):
             label_path = self._build_label_path()
-            data_config.label_path = label_path
+            data_cfg.label_path = label_path
             
             if not label_path.exists():
                 logger.error(f"Label CSV file not found: {label_path}")

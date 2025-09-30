@@ -88,7 +88,7 @@ class EnemyLocationNowcastDataset(BaseVideoDataset, Dataset):
         # Multi-agent enemy location prediction parameters
         self.num_agents = cfg.data.num_agents
         self.task_form = cfg.data.task_form  # regression or classification
-        self.mask_minimap = getattr(cfg.data, 'mask_minimap', False)
+        self.mask_minimap = cfg.data.mask_minimap
         
         # Validate parameters
         if self.num_agents < 1 or self.num_agents > 5:

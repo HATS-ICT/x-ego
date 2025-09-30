@@ -278,7 +278,7 @@ class VideoEncoderVideoMAE(nn.Module):
         
         self.expected_num_frames = 16
         self.embed_dim = self.vision_model.config.hidden_size
-        self.use_mean_pooling = getattr(self.vision_model.config, 'use_mean_pooling', True)
+        self.use_mean_pooling = self.vision_model.config.use_mean_pooling
         
         # Add layer norm if using mean pooling (following the classification head pattern)
         if self.use_mean_pooling:

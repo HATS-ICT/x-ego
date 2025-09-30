@@ -5,7 +5,7 @@ from pathlib import Path
 from lightning.pytorch.callbacks import ModelCheckpoint
 
 # Local imports
-from ctfm.models.utils import setup_callbacks, setup_logger
+from utils.training_utils import setup_callbacks, setup_logger
 
 
 def run_training_pipeline(config, model_class, datamodule_class, task_name, print_header=None):

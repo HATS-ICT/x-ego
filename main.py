@@ -6,13 +6,14 @@ import argparse
 from omegaconf import OmegaConf
 
 # Local imports
-from ctfm.models.utils import load_config, create_experiment_dir, save_hyperparameters, apply_config_overrides, setup_resume_config
+from utils.config_utils import load_config, apply_config_overrides
+from utils.experiment_utils import create_experiment_dir, save_hyperparameters, setup_resume_config
 from train.train_tasks import (
     train_enemy_location_nowcast,
     train_enemy_location_forecast,
     train_teammate_location_forecast
 )
-from ctfm.env_utils import get_src_base_path, get_data_base_path, get_output_base_path
+from utils.env_utils import get_src_base_path, get_data_base_path, get_output_base_path
 
 
 # TODO: To be removed
@@ -30,7 +31,7 @@ warnings.filterwarnings("ignore", category=UserWarning, message=".*Redirects are
 def setup_argument_parser():
     """Setup argument parser with config override support"""
     parser = argparse.ArgumentParser(
-        description='CTFM Training and Testing',
+        description='X-EGO Training and Testing',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Every settings in config file can be overridden. Examples:

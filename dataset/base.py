@@ -36,39 +36,40 @@ class BaseVideoDataset(ABC):
     - Random clip range generation
     """
     
-    def __init__(self, config: Dict):
+    def __init__(self, cfg: Dict):
         """
         Initialize base video dataset with common configuration.
         
         Args:
-            config: Configuration dictionary containing dataset parameters
+            cfg: Configuration dictionary containing dataset parameters
         """
-        self.data_cfg = cfg.data
-        self.path_config = config.get('path', {})
+        self.data_config = cfg.data
+        self.path_config = getattr(cfg, 'path', None)
         
         # Common video parameters
-        self.target_fps = self.data_config['target_fps']
-        self.fixed_duration_seconds = self.data_config.get('fixed_duration_seconds', None)
-        self.mask_minimap = self.data_config.get('mask_minimap', False)
+        self.target_fps = self.data_config.target_fps
+        self.fixed_duration_seconds = getattr(self.data_config, 'fixed_duration_seconds', None)
+        self.mask_minimap = getattr(self.data_config, 'mask_minimap', False)
         
         # Path configuration
-        self.data_root = Path(config['path']['data']) if 'path' in config and 'data' in config['path'] else None
+        self.data_root = Path(cfg.path.data) if hasattr(cfg, 'path') and hasattr(cfg.path, 'data') else None
         
         # Initialize video processor
         self._init_video_processor()
         
         # Additional parameters for torchcodec (used by some datasets)
-        self.seek_mode = self.data_config.get('seek_mode', 'SEEK_FRAME_BACKWARD')
-        self.num_ffmpeg_threads = self.data_config.get('num_ffmpeg_threads', 1)
+        self.seek_mode = getattr(self.data_config, 'seek_mode', 'SEEK_FRAME_BACKWARD')
+        self.num_ffmpeg_threads = getattr(self.data_config, 'num_ffmpeg_threads', 1)
     
     def _init_video_processor(self):
         """Initialize video processor based on configuration."""
-        logger.debug(f"Initializing video processor with video_size_mode: {self.data_config['video_size_mode']}")
+        logger.debug(f"Initializing video processor with video_size_mode: {self.data_config.video_size_mode}")
         
         # Handle different config structures for processor model
         processor_model = None
-        if 'video_processor_model' in self.data_config:
-            processor_model = self.data_config['video_processor_model']
+        if hasattr(self.data_config, 'video_processor_model'):
+            processor_model = self.data_config.video_processor_model
+            
         elif hasattr(self, '_config') and hasattr(self._config, 'model') and hasattr(self._config.model, 'encoder') and hasattr(self._config.model.encoder, 'video'):
             processor_model = self._config.model.encoder.video.processor_model
         
@@ -77,16 +78,16 @@ class BaseVideoDataset(ABC):
             self.video_processor = None
             return
         
-        if self.data_config['video_size_mode'] == "resize_center_crop":
+        if self.data_config.video_size_mode == "resize_center_crop":
             self.video_processor = AutoVideoProcessor.from_pretrained(processor_model)
-        elif self.data_config['video_size_mode'] == "resize_distort":
+        elif self.data_config.video_size_mode == "resize_distort":
             self.video_processor = AutoVideoProcessor.from_pretrained(
                 processor_model,
                 do_center_crop=False
             )
             self.video_processor.size = {"width": 224, "height": 224}
         else:
-            raise ValueError(f"Unsupported video_size_mode: {self.data_config['video_size_mode']}")
+            raise ValueError(f"Unsupported video_size_mode: {self.data_config.video_size_mode}")
     
     def _to_absolute_path(self, path: str) -> str:
         """Convert relative path to absolute path using configured data directory."""
@@ -99,9 +100,9 @@ class BaseVideoDataset(ABC):
             else:
                 if self.data_root:
                     path = str(self.data_root / path)
-                elif self.path_config and 'data' in self.path_config:
+                elif self.path_config and hasattr(self.path_config, 'data'):
                     # Fallback for different path configurations
-                    path = str(Path(self.path_config['data']) / Path(path).relative_to("data"))
+                    path = str(Path(self.path_config.data) / Path(path).relative_to("data"))
         return path
     
     def _get_random_clip_range_from_video_metadata(self, video_path: str) -> Tuple[Optional[float], Optional[float], Optional[VideoReader]]:

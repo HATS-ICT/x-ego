@@ -115,15 +115,21 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
         else:
             raise KeyError("Batch must contain either 'enemy_locations' or 'future_locations'")
     
+    def _init_multilabel_metrics(self, num_labels):
+        """Initialize train/val metric pairs for multilabel classification."""
+        for split in ['train', 'val']:
+            setattr(self, f'{split}_hamming', MultilabelHammingDistance(num_labels=num_labels))
+            setattr(self, f'{split}_exact_match', MultilabelExactMatch(num_labels=num_labels))
+            setattr(self, f'{split}_micro_f1', MultilabelF1Score(num_labels=num_labels, average='micro'))
+            setattr(self, f'{split}_macro_f1', MultilabelF1Score(num_labels=num_labels, average='macro'))
+    
     def _init_task_specific_components(self, cfg, hidden_dim, dropout, num_hidden_layers):
         """Initialize task-specific output heads and metrics."""
         if self.task_form in ['coord-reg', 'generative']:
             # Coordinate regression: output [num_agents * 3 coordinates]
             self.output_dim = cfg.model.num_target_agents * 3
-            self.train_mse = MeanSquaredError()
-            self.val_mse = MeanSquaredError()
-            self.train_mae = MeanAbsoluteError()
-            self.val_mae = MeanAbsoluteError()
+            self.train_mse, self.val_mse = MeanSquaredError(), MeanSquaredError()
+            self.train_mae, self.val_mae = MeanAbsoluteError(), MeanAbsoluteError()
             
             if self.task_form == 'generative':
                 # VAE-specific components
@@ -153,18 +159,8 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
                 num_hidden_layers, hidden_dim, dropout,
                 activation=cfg.model.activation
             )
-            
-            # Initialize multi-label classification metrics
             if self.task_form == 'multi-label-cls':
-                num_labels = cfg.num_places
-                self.train_hamming = MultilabelHammingDistance(num_labels=num_labels)
-                self.val_hamming = MultilabelHammingDistance(num_labels=num_labels)
-                self.train_exact_match = MultilabelExactMatch(num_labels=num_labels)
-                self.val_exact_match = MultilabelExactMatch(num_labels=num_labels)
-                self.train_micro_f1 = MultilabelF1Score(num_labels=num_labels, average='micro')
-                self.val_micro_f1 = MultilabelF1Score(num_labels=num_labels, average='micro')
-                self.train_macro_f1 = MultilabelF1Score(num_labels=num_labels, average='macro')
-                self.val_macro_f1 = MultilabelF1Score(num_labels=num_labels, average='macro')
+                self._init_multilabel_metrics(cfg.num_places)
         
         elif self.task_form in ['grid-cls', 'density-cls']:
             # Grid-based tasks: output [grid_resolution^2]
@@ -175,18 +171,8 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
                 num_hidden_layers, hidden_dim, dropout,
                 activation=cfg.model.activation
             )
-            
-            # Initialize multi-label classification metrics for grid-cls
             if self.task_form == 'grid-cls':
-                num_labels = self.output_dim
-                self.train_hamming = MultilabelHammingDistance(num_labels=num_labels)
-                self.val_hamming = MultilabelHammingDistance(num_labels=num_labels)
-                self.train_exact_match = MultilabelExactMatch(num_labels=num_labels)
-                self.val_exact_match = MultilabelExactMatch(num_labels=num_labels)
-                self.train_micro_f1 = MultilabelF1Score(num_labels=num_labels, average='micro')
-                self.val_micro_f1 = MultilabelF1Score(num_labels=num_labels, average='micro')
-                self.train_macro_f1 = MultilabelF1Score(num_labels=num_labels, average='macro')
-                self.val_macro_f1 = MultilabelF1Score(num_labels=num_labels, average='macro')
+                self._init_multilabel_metrics(self.output_dim)
     
     # ============================================================================
     # Forward Pass

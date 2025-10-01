@@ -23,25 +23,18 @@ class LossComputer:
     - multi-output-reg, density-cls: 'mse', 'mae', 'kl'
     """
     
-    def __init__(self, task_form, loss_fn='mse', sinkhorn_blur=0.05, sinkhorn_scaling=0.9, 
-                 focal_alpha=0.25, focal_gamma=2.0):
+    def __init__(self, task_form, loss_fn, model_cfg):
         """
         Initialize loss computer.
         
         Args:
             task_form: Type of task ('coord-reg', 'generative', 'multi-label-cls', etc.)
             loss_fn: Task-specific loss function (see class docstring for options)
-            sinkhorn_blur: Blur parameter for Sinkhorn loss
-            sinkhorn_scaling: Scaling parameter for Sinkhorn loss
-            focal_alpha: Alpha parameter for Focal loss (class balance weight)
-            focal_gamma: Gamma parameter for Focal loss (focusing parameter)
+            model_cfg: Model configuration
         """
         self.task_form = task_form
         self.loss_fn = loss_fn
-        self.sinkhorn_blur = sinkhorn_blur
-        self.sinkhorn_scaling = sinkhorn_scaling
-        self.focal_alpha = focal_alpha
-        self.focal_gamma = focal_gamma
+        self.model_cfg = model_cfg
         self.geometric_loss = None
         
         self._init_loss_functions()
@@ -72,14 +65,14 @@ class LossComputer:
             if self.loss_fn == 'sinkhorn':
                 self.geometric_loss = SamplesLoss(
                     loss="sinkhorn", 
-                    p=2, 
-                    blur=self.sinkhorn_blur, 
-                    scaling=self.sinkhorn_scaling
+                    p=self.model_cfg.sinkhorn.p, 
+                    blur=self.model_cfg.sinkhorn.blur, 
+                    scaling=self.model_cfg.sinkhorn.scaling
                 )
             elif self.loss_fn == 'hausdorff':
-                self.geometric_loss = SamplesLoss(loss="hausdorff", p=2)
+                self.geometric_loss = SamplesLoss(loss="hausdorff", p=self.model_cfg.hausdorff.p)
             elif self.loss_fn == 'energy':
-                self.geometric_loss = SamplesLoss(loss="energy", p=2)
+                self.geometric_loss = SamplesLoss(loss="energy", p=self.model_cfg.energy.p)
             
             if self.loss_fn != 'mse':
                 print(f"Initialized {self.loss_fn} loss for {self.task_form} mode")
@@ -121,7 +114,7 @@ class LossComputer:
             if self.loss_fn == 'bce':
                 loss = F.binary_cross_entropy_with_logits(predictions, targets)
             elif self.loss_fn == 'focal':
-                loss = self._compute_focal_loss(predictions, targets, self.focal_alpha, self.focal_gamma)
+                loss = self._compute_focal_loss(predictions, targets, self.model_cfg.focal.alpha, self.model_cfg.focal.gamma)
             return loss, {}
         
         elif self.task_form in ['multi-output-reg', 'density-cls']:
@@ -190,7 +183,7 @@ class LossComputer:
         
         return total_loss, recon_loss, kl_loss
     
-    def _compute_focal_loss(self, predictions, targets, alpha=0.25, gamma=2.0):
+    def _compute_focal_loss(self, predictions, targets, alpha, gamma):
         """
         Compute Focal Loss for imbalanced binary classification.
         
@@ -202,8 +195,8 @@ class LossComputer:
         Args:
             predictions: [B, N] - raw logits (before sigmoid)
             targets: [B, N] - binary targets (0 or 1)
-            alpha: float - weighting factor for positive class (default: 0.25)
-            gamma: float - focusing parameter (default: 2.0)
+            alpha: float - weighting factor for positive class
+            gamma: float - focusing parameter
                           Higher gamma puts more focus on hard examples
             
         Returns:

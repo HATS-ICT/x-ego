@@ -72,7 +72,7 @@ python scripts/inspect_labels/compute_class_weights.py
 
 ### Step 1: Load Class Weights
 
-Add this to your model initialization (e.g., in `models/multi_agent_location_predictor.py`):
+Add this to your model initialization (e.g., in `models/cross_ego_video_location_net.py`):
 
 ```python
 import json

@@ -1,5 +1,5 @@
 # Local imports
-from models.multi_agent_location_predictor import CrossEgoVideoLocationNet
+from models.cross_ego_video_location_net import CrossEgoVideoLocationNet
 # from models.ctfm_contrastive import CTFMContrastive
 from data_module.enemy_location_nowcast import EnemyLocationNowcastDataModule
 from data_module.enemy_location_forecast import EnemyLocationForecastDataModule

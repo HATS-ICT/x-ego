@@ -50,6 +50,11 @@ model:
   sinkhorn:
     blur: 0.05  # Controls smoothing (0.01-0.1)
     scaling: 0.8  # Speeds convergence with ε-scaling (<1)
+    p: 2  # Power parameter for Sinkhorn loss
+  hausdorff:
+    p: 2  # Power parameter for Hausdorff loss
+  energy:
+    p: 2  # Power parameter for Energy loss
   focal:
     alpha: 0.25  # Class balance weight for positive class
     gamma: 2.0  # Focusing parameter (higher = more focus on hard examples)

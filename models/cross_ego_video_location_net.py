@@ -39,8 +39,10 @@ from models.vae_mixins import VAEMixin
 
 try:
     from video_encoder import VideoEncoder
+    from agent_fuser import AgentFuser
 except ImportError:
     from .video_encoder import VideoEncoder
+    from .agent_fuser import AgentFuser
 
 
 class QuickGELU(nn.Module):
@@ -74,18 +76,24 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
         self.cfg = cfg
         
         # Core model components
-        self.video_encoder = self.init_video_encoder(cfg.model.encoder.video)
+        self.video_encoder = VideoEncoder(cfg.model.encoder.video)
         self.num_agents = cfg.data.num_agents
         self.task_form = cfg.data.task_form
+        
+        # Agent fusion module
+        self.agent_fuser = AgentFuser(
+            embed_dim=self.video_encoder.embed_dim,
+            num_agents=self.num_agents,
+            fusion_cfg=cfg.model.agent_fusion,
+            activation_fn=ACT2CLS[cfg.model.activation],
+            dropout=cfg.model.dropout
+        )
+        self.agent_fusion_method = cfg.model.agent_fusion.method
+        self.fused_agent_dim = cfg.model.agent_fusion.fused_agent_dim
         
         # Team encoder: embed team side (T=0, CT=1) into a vector
         self.team_embed_dim = cfg.model.team_embed_dim
         self.team_encoder = nn.Embedding(2, self.team_embed_dim)  # 2 teams: T, CT
-        
-        # Agent fusion configuration
-        self.agent_fusion_method = cfg.model.agent_fusion.method
-        self.fused_agent_dim = cfg.model.agent_fusion.fused_agent_dim
-        self._init_agent_fusion()
         
         # Predictor head configuration
         hidden_dim = cfg.model.hidden_dim
@@ -115,54 +123,14 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
         self.test_targets = []
         self.output_dir = cfg.path.exp
     
-    def init_video_encoder(self, video_encoder_cfg):
-        """Initialize the video encoder."""
-        return VideoEncoder(video_encoder_cfg)
-    
-    def _get_target_locations(self, batch):
-        """
-        Get target locations from batch, supporting both enemy and teammate tasks.
-        
-        Args:
-            batch: Input batch dictionary
-            
-        Returns:
-            Target locations tensor
-        """
+    @staticmethod
+    def _get_target_locations(batch):
         if 'enemy_locations' in batch:
             return batch['enemy_locations']
         elif 'future_locations' in batch:
             return batch['future_locations']
         else:
             raise KeyError("Batch must contain either 'enemy_locations' or 'future_locations'")
-    
-    def _init_agent_fusion(self):
-        """Initialize agent fusion mechanism."""
-        agent_fusion_cfg = self.cfg.model.agent_fusion
-        
-        # Method-specific layers
-        if self.agent_fusion_method == 'attention':
-            self.agent_attention = nn.MultiheadAttention(
-                embed_dim=self.video_encoder.embed_dim,
-                num_heads=agent_fusion_cfg.num_attn_heads,
-                batch_first=True
-            )
-        
-        # Determine input dimension for MLP based on fusion method
-        if self.agent_fusion_method == 'concat':
-            mlp_input_dim = self.video_encoder.embed_dim * self.num_agents
-        else:
-            # mean, max, attention all produce [B, embed_dim]
-            mlp_input_dim = self.video_encoder.embed_dim
-        
-        # Always use MLP to project to fused_agent_dim
-        self.agent_fusion_mlp = self._build_mlp(
-            mlp_input_dim,
-            self.fused_agent_dim,
-            agent_fusion_cfg.num_layers,
-            self.fused_agent_dim,  # Use fused_agent_dim as hidden_dim
-            self.cfg.model.dropout
-        )
     
     def _init_task_specific_components(self, cfg, hidden_dim, dropout, num_hidden_layers):
         """Initialize task-specific output heads and metrics."""
@@ -252,49 +220,6 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
         return nn.Sequential(*layers)
     
     
-    # ============================================================================
-    # Multi-Agent Video Processing
-    # ============================================================================
-    
-    def process_multi_agent_video(self, video):
-        """
-        Process multi-agent video input and fuse agent embeddings.
-        
-        Args:
-            video: [B, A, T, C, H, W] - multi-agent video tensor
-            
-        Returns:
-            fused_embeddings: [B, fused_agent_dim] - fused video features
-            agent_embeddings: [B, A, embed_dim] - per-agent embeddings
-        """
-        B, A, T, C, H, W = video.shape
-        
-        # Reshape for batch processing
-        video_reshaped = video.view(B * A, T, C, H, W)
-        
-        # Encode each agent's video
-        agent_embeddings = self.video_encoder(video_reshaped)  # [B*A, embed_dim]
-        agent_embeddings = agent_embeddings.view(B, A, -1)  # [B, A, embed_dim]
-        
-        # Apply fusion method
-        if self.agent_fusion_method == 'mean':
-            fused_embeddings = torch.mean(agent_embeddings, dim=1)
-        elif self.agent_fusion_method == 'max':
-            fused_embeddings, _ = torch.max(agent_embeddings, dim=1)
-        elif self.agent_fusion_method == 'attention':
-            fused_embeddings, _ = self.agent_attention(
-                agent_embeddings, agent_embeddings, agent_embeddings
-            )
-            fused_embeddings = torch.mean(fused_embeddings, dim=1)
-        elif self.agent_fusion_method == 'concat':
-            fused_embeddings = agent_embeddings.view(B, -1)  # [B, A*embed_dim]
-        else:
-            raise ValueError(f"Unknown agent fusion method: {self.agent_fusion_method}")
-        
-        # Always pass through MLP to get fused_agent_dim
-        fused_embeddings = self.agent_fusion_mlp(fused_embeddings)  # [B, fused_agent_dim]
-        
-        return fused_embeddings, agent_embeddings
     
     # ============================================================================
     # Forward Pass
@@ -326,8 +251,16 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
         if len(video.shape) != 6:
             raise ValueError(f"Expected video shape [B, A, T, C, H, W], got {video.shape}")
         
-        # Encode video and team information
-        fused_embeddings, agent_embeddings = self.process_multi_agent_video(video)
+        # Encode each agent's video
+        B, A, T, C, H, W = video.shape
+        video_reshaped = video.view(B * A, T, C, H, W)
+        agent_embeddings = self.video_encoder(video_reshaped)  # [B*A, embed_dim]
+        agent_embeddings = agent_embeddings.view(B, A, -1)  # [B, A, embed_dim]
+        
+        # Fuse agent embeddings
+        fused_embeddings = self.agent_fuser(agent_embeddings)  # [B, fused_agent_dim]
+        
+        # Encode team information
         team_embeddings = self.team_encoder(pov_team_side_encoded)  # [B, team_embed_dim]
         combined_features = torch.cat([fused_embeddings, team_embeddings], dim=1)
         

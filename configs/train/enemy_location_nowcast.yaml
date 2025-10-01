@@ -31,12 +31,17 @@ data:
 
   
 model:
+  activation: "gelu"
   num_target_agents: 5
   team_embed_dim: 32
   hidden_dim: 256
   num_hidden_layers: 3
   dropout: 0.1
-  agent_fusion_method: "mean"  # Options: "mean", "max", "attention", "concat", "tublet_attentive_pooler"
+  agent_fusion:
+    method: "concat"  # Options: "mean", "max", "attention", "concat"
+    fused_agent_dim: 1024
+    num_attn_heads: 8 # only when method is attention
+    num_layers: 2
   class_weights: "pos_weight"  # Options: null, inverse, inverse_sqrt, effective_num, pos_weight
   vae:
     latent_dim: 64
@@ -71,7 +76,7 @@ training:
   strategy: auto
   precision: bf16-mixed
   gradient_clip_val: 1.0
-  accumulate_grad_batches: 4
+  accumulate_grad_batches: 1
   val_check_interval: null
   check_val_every_n_epoch: 1
   log_every_n_steps: 10

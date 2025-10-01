@@ -83,7 +83,8 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
         self.team_encoder = nn.Embedding(2, self.team_embed_dim)  # 2 teams: T, CT
         
         # Agent fusion configuration
-        self.agent_fusion_method = cfg.model.agent_fusion_method
+        self.agent_fusion_method = cfg.model.agent_fusion.method
+        self.fused_agent_dim = cfg.model.agent_fusion.fused_agent_dim
         self._init_agent_fusion()
         
         # Predictor head configuration
@@ -91,8 +92,8 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
         dropout = cfg.model.dropout
         num_hidden_layers = cfg.model.num_hidden_layers
         
-        # Combined dimension: video + team embeddings
-        self.combined_dim = self.video_encoder.embed_dim + self.team_embed_dim
+        # Combined dimension: fused agent features + team embeddings
+        self.combined_dim = self.fused_agent_dim + self.team_embed_dim
         
         # Initialize task-specific components
         self._init_task_specific_components(cfg, hidden_dim, dropout, num_hidden_layers)
@@ -137,17 +138,31 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
     
     def _init_agent_fusion(self):
         """Initialize agent fusion mechanism."""
+        agent_fusion_cfg = self.cfg.model.agent_fusion
+        
+        # Method-specific layers
         if self.agent_fusion_method == 'attention':
             self.agent_attention = nn.MultiheadAttention(
                 embed_dim=self.video_encoder.embed_dim,
-                num_heads=8,
+                num_heads=agent_fusion_cfg.num_attn_heads,
                 batch_first=True
             )
-        elif self.agent_fusion_method == 'concat':
-            self.agent_fusion_proj = nn.Linear(
-                self.video_encoder.embed_dim * self.num_agents, 
-                self.video_encoder.embed_dim
-            )
+        
+        # Determine input dimension for MLP based on fusion method
+        if self.agent_fusion_method == 'concat':
+            mlp_input_dim = self.video_encoder.embed_dim * self.num_agents
+        else:
+            # mean, max, attention all produce [B, embed_dim]
+            mlp_input_dim = self.video_encoder.embed_dim
+        
+        # Always use MLP to project to fused_agent_dim
+        self.agent_fusion_mlp = self._build_mlp(
+            mlp_input_dim,
+            self.fused_agent_dim,
+            agent_fusion_cfg.num_layers,
+            self.fused_agent_dim,  # Use fused_agent_dim as hidden_dim
+            self.cfg.model.dropout
+        )
     
     def _init_task_specific_components(self, cfg, hidden_dim, dropout, num_hidden_layers):
         """Initialize task-specific output heads and metrics."""
@@ -249,7 +264,7 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
             video: [B, A, T, C, H, W] - multi-agent video tensor
             
         Returns:
-            fused_embeddings: [B, embed_dim] - fused video features
+            fused_embeddings: [B, fused_agent_dim] - fused video features
             agent_embeddings: [B, A, embed_dim] - per-agent embeddings
         """
         B, A, T, C, H, W = video.shape
@@ -257,10 +272,11 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
         # Reshape for batch processing
         video_reshaped = video.view(B * A, T, C, H, W)
         
-        # Standard agent fusion methods
+        # Encode each agent's video
         agent_embeddings = self.video_encoder(video_reshaped)  # [B*A, embed_dim]
         agent_embeddings = agent_embeddings.view(B, A, -1)  # [B, A, embed_dim]
         
+        # Apply fusion method
         if self.agent_fusion_method == 'mean':
             fused_embeddings = torch.mean(agent_embeddings, dim=1)
         elif self.agent_fusion_method == 'max':
@@ -272,9 +288,11 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
             fused_embeddings = torch.mean(fused_embeddings, dim=1)
         elif self.agent_fusion_method == 'concat':
             fused_embeddings = agent_embeddings.view(B, -1)  # [B, A*embed_dim]
-            fused_embeddings = self.agent_fusion_proj(fused_embeddings)
         else:
             raise ValueError(f"Unknown agent fusion method: {self.agent_fusion_method}")
+        
+        # Always pass through MLP to get fused_agent_dim
+        fused_embeddings = self.agent_fusion_mlp(fused_embeddings)  # [B, fused_agent_dim]
         
         return fused_embeddings, agent_embeddings
     

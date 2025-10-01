@@ -54,6 +54,9 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
     
     The model encodes multi-agent video inputs and team information to predict
     enemy locations using various output representations based on the task form.
+    
+    Video frames are sampled with optional temporal jitter (configured via 
+    data.time_jitter_max_seconds) to augment training data and improve robustness.
     """
     
     def __init__(self, cfg):

@@ -16,6 +16,7 @@ data:
   video_size_mode: resize_distort
   num_agents: 5  # Number of agents from team side to use (1-5, recommend 5 for full team)
   mask_minimap: true
+  time_jitter_max_seconds: 0.3  # Maximum random time jitter (±seconds) applied to each sampled frame for temporal augmentation. Set to 0 to disable.
 
   
 model:

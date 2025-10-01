@@ -28,9 +28,13 @@ class BaseVideoDataset(ABC):
     This class provides shared methods for:
     - Video processor initialization
     - Path conversion utilities
-    - Video clip loading using decord
+    - Video clip loading using decord with optional time jitter
     - Video transformation and processing
     - Random clip range generation
+    
+    Time Jitter:
+        When time_jitter_max_seconds > 0, each sampled frame timestamp is randomly
+        perturbed by ±time_jitter_max_seconds to add temporal augmentation during training.
     """
     
     def __init__(self, cfg: Dict):
@@ -47,6 +51,7 @@ class BaseVideoDataset(ABC):
         self.target_fps = self.data_cfg.target_fps
         self.fixed_duration_seconds = self.data_cfg.fixed_duration_seconds
         self.mask_minimap = self.data_cfg.mask_minimap
+        self.time_jitter_max_seconds = self.data_cfg.time_jitter_max_seconds
         
         # Path configuration
         self.data_root = Path(cfg.path.data)
@@ -153,6 +158,15 @@ class BaseVideoDataset(ABC):
                 pad_count = target_frames - len(timestamps)
                 pad_timestamps = np.full(pad_count, last_timestamp)
                 timestamps = np.concatenate([timestamps, pad_timestamps])
+        
+        # Apply time jitter if configured
+        if self.time_jitter_max_seconds > 0:
+            # Add random jitter to each timestamp
+            jitter = np.random.uniform(-self.time_jitter_max_seconds, self.time_jitter_max_seconds, size=len(timestamps))
+            timestamps = timestamps + jitter
+            # Clamp timestamps to valid range [0, total_duration]
+            total_duration = len(video_decoder) / video_decoder.get_avg_fps()
+            timestamps = np.clip(timestamps, 0, total_duration)
 
         # Convert timestamps to frame indices in the original video
         frame_indices = (timestamps * video_fps).astype(int)

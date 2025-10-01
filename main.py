@@ -140,22 +140,25 @@ def main():
     args = parser.parse_args()
     
     if args.config is None:
-        # Always start with train config as base
-        base_cfg_path = f'configs/train/{args.task}.yaml'
+        # Load configs in order: global.yaml -> train/{task}.yaml -> dev/{task}.yaml (if dev mode)
+        global_cfg_path = 'configs/global.yaml'
+        train_cfg_path = f'configs/train/{args.task}.yaml'
         
+        # 1. Load global config first
+        print(f"Loading global config from: {global_cfg_path}")
+        cfg = load_cfg(global_cfg_path)
+        
+        # 2. Merge with task-specific train config
+        print(f"Applying task-specific config from: {train_cfg_path}")
+        train_cfg = load_cfg(train_cfg_path)
+        cfg = OmegaConf.merge(cfg, train_cfg)
+        
+        # 3. If dev mode, apply dev overrides
         if args.mode == 'dev':
-            # Load base train config first
-            print(f"Loading base config from: {base_cfg_path}")
-            cfg = load_cfg(base_cfg_path)
-            
-            # Then apply dev overrides
             dev_cfg_path = f'configs/dev/{args.task}.yaml'
             print(f"Applying dev overrides from: {dev_cfg_path}")
             dev_cfg = load_cfg(dev_cfg_path)
             cfg = OmegaConf.merge(cfg, dev_cfg)
-        else:  # train or test mode
-            print(f"Loading config from: {base_cfg_path}")
-            cfg = load_cfg(base_cfg_path)
     else:
         print(f"Loading config from: {args.config}")
         cfg = load_cfg(args.config)

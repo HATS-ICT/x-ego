@@ -3,25 +3,21 @@
 
 data:
   batch_size: 8
-  num_workers: 8
-  task_form: "multi-label-cls"  # "regression" for XYZ coords or "classification" for place labels or "coord-gen" for CVAE
+  num_workers: 0
+  task_form: multi-label-cls  # "regression" for XYZ coords or "classification" for place labels or "coord-gen" for CVAE
 
 model:
-  hidden_dim: 64
-  vae:
-    latent_dim: 32
-    kl_weight: 1.0
   encoder:
     video:
-      model_type: "dinov2"  # Options: clip, dinov2, siglip, vivit, videomae, vjepa2
+      model_type: dinov2  # Options: clip, dinov2, siglip, vivit, videomae, vjepa2
 
 training:
   max_epochs: 2
   accumulate_grad_batches: 1
   log_every_n_steps: 2
-  limit_train_batches: 200 # 1.0 means use all data
-  limit_val_batches: 20
-  limit_test_batches: 40
+  limit_train_batches: 4 # 1.0 means use all data
+  limit_val_batches: 2
+  limit_test_batches: 20
 
 wandb:
   enabled: false

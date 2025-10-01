@@ -1,132 +1,21 @@
 meta:
-  seed: 42
   fast_dev_run: false
   resume_exp: null
   exp_name: self-future-location-pred
   run_name: self-future-location-pred-clip
 
 data:
-  partition: all # train, val, test, all
-  labels_folder: labels
   labels_filename: teammate_location_forecast_s1s_l5s_f10s.csv  # CSV with future location predictions
-  video_folder: video_544x306_30fps
   batch_size: 8
   num_workers: 9
-  persistent_workers: true
-  pin_mem: true
-  prefetch_factor: 2
-  data_path_csv_filename: video_partitioned_chunked_downsized.csv
-  fixed_duration_seconds: 5
-  target_fps: 4
-  video_column_name: video_path
-  video_processor_model: facebook/vjepa2-vitl-fpc16-256-ssv2
-  video_size_mode: resize_distort
-  # Multi-agent self-team future location prediction specific parameters
-  num_agents: 5  # Number of agents from team side to use (1-5, recommend 5 for full team)
   task_form: multi-label-cls # multi-label-cls, multi-output-reg, grid-cls, density-cls, coord-reg, coord-gen
-  # Grid-based task parameters (for grid-cls and density-cls)
   grid_resolution: 10  # Grid resolution (10x10 = 100 cells)
   gaussian_sigma: 1.0  # Gaussian smoothing sigma for density-cls
-  mask_minimap: true
 
-  
 model:
-  activation: gelu
-  num_target_agents: 5
-  team_embed_dim: 32
-  hidden_dim: 256
-  num_hidden_layers: 3
-  dropout: 0.1
-  agent_fusion:
-    method: concat  # Options: "mean", "max", "attention", "concat"
-    fused_agent_dim: 768
-    num_attn_heads: 8 # only when method is attention
-    num_layers: 2
   class_weights: null  # Options: null, inverse, inverse_sqrt, effective_num, pos_weight
-  vae:
-    latent_dim: 64
-    kl_weight: 0.5
-  # Task-specific loss functions
-  loss_fn:
-    multi-label-cls: bce  # Options: bce, focal
-    grid-cls: bce  # Options: bce, focal
-    multi-output-reg: mse  # Options: mse, mae
-    density-cls: mse  # Options: mse, mae, kl
-    coord-reg: sinkhorn  # Options: mse, sinkhorn, hausdorff, energy
-    coord-gen: sinkhorn  # Options: mse, sinkhorn, hausdorff, energy
-  # Loss-specific parameters
-  sinkhorn:
-    blur: 0.05  # Controls smoothing (0.01-0.1)
-    scaling: 0.8  # Speeds convergence with ε-scaling (<1)
-    p: 2  # Power parameter for Sinkhorn loss
-  hausdorff:
-    p: 2  # Power parameter for Hausdorff loss
-  energy:
-    p: 2  # Power parameter for Energy loss
-  focal:
-    alpha: 0.25  # Class balance weight for positive class
-    gamma: 2.0  # Focusing parameter (higher = more focus on hard examples)
-  encoder:
-    video:
-      freeze_backbone: true
-      model_type: dinov2  # Options: clip, dinov2, siglip, vivit, videomae, vjepa2
-    proj_dim: ${model.agent_fusion.fused_agent_dim}
-  contrastive:
-    enable: false
-    logit_scale_init: 1.0
-    logit_bias_init: 0.0
-    loss_weight: 1.0
-
-training:
-  max_epochs: 40
-  accelerator: gpu
-  devices: 1
-  strategy: auto
-  precision: bf16
-  gradient_clip_val: 1.0
-  accumulate_grad_batches: 1
-  val_check_interval: null
-  check_val_every_n_epoch: 1
-  log_every_n_steps: 10
-  enable_checkpointing: true
-  enable_progress_bar: true
-  enable_model_summary: true
-  torch_compile: false
-  deterministic: false
-  num_sanity_val_steps: 0
-  limit_train_batches: 1.0 # 1.0 means use all data
-  limit_val_batches: 1.0
-  limit_test_batches: 1.0
-
-
-optimization:
-  lr: 0.0003
-  weight_decay: 0.01
-  fused_optimizer: true  # Enable fused AdamW and disable gradient clipping
 
 wandb:
-  enabled: true
-  project: xego
   group: '${meta.exp_name}'
   tags: ['${meta.exp_name}']
   notes: 'teammate location forecast'
-
-checkpoint:
-  epoch:
-    filename: ${meta.run_name}-e{epoch:02d}-s{step:06d}-l{val/loss:.4f}
-    monitor: 'val/loss'
-    mode: min
-    save_top_k: 1  # Save the best checkpoint
-    save_last: true
-    auto_insert_metric_name: false
-    save_on_train_epoch_end: true
-    every_n_epochs: 1
-  step:
-    filename: ${meta.run_name}-s{step:06d}-e{epoch:02d}
-    monitor: null  # No monitoring for step-based saves
-    mode: min
-    save_top_k: -1  # Save all step checkpoints
-    save_last: false  # Don't duplicate last checkpoint
-    auto_insert_metric_name: false
-    save_on_train_epoch_end: false
-    every_n_train_steps: 1000

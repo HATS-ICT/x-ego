@@ -12,6 +12,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from models.architecture_utils import build_mlp
+
 
 class CrossEgoContrastive(nn.Module):
     """
@@ -34,16 +36,36 @@ class CrossEgoContrastive(nn.Module):
          [0, 0, 0, 1, 1, 1]]
     """
     
-    def __init__(self, init_logit_scale=1.0, init_logit_bias=0.0, learnable_temp=True):
+    def __init__(self, embed_dim, proj_dim, init_logit_scale=1.0, init_logit_bias=0.0, 
+                 learnable_temp=True, mlp_hidden_dim=None, mlp_dropout=0.1, mlp_activation='gelu'):
         """
         Initialize the cross-ego contrastive module.
         
         Args:
+            embed_dim: Input embedding dimension
+            proj_dim: Output dimension after MLP projection
             init_logit_scale: Initial value for logit scale (temperature parameter)
             init_logit_bias: Initial bias for logits
             learnable_temp: Whether logit_scale and logit_bias are learnable
+            mlp_hidden_dim: Hidden dimension for MLP projector (defaults to embed_dim)
+            mlp_dropout: Dropout probability for MLP
+            mlp_activation: Activation function for MLP
         """
         super().__init__()
+        
+        # MLP projector (2-layer: input -> hidden -> output)
+        if mlp_hidden_dim is None:
+            mlp_hidden_dim = embed_dim
+        
+        self.proj_dim = proj_dim
+        self.projector = build_mlp(
+            input_dim=embed_dim,
+            output_dim=proj_dim,
+            num_hidden_layers=1,  # 1 hidden layer = 2 layer MLP
+            hidden_dim=mlp_hidden_dim,
+            dropout=mlp_dropout,
+            activation=mlp_activation
+        )
         
         # Learnable temperature and bias parameters (following SigLIP)
         self.logit_scale = nn.Parameter(
@@ -88,25 +110,28 @@ class CrossEgoContrastive(nn.Module):
         Returns:
             If return_loss=True:
                 Dictionary containing:
-                    - embeddings: Normalized embeddings [B, A, embed_dim]
+                    - embeddings: Normalized embeddings [B, A, proj_dim] 
                     - loss: Contrastive loss scalar
                     - logits: Similarity matrix [B*A, B*A]
             If return_loss=False:
                 Dictionary containing:
-                    - embeddings: Normalized embeddings [B, A, embed_dim]
+                    - embeddings: Normalized embeddings [B, A, proj_dim]
         """
         B, A, embed_dim = agent_embeddings.shape
         
         # Flatten batch and agent dimensions: [B, A, embed_dim] -> [B*A, embed_dim]
         flat_embeddings = agent_embeddings.view(B * A, embed_dim)
         
+        # Project through MLP: [B*A, embed_dim] -> [B*A, proj_dim]
+        projected_embeddings = self.projector(flat_embeddings)
+        
         # L2 normalize embeddings
-        normalized_embeddings = flat_embeddings / flat_embeddings.norm(p=2, dim=-1, keepdim=True)
+        normalized_embeddings = projected_embeddings / projected_embeddings.norm(p=2, dim=-1, keepdim=True)
         
         if not return_loss:
             # Just return normalized embeddings reshaped back
             return {
-                'embeddings': normalized_embeddings.view(B, A, embed_dim)
+                'embeddings': normalized_embeddings.view(B, A, self.proj_dim)
             }
         
         # Compute cosine similarity matrix: [B*A, B*A]
@@ -130,9 +155,9 @@ class CrossEgoContrastive(nn.Module):
         nll = -torch.sum(loglik, dim=-1)
         loss = nll.mean()
         
-        # Reshape embeddings back to [B, A, embed_dim]
+        # Reshape embeddings back to [B, A, proj_dim]
         output = {
-            'embeddings': normalized_embeddings.view(B, A, embed_dim),
+            'embeddings': normalized_embeddings.view(B, A, self.proj_dim),
             'loss': loss,
             'logits': logits
         }

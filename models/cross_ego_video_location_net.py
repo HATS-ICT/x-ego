@@ -70,6 +70,7 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
         self.use_contrastive = cfg.model.contrastive.enable
         if self.use_contrastive:
             self.contrastive = CrossEgoContrastive(
+                proj_dim=cfg.model.contrastive.proj_dim,
                 init_logit_scale=cfg.model.contrastive.logit_scale_init,
                 init_logit_bias=cfg.model.contrastive.logit_bias_init,
                 learnable_temp=True

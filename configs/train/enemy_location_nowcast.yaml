@@ -68,6 +68,10 @@ model:
     video:
       freeze_backbone: true
       model_type: "dinov2"  # Options: clip, dinov2, siglip, vivit, videomae, vjepa2
+  contrastive:
+    enable: false
+    logit_scale_init: 1.0
+    logit_bias_init: 0.0
 
 training:
   max_epochs: 20

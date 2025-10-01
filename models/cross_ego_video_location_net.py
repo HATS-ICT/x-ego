@@ -41,9 +41,11 @@ from models.test_analyzer import TestAnalyzer
 try:
     from video_encoder import VideoEncoder
     from agent_fuser import AgentFuser
+    from cross_ego_contrastive import CrossEgoContrastive
 except ImportError:
     from .video_encoder import VideoEncoder
     from .agent_fuser import AgentFuser
+    from .cross_ego_contrastive import CrossEgoContrastive
 
 
 class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
@@ -63,6 +65,15 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
         self.video_encoder = VideoEncoder(cfg.model.encoder.video)
         self.num_agents = cfg.data.num_agents
         self.task_form = cfg.data.task_form
+        
+        # Optional contrastive learning module (between video encoder and agent fuser)
+        self.use_contrastive = cfg.model.contrastive.enable
+        if self.use_contrastive:
+            self.contrastive = CrossEgoContrastive(
+                init_logit_scale=cfg.model.contrastive.logit_scale_init,
+                init_logit_bias=cfg.model.contrastive.logit_bias_init,
+                learnable_temp=True
+            )
         
         # Agent fusion module
         self.agent_fuser = AgentFuser(
@@ -210,6 +221,14 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
         agent_embeddings = self.video_encoder(video_reshaped)  # [B*A, embed_dim]
         agent_embeddings = agent_embeddings.view(B, A, -1)  # [B, A, embed_dim]
         
+        # Optional contrastive learning (align agents from same batch)
+        contrastive_loss = None
+        if self.use_contrastive:
+            contrastive_out = self.contrastive(agent_embeddings, return_loss=self.training)
+            agent_embeddings = contrastive_out['embeddings']
+            if self.training:
+                contrastive_loss = contrastive_out['loss']
+        
         # Fuse agent embeddings
         fused_embeddings = self.agent_fuser(agent_embeddings)  # [B, fused_agent_dim]
         
@@ -222,7 +241,8 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
             'fused_embeddings': fused_embeddings,
             'team_embeddings': team_embeddings,
             'combined_features': combined_features,
-            'agent_embeddings': agent_embeddings
+            'agent_embeddings': agent_embeddings,
+            'contrastive_loss': contrastive_loss
         }
         
         if self.task_form == 'coord-gen':
@@ -280,6 +300,13 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
         # Compute loss
         loss, loss_components = self.loss_computer.compute_loss(outputs, targets)
         
+        # Add contrastive loss if enabled
+        if outputs['contrastive_loss'] is not None:
+            contrastive_loss = outputs['contrastive_loss']
+            loss = loss + contrastive_loss
+            self.safe_log('train/contrastive_loss', contrastive_loss, batch_size=batch_size,
+                         on_step=True, on_epoch=True, prog_bar=False)
+        
         # Log main loss
         self.safe_log('train/loss', loss, batch_size=batch_size, 
                      on_step=True, on_epoch=True, prog_bar=True)
@@ -336,7 +363,7 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
         # Compute loss
         loss, loss_components = self.loss_computer.compute_loss(outputs, targets)
         
-        # Log main loss
+        # Log main loss (without contrastive loss added in validation)
         self.safe_log('val/loss', loss, batch_size=batch_size,
                      on_step=False, on_epoch=True, prog_bar=True)
         

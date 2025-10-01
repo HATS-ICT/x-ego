@@ -395,7 +395,6 @@ class VideoEncoderFromContrastive(nn.Module):
         
         self.contrastive_checkpoint_path = cfg.contrastive_checkpoint_path
         
-        
         # Load the contrastive model and extract video encoder
         self.video_encoder = self._load_video_encoder_from_contrastive()
         

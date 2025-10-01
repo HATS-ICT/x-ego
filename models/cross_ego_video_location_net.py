@@ -43,6 +43,23 @@ except ImportError:
     from .video_encoder import VideoEncoder
 
 
+class QuickGELU(nn.Module):
+    """Quick GELU activation: x * sigmoid(1.702 * x)"""
+    def forward(self, x):
+        return x * torch.sigmoid(1.702 * x)
+
+
+# Activation function mapping
+ACT2CLS = {
+    'gelu': nn.GELU,
+    'leaky_relu': nn.LeakyReLU,
+    'relu': nn.ReLU,
+    'linear': nn.Identity,
+    'silu': nn.SiLU,
+    'quick_gelu': QuickGELU
+}
+
+
 class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixin):
     """
     Multi-agent enemy location prediction model supporting multiple task formulations.
@@ -211,13 +228,14 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
         for i in range(num_hidden_layers):
             layers.extend([
                 nn.Linear(current_dim, hidden_dim),
-                nn.ReLU(),
+                ACT2CLS[self.cfg.model.activation](),
                 nn.Dropout(dropout)
             ])
             current_dim = hidden_dim
         
         layers.append(nn.Linear(current_dim, output_dim))
         return nn.Sequential(*layers)
+    
     
     # ============================================================================
     # Multi-Agent Video Processing
@@ -238,16 +256,6 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
         
         # Reshape for batch processing
         video_reshaped = video.view(B * A, T, C, H, W)
-        
-        # Handle tubelet attention pooling
-        if self.agent_fusion_method == 'tublet_attentive_pooler':
-            agent_embeddings = self.video_encoder(
-                video_reshaped, return_last_hidden_state=True
-            )  # [B*A, seq_len, embed_dim]
-            num_tublets = agent_embeddings.shape[1]
-            cross_agent_embeddings = agent_embeddings.view(B, A * num_tublets, -1)
-            fused_embeddings = self.video_encoder.video_encoder.pooler(cross_agent_embeddings)
-            return fused_embeddings, agent_embeddings
         
         # Standard agent fusion methods
         agent_embeddings = self.video_encoder(video_reshaped)  # [B*A, embed_dim]

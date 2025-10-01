@@ -8,7 +8,7 @@ in multi-agent location prediction tasks.
 import torch
 
 
-class CoordinateScalerMixin:
+class CoordinateScaler:
     """Mixin class for coordinate scaling operations."""
     
     def set_coordinate_scaler(self, scaler):

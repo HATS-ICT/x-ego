@@ -407,7 +407,7 @@ def print_task_info(cfg, datamodule, task_name):
     if 'location' in task_name:
         print(f"Number of agents: {cfg.data.num_agents}")
         print(f"Task form: {cfg.data.task_form}")
-        print(f"Agent fusion method: {cfg.model.agent_fusion_method}")
+        print(f"Agent fusion method: {cfg.model.agent_fusion.method}")
         
         if cfg.data.task_form in ['coord-reg', 'generative']:
             loss_fn = cfg.data.loss_fn[cfg.data.task_form]

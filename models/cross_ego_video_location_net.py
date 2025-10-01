@@ -33,7 +33,7 @@ from utils.serialization_utils import json_serializable
 # Import refactored components
 from models.prediction_losses import LossComputer
 from models.prediction_metrics import MetricsCalculator
-from models.coordinate_utils import CoordinateScalerMixin
+from models.coordinate_scaler import CoordinateScaler
 from models.vae import ConditionalVariationalAutoencoder
 from models.architecture_utils import ACT2CLS, build_mlp
 from models.test_analyzer import TestAnalyzer
@@ -46,7 +46,7 @@ except ImportError:
     from .agent_fuser import AgentFuser
 
 
-class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin):
+class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
     """
     Multi-agent enemy location prediction model supporting multiple task formulations.
     
@@ -72,7 +72,6 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin):
             activation_fn=ACT2CLS[cfg.model.activation],
             dropout=cfg.model.dropout
         )
-        self.agent_fusion_method = cfg.model.agent_fusion.method
         self.fused_agent_dim = cfg.model.agent_fusion.fused_agent_dim
         
         # Team encoder: embed team side (T=0, CT=1) into a vector
@@ -233,63 +232,35 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin):
         combined_features = torch.cat([fused_embeddings, team_embeddings], dim=1)
         
         # Task-specific forward pass
-        if self.task_form == 'generative':
-            return self._forward_generative(batch, combined_features, 
-                                           fused_embeddings, team_embeddings, 
-                                           agent_embeddings, mode)
-        else:
-            return self._forward_standard(combined_features, fused_embeddings, 
-                                         team_embeddings, agent_embeddings)
-    
-    def _forward_generative(self, batch, combined_features, fused_embeddings, 
-                           team_embeddings, agent_embeddings, mode):
-        """Forward pass for generative (VAE) mode."""
-        if mode == 'sampling':
-            # Sample from prior
-            vae_outputs = self.vae(None, combined_features, mode='sampling')
-            
-            return {
-                'predictions': vae_outputs['predictions'],
-                'fused_embeddings': fused_embeddings,
-                'team_embeddings': team_embeddings,
-                'combined_features': combined_features,
-                'agent_embeddings': agent_embeddings,
-                'mu': vae_outputs['mu'],
-                'logvar': vae_outputs['logvar'],
-                'z': vae_outputs['z']
-            }
-        else:
-            # Full VAE: encode, reparameterize, decode
-            target_locations = self._get_target_locations(batch)
-            vae_outputs = self.vae(target_locations, combined_features, mode='full')
-            
-            return {
-                'predictions': vae_outputs['predictions'],
-                'fused_embeddings': fused_embeddings,
-                'team_embeddings': team_embeddings,
-                'combined_features': combined_features,
-                'agent_embeddings': agent_embeddings,
-                'mu': vae_outputs['mu'],
-                'logvar': vae_outputs['logvar'],
-                'z': vae_outputs['z']
-            }
-    
-    def _forward_standard(self, combined_features, fused_embeddings, 
-                         team_embeddings, agent_embeddings):
-        """Forward pass for standard (non-generative) modes."""
-        predictions = self.predictor(combined_features)
-        
-        # Reshape for coordinate regression if needed
-        if self.task_form == 'coord-reg':
-            predictions = predictions.view(-1, 5, 3)
-        
-        return {
-            'predictions': predictions,
+        outputs = {
             'fused_embeddings': fused_embeddings,
             'team_embeddings': team_embeddings,
             'combined_features': combined_features,
             'agent_embeddings': agent_embeddings
         }
+        
+        if self.task_form == 'generative':
+            # Generative (VAE) mode
+            if mode == 'sampling':
+                vae_outputs = self.vae(None, combined_features, mode='sampling')
+            else:
+                target_locations = self._get_target_locations(batch)
+                vae_outputs = self.vae(target_locations, combined_features, mode='full')
+            
+            outputs.update({
+                'predictions': vae_outputs['predictions'],
+                'mu': vae_outputs['mu'],
+                'logvar': vae_outputs['logvar'],
+                'z': vae_outputs['z']
+            })
+        else:
+            # Standard (non-generative) mode
+            predictions = self.predictor(combined_features)
+            if self.task_form == 'coord-reg':
+                predictions = predictions.view(-1, 5, 3)
+            outputs['predictions'] = predictions
+        
+        return outputs
     
     # ============================================================================
     # Training, Validation, and Testing
@@ -596,7 +567,7 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin):
         
         # Add experiment metadata
         test_results['num_agents'] = self.cfg.data.num_agents
-        test_results['agent_fusion_method'] = self.agent_fusion_method
+        test_results['agent_fusion_method'] = self.cfg.model.agent_fusion.method
         test_results['task_form'] = self.task_form
         test_results['team_distribution'] = dict(zip(unique_teams.tolist(), team_counts.tolist()))
         

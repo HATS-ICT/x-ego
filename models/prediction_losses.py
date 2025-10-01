@@ -4,7 +4,7 @@ Loss Functions for Multi-Agent Location Prediction
 This module provides loss computation functions for different task formulations:
 - Coordinate regression (MSE, Sinkhorn, Hausdorff, Energy)
 - VAE reconstruction + KL divergence
-- Binary classification (BCE)
+- Binary classification (BCE, Focal Loss)
 - Count regression and density estimation (MSE)
 """
 
@@ -23,7 +23,8 @@ class LossComputer:
     - multi-output-reg, density-cls: 'mse', 'mae', 'kl'
     """
     
-    def __init__(self, task_form, loss_fn='mse', sinkhorn_blur=0.05, sinkhorn_scaling=0.9):
+    def __init__(self, task_form, loss_fn='mse', sinkhorn_blur=0.05, sinkhorn_scaling=0.9, 
+                 focal_alpha=0.25, focal_gamma=2.0):
         """
         Initialize loss computer.
         
@@ -32,11 +33,15 @@ class LossComputer:
             loss_fn: Task-specific loss function (see class docstring for options)
             sinkhorn_blur: Blur parameter for Sinkhorn loss
             sinkhorn_scaling: Scaling parameter for Sinkhorn loss
+            focal_alpha: Alpha parameter for Focal loss (class balance weight)
+            focal_gamma: Gamma parameter for Focal loss (focusing parameter)
         """
         self.task_form = task_form
         self.loss_fn = loss_fn
         self.sinkhorn_blur = sinkhorn_blur
         self.sinkhorn_scaling = sinkhorn_scaling
+        self.focal_alpha = focal_alpha
+        self.focal_gamma = focal_gamma
         self.geometric_loss = None
         
         self._init_loss_functions()
@@ -116,8 +121,7 @@ class LossComputer:
             if self.loss_fn == 'bce':
                 loss = F.binary_cross_entropy_with_logits(predictions, targets)
             elif self.loss_fn == 'focal':
-                # TODO: Implement focal loss for imbalanced classification
-                raise NotImplementedError("Focal loss not yet implemented")
+                loss = self._compute_focal_loss(predictions, targets, self.focal_alpha, self.focal_gamma)
             return loss, {}
         
         elif self.task_form in ['multi-output-reg', 'density-cls']:
@@ -185,3 +189,49 @@ class LossComputer:
         total_loss = recon_loss + kl_weight * kl_loss
         
         return total_loss, recon_loss, kl_loss
+    
+    def _compute_focal_loss(self, predictions, targets, alpha=0.25, gamma=2.0):
+        """
+        Compute Focal Loss for imbalanced binary classification.
+        
+        Focal Loss: FL(p_t) = -α_t * (1 - p_t)^γ * log(p_t)
+        
+        This loss down-weights easy examples and focuses on hard negatives,
+        making it particularly effective for highly imbalanced datasets.
+        
+        Args:
+            predictions: [B, N] - raw logits (before sigmoid)
+            targets: [B, N] - binary targets (0 or 1)
+            alpha: float - weighting factor for positive class (default: 0.25)
+            gamma: float - focusing parameter (default: 2.0)
+                          Higher gamma puts more focus on hard examples
+            
+        Returns:
+            loss: Scalar focal loss value
+            
+        Reference:
+            Lin et al. "Focal Loss for Dense Object Detection" (2017)
+            https://arxiv.org/abs/1708.02002
+        """
+        # Get probabilities from logits
+        probs = torch.sigmoid(predictions)
+        
+        # Compute binary cross entropy without reduction
+        ce_loss = F.binary_cross_entropy_with_logits(predictions, targets, reduction='none')
+        
+        # Compute p_t: probability of the correct class
+        # p_t = p if target = 1, else (1 - p)
+        p_t = probs * targets + (1 - probs) * (1 - targets)
+        
+        # Compute focal weight: (1 - p_t)^gamma
+        # This down-weights easy examples (high p_t) and focuses on hard examples (low p_t)
+        focal_weight = (1 - p_t) ** gamma
+        
+        # Apply alpha weighting for class balance
+        # α_t = α if target = 1, else (1 - α)
+        alpha_t = alpha * targets + (1 - alpha) * (1 - targets)
+        
+        # Compute focal loss
+        focal_loss = alpha_t * focal_weight * ce_loss
+        
+        return focal_loss.mean()

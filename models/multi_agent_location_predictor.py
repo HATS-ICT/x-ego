@@ -82,10 +82,17 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
         
         # Initialize loss and metrics calculators
         # Extract task-specific loss function
-        loss_fn = cfg.data.loss_fn[self.task_form]
-        sinkhorn_blur = cfg.data.sinkhorn_blur
-        sinkhorn_scaling = cfg.data.sinkhorn_scaling
-        self.loss_computer = LossComputer(self.task_form, loss_fn, sinkhorn_blur, sinkhorn_scaling)
+        loss_fn = cfg.model.loss_fn[self.task_form]
+        
+        # Extract loss-specific parameters
+        sinkhorn_blur = cfg.model.sinkhorn.blur if hasattr(cfg.model, 'sinkhorn') else 0.05
+        sinkhorn_scaling = cfg.model.sinkhorn.scaling if hasattr(cfg.model, 'sinkhorn') else 0.9
+        focal_alpha = cfg.model.focal.alpha if hasattr(cfg.model, 'focal') else 0.25
+        focal_gamma = cfg.model.focal.gamma if hasattr(cfg.model, 'focal') else 2.0
+        
+        self.loss_computer = LossComputer(
+            self.task_form, loss_fn, sinkhorn_blur, sinkhorn_scaling, focal_alpha, focal_gamma
+        )
         self.metrics_calculator = MetricsCalculator(self.task_form)
         
         # Coordinate scaler for coordinate-based tasks

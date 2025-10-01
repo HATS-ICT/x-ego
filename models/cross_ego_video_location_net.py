@@ -28,7 +28,6 @@ from torchmetrics.classification import (
     MultilabelF1Score
 )
 
-from utils.plot_utils import create_prediction_plots, create_prediction_heatmaps_grid
 from utils.serialization_utils import json_serializable
 
 # Import refactored components
@@ -36,6 +35,8 @@ from models.prediction_losses import LossComputer
 from models.prediction_metrics import MetricsCalculator
 from models.coordinate_utils import CoordinateScalerMixin
 from models.vae import ConditionalVariationalAutoencoder
+from models.architecture_utils import ACT2CLS, build_mlp
+from models.test_analyzer import TestAnalyzer
 
 try:
     from video_encoder import VideoEncoder
@@ -43,23 +44,6 @@ try:
 except ImportError:
     from .video_encoder import VideoEncoder
     from .agent_fuser import AgentFuser
-
-
-class QuickGELU(nn.Module):
-    """Quick GELU activation: x * sigmoid(1.702 * x)"""
-    def forward(self, x):
-        return x * torch.sigmoid(1.702 * x)
-
-
-# Activation function mapping
-ACT2CLS = {
-    'gelu': nn.GELU,
-    'leaky_relu': nn.LeakyReLU,
-    'relu': nn.ReLU,
-    'linear': nn.Identity,
-    'silu': nn.SiLU,
-    'quick_gelu': QuickGELU
-}
 
 
 class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin):
@@ -156,17 +140,19 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin):
                 )
             else:
                 # Standard coordinate regression
-                self.predictor = self._build_mlp(
+                self.predictor = build_mlp(
                     self.combined_dim, self.output_dim, 
-                    num_hidden_layers, hidden_dim, dropout
+                    num_hidden_layers, hidden_dim, dropout,
+                    activation=cfg.model.activation
                 )
         
         elif self.task_form in ['multi-label-cls', 'multi-output-reg']:
             # Place-based tasks: output [num_places]
             self.output_dim = cfg.num_places
-            self.predictor = self._build_mlp(
+            self.predictor = build_mlp(
                 self.combined_dim, self.output_dim, 
-                num_hidden_layers, hidden_dim, dropout
+                num_hidden_layers, hidden_dim, dropout,
+                activation=cfg.model.activation
             )
             
             # Initialize multi-label classification metrics
@@ -185,9 +171,10 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin):
             # Grid-based tasks: output [grid_resolution^2]
             grid_resolution = cfg.data.grid_resolution
             self.output_dim = grid_resolution * grid_resolution
-            self.predictor = self._build_mlp(
+            self.predictor = build_mlp(
                 self.combined_dim, self.output_dim, 
-                num_hidden_layers, hidden_dim, dropout
+                num_hidden_layers, hidden_dim, dropout,
+                activation=cfg.model.activation
             )
             
             # Initialize multi-label classification metrics for grid-cls
@@ -201,22 +188,6 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin):
                 self.val_micro_f1 = MultilabelF1Score(num_labels=num_labels, average='micro')
                 self.train_macro_f1 = MultilabelF1Score(num_labels=num_labels, average='macro')
                 self.val_macro_f1 = MultilabelF1Score(num_labels=num_labels, average='macro')
-    
-    def _build_mlp(self, input_dim, output_dim, num_hidden_layers, hidden_dim, dropout):
-        """Build a multi-layer perceptron with specified number of hidden layers."""
-        layers = []
-        current_dim = input_dim
-        
-        for i in range(num_hidden_layers):
-            layers.extend([
-                nn.Linear(current_dim, hidden_dim),
-                ACT2CLS[self.cfg.model.activation](),
-                nn.Dropout(dropout)
-            ])
-            current_dim = hidden_dim
-        
-        layers.append(nn.Linear(current_dim, output_dim))
-        return nn.Sequential(*layers)
     
     # ============================================================================
     # Forward Pass
@@ -600,6 +571,9 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin):
         
         print(f"Saving enemy location prediction test analysis to: {plots_dir}")
         
+        # Initialize TestAnalyzer
+        analyzer = TestAnalyzer(self, self.cfg, self.metrics_calculator)
+        
         # Calculate metrics using MetricsCalculator
         test_results = self.metrics_calculator.calculate_metrics(predictions, targets)
         
@@ -616,9 +590,9 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin):
         )
         test_results['team_specific_metrics'] = team_specific_metrics
         
-        # Log metrics
-        self._log_team_metrics(team_specific_metrics)
-        self._log_overall_metrics(test_results)
+        # Log metrics using TestAnalyzer
+        analyzer.log_team_metrics(team_specific_metrics)
+        analyzer.log_overall_metrics(test_results)
         
         # Add experiment metadata
         test_results['num_agents'] = self.cfg.data.num_agents
@@ -628,209 +602,17 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin):
         
         # Add task-specific metadata
         if self.task_form in ['coord-reg', 'generative']:
-            self._add_coordinate_metadata(test_results)
+            analyzer.add_coordinate_metadata(test_results)
         
-        # Save results to JSON
-        results_file = plots_dir / "test_results.json"
-        with open(results_file, 'w') as f:
-            json.dump(test_results, f, indent=2, default=json_serializable)
-        print(f"Test results saved to: {results_file}")
+        # Save results to JSON using TestAnalyzer
+        analyzer.save_results_to_json(test_results, plots_dir)
         
-        # Create visualization plots
-        create_prediction_plots(self.task_form, predictions, targets, plots_dir, pov_team_sides)
+        # Create visualization plots using TestAnalyzer
+        analyzer.create_visualization_plots(predictions, targets, plots_dir, pov_team_sides)
         
         # Create KDE heatmaps for coordinate-based tasks
         if self.task_form in ['coord-reg', 'generative']:
-            self._create_prediction_heatmaps(plots_dir)
-    
-    def _log_team_metrics(self, team_specific_metrics):
-        """Log team-specific metrics to logger."""
-        for team in ['CT', 'T']:
-            if team not in team_specific_metrics:
-                continue
-            
-            metrics = team_specific_metrics[team]
-            team_prefix = f'test/{team.lower()}'
-            
-            if self.task_form in ['coord-reg', 'generative']:
-                self.safe_log(f'{team_prefix}_mse', metrics['mse'], on_epoch=True)
-                self.safe_log(f'{team_prefix}_mae', metrics['mae'], on_epoch=True)
-                
-                if 'geometric_distances' in metrics:
-                    geom = metrics['geometric_distances']
-                    self.safe_log(f'{team_prefix}_chamfer_distance', 
-                                 geom['chamfer_distance_mean'], on_epoch=True)
-                    self.safe_log(f'{team_prefix}_wasserstein_distance',
-                                 geom['wasserstein_distance_mean'], on_epoch=True)
-            
-            elif self.task_form in ['multi-label-cls', 'grid-cls']:
-                # Multi-label classification metrics
-                if 'hamming_loss' in metrics:
-                    self.safe_log(f'{team_prefix}_hamming_loss', 
-                                 metrics['hamming_loss'], on_epoch=True)
-                if 'subset_accuracy' in metrics:
-                    self.safe_log(f'{team_prefix}_subset_accuracy',
-                                 metrics['subset_accuracy'], on_epoch=True)
-                if 'micro_f1' in metrics:
-                    self.safe_log(f'{team_prefix}_micro_f1',
-                                 metrics['micro_f1'], on_epoch=True)
-                if 'macro_f1' in metrics:
-                    self.safe_log(f'{team_prefix}_macro_f1',
-                                 metrics['macro_f1'], on_epoch=True)
-            
-            elif self.task_form in ['multi-output-reg', 'density-cls']:
-                if 'exact_accuracy' in metrics:
-                    self.safe_log(f'{team_prefix}_exact_accuracy', 
-                                 metrics['exact_accuracy'], on_epoch=True)
-                if 'l1_count_error' in metrics:
-                    self.safe_log(f'{team_prefix}_l1_count_error',
-                                 metrics['l1_count_error'], on_epoch=True)
-                if 'kl_divergence' in metrics:
-                    self.safe_log(f'{team_prefix}_kl_divergence',
-                                 metrics['kl_divergence'], on_epoch=True)
-    
-    def _log_overall_metrics(self, test_results):
-        """Log overall test metrics to logger."""
-        if self.task_form in ['coord-reg', 'generative']:
-            if 'geometric_distances' in test_results:
-                geom = test_results['geometric_distances']
-                self.safe_log('test/chamfer_distance', 
-                             geom['chamfer_distance_mean'], on_epoch=True)
-                self.safe_log('test/wasserstein_distance',
-                             geom['wasserstein_distance_mean'], on_epoch=True)
-        
-        elif self.task_form in ['multi-label-cls', 'grid-cls']:
-            # Multi-label classification metrics
-            metric_names = ['hamming_loss', 'subset_accuracy', 'micro_f1', 'macro_f1']
-            for metric_name in metric_names:
-                if metric_name in test_results:
-                    self.safe_log(f'test/{metric_name}', 
-                                 test_results[metric_name], on_epoch=True)
-        
-        elif self.task_form in ['multi-output-reg', 'density-cls']:
-            metric_names = ['exact_accuracy', 'l1_count_error', 'kl_divergence', 'multinomial_loss']
-            for metric_name in metric_names:
-                if metric_name in test_results:
-                    self.safe_log(f'test/{metric_name}', 
-                                 test_results[metric_name], on_epoch=True)
-    
-    def _add_coordinate_metadata(self, test_results):
-        """Add coordinate-specific metadata to test results."""
-        test_results['loss_function'] = self.loss_computer.loss_fn
-        test_results['coordinate_scaling'] = self.coordinate_scaler is not None
-        
-        if self.coordinate_scaler is not None:
-            test_results['scaler_data_min'] = self.coordinate_scaler.data_min_.tolist()
-            test_results['scaler_data_max'] = self.coordinate_scaler.data_max_.tolist()
-            test_results['scaler_scale'] = self.coordinate_scaler.scale_.tolist()
-        
-        if self.loss_computer.loss_fn == 'sinkhorn':
-            test_results['sinkhorn_blur'] = self.loss_computer.sinkhorn_blur
-            test_results['sinkhorn_scaling'] = self.loss_computer.sinkhorn_scaling
-        
-        if self.task_form == 'generative':
-            test_results['latent_dim'] = self.latent_dim
-            test_results['kl_weight'] = self.cfg.model.vae.kl_weight
-    
-    def _create_prediction_heatmaps(self, plots_dir):
-        """Create KDE heatmaps for selected test samples."""
-        # Combine samples from both teams
-        combined_samples = []
-        for team in ['T', 'CT']:
-            combined_samples.extend(self.test_raw_samples_by_team[team])
-        
-        if len(combined_samples) == 0:
-            return
-        
-        print(f"Creating KDE heatmaps for {len(combined_samples)} test samples...")
-        print(f"  T samples: {len(self.test_raw_samples_by_team['T'])}")
-        print(f"  CT samples: {len(self.test_raw_samples_by_team['CT'])}")
-        
-        predictions_list = []
-        targets_list = []
-        pov_team_sides_list = []
-        scaled_predictions_list = []
-        scaled_targets_list = []
-        
-        for sample in combined_samples:
-            # Generate multiple predictions for this sample
-            multi_predictions, target = self.generate_multiple_predictions(
-                sample, num_predictions=100
-            )
-            
-            # Get scaled version for Chamfer distance calculation
-            first_pred_unscaled = torch.tensor(multi_predictions[0:1], dtype=torch.float32)
-            
-            if self.coordinate_scaler is not None:
-                first_pred_flat = first_pred_unscaled.view(-1, 3).numpy()
-                first_pred_scaled = self.coordinate_scaler.transform(first_pred_flat)
-                scaled_pred = torch.tensor(first_pred_scaled.reshape(1, 5, 3), 
-                                         dtype=torch.float32)
-            else:
-                scaled_pred = first_pred_unscaled
-            
-            # Get target key dynamically (supports both enemy_locations and future_locations)
-            target_key = 'enemy_locations' if 'enemy_locations' in sample else 'future_locations'
-            scaled_target = sample[target_key]  # Already scaled
-            
-            # Move to device
-            device = next(self.parameters()).device
-            scaled_pred = scaled_pred.to(device)
-            scaled_target = scaled_target.to(device)
-            
-            predictions_list.append(multi_predictions)
-            targets_list.append(target)
-            pov_team_sides_list.append(sample['pov_team_side'])
-            scaled_predictions_list.append(scaled_pred)
-            scaled_targets_list.append(scaled_target)
-        
-        # Create heatmap grid
-        create_prediction_heatmaps_grid(
-            predictions_list, targets_list, pov_team_sides_list,
-            scaled_predictions_list, scaled_targets_list,
-            plots_dir, map_name="de_mirage"
-        )
-    
-    @torch.inference_mode()
-    def generate_multiple_predictions(self, sample, num_predictions=100):
-        """
-        Generate multiple predictions for a single test sample.
-        
-        Args:
-            sample: Dictionary containing 'video', 'pov_team_side_encoded', 'enemy_locations'
-            num_predictions: Number of predictions to generate
-            
-        Returns:
-            predictions: numpy array of shape [num_predictions, 5, 3] (unscaled)
-            target: numpy array of shape [5, 3] (unscaled ground truth)
-        """
-        self.eval()
-        
-        predictions = []
-        for _ in range(num_predictions):
-            if self.task_form == 'generative':
-                outputs = self.forward(sample, mode='sampling')
-            else:
-                outputs = self.forward(sample, mode='full')
-            
-            pred = outputs['predictions']  # [1, 5, 3]
-            
-            if self.task_form in ['coord-reg', 'generative']:
-                pred_unscaled = self.unscale_coordinates(pred)
-                predictions.append(pred_unscaled.cpu().numpy()[0])
-            else:
-                raise NotImplementedError(
-                    "Multiple predictions generation only supported for coordinate-based tasks"
-                )
-        
-        predictions = torch.tensor(predictions).numpy()  # [num_predictions, 5, 3]
-        
-        # Get unscaled ground truth
-        target_key = 'enemy_locations' if 'enemy_locations' in sample else 'future_locations'
-        target_unscaled = self.unscale_coordinates(sample[target_key])
-        target = target_unscaled.cpu().numpy()[0]  # [5, 3]
-        
-        return predictions, target
+            analyzer.create_prediction_heatmaps(plots_dir, self.test_raw_samples_by_team)
     
     # ============================================================================
     # Optimizer Configuration

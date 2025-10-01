@@ -369,7 +369,7 @@ class TeammateLocationForecastDataset(BaseVideoDataset, Dataset):
         for agent in selected_agents:
             # Construct video path dynamically
             video_path = self._construct_video_path(match_id, agent['id'], round_num)
-            video_clip = self._load_video_clip_with_torchcodec(video_path, start_seconds, end_seconds)
+            video_clip = self._load_video_clip_with_decord(video_path, start_seconds, end_seconds)
             video_features = self._transform_video(video_clip)
             agent_videos.append(video_features)
             agent_ids.append(agent['id'])

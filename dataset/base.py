@@ -8,9 +8,6 @@ from abc import ABC, abstractmethod
 from transformers import AutoVideoProcessor
 from decord import VideoReader, cpu
 
-if not sys.platform == "win32":
-    from torchcodec.decoders import VideoDecoder
-
 try:
     from utils.dataset_utils import get_random_segment, apply_minimap_mask
 except ImportError:
@@ -31,7 +28,7 @@ class BaseVideoDataset(ABC):
     This class provides shared methods for:
     - Video processor initialization
     - Path conversion utilities
-    - Video clip loading (both decord and torchcodec)
+    - Video clip loading using decord
     - Video transformation and processing
     - Random clip range generation
     """
@@ -174,7 +171,7 @@ class BaseVideoDataset(ABC):
     
     def _load_video_clip_with_decord(self, video_path: str, start_seconds: float, end_seconds: float) -> torch.Tensor:
         """
-        Load video clip using decord (used by commentary and contrastive datasets).
+        Load video clip using decord.
         
         Args:
             video_path: Path to the video file
@@ -200,83 +197,6 @@ class BaseVideoDataset(ABC):
             logger.warning(f"Failed to load video {video_path}: {e}, using placeholder data")
             # Create placeholder video with expected dimensions
             return torch.zeros(expected_frames, 3, 306, 544, dtype=torch.float16)
-    
-    def _load_video_clip_with_torchcodec(self, video_path: str, start_seconds: float, end_seconds: float) -> torch.Tensor:
-        """
-        Load video clip using torchcodec (used by location prediction datasets).
-        
-        Args:
-            video_path: Path to the video file
-            start_seconds: Start time of the clip
-            end_seconds: End time of the clip
-            
-        Returns:
-            Video tensor of shape (num_frames, channels, height, width)
-        """
-        # Calculate expected number of frames based on fixed duration and target fps
-        if self.fixed_duration_seconds is not None:
-            expected_frames = int(self.fixed_duration_seconds * self.target_fps)
-        else:
-            expected_frames = int((end_seconds - start_seconds) * self.target_fps)
-        
-        if sys.platform == "win32":
-            return torch.rand(expected_frames, 3, 306, 544)
-            
-        video_path = self._to_absolute_path(video_path)
-        decoder = VideoDecoder(video_path, device="cpu")
-        
-        video_fps = decoder.metadata.average_fps
-        duration_seconds = decoder.metadata.duration_seconds
-        
-        # Get total frames
-        total_frames = decoder.metadata.num_frames_from_content
-        if total_frames is None:
-            total_frames = int(duration_seconds * video_fps)
-        
-        # Calculate start and end frames
-        start_frame = int(start_seconds * video_fps)
-        end_frame = int(end_seconds * video_fps)
-        
-        # Ensure frame indices are within valid range
-        start_frame = max(0, min(start_frame, total_frames - 1))
-        end_frame = max(start_frame + 1, min(end_frame, total_frames))
-        
-        # Calculate the actual duration we can sample from
-        available_frames = end_frame - start_frame
-        
-        if available_frames >= expected_frames:
-            # We have enough frames, sample evenly across the duration
-            sampling_frames_idx = torch.linspace(
-                start_frame, 
-                end_frame - 1,  # -1 because linspace is inclusive
-                expected_frames
-            ).long()
-        else:
-            # Not enough frames available, repeat the last frame to pad
-            # First get all available frames
-            available_indices = torch.arange(start_frame, end_frame).long()
-            
-            # Pad by repeating the last frame
-            padding_needed = expected_frames - len(available_indices)
-            if padding_needed > 0:
-                last_frame = available_indices[-1]
-                padding = torch.full((padding_needed,), last_frame, dtype=torch.long)
-                sampling_frames_idx = torch.cat([available_indices, padding])
-            else:
-                sampling_frames_idx = available_indices
-        
-        # Final bounds check
-        sampling_frames_idx = torch.clamp(sampling_frames_idx, 0, total_frames - 1)
-        
-        # Load video frames
-        video_clip = decoder.get_frames_at(indices=sampling_frames_idx)
-        video_clip = video_clip.data.half()  # Convert to half precision
-        
-        # Apply minimap mask if enabled
-        if self.mask_minimap:
-            video_clip = apply_minimap_mask(video_clip)
-        
-        return video_clip
     
     def _transform_video(self, video_clip: torch.Tensor) -> torch.Tensor:
         """

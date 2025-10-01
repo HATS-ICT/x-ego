@@ -169,7 +169,7 @@ def main():
     # Set up paths
     project_root = Path(__file__).parent.parent.parent
     label_path = project_root / "data" / "labels" / "enemy_location_nowcast_s1s_l5s.csv"
-    output_dir = project_root / "artifacts" / "class_weights"
+    output_dir = project_root / "data" / "class_weights"
     
     print("="*80)
     print("COMPUTING CLASS WEIGHTS FOR ENEMY LOCATION NOWCAST")
@@ -184,71 +184,69 @@ def main():
     df = pd.read_csv(label_path, keep_default_na=False)
     print(f"Loaded {len(df)} samples")
     
-    # Compute weights for each partition and overall
-    for partition_name in ['train', 'val', 'test', 'all']:
-        if partition_name == 'all':
-            partition_df = df
-            num_samples = len(df)
-        else:
-            partition_df = df[df['partition'] == partition_name]
-            num_samples = len(partition_df)
-            if num_samples == 0:
-                continue
-        
-        print(f"\n{'='*80}")
-        print(f"Processing partition: {partition_name.upper()} ({num_samples} samples)")
-        print(f"{'='*80}")
-        
-        # Extract locations and count
-        all_locations = extract_locations_per_partition(df, partition_name)
-        location_counts = Counter(all_locations)
-        
-        print(f"Total location labels: {len(all_locations)}")
-        print(f"Unique locations: {len(location_counts)}")
-        
-        # Compute weights using different methods
-        methods = ['inverse', 'inverse_sqrt', 'effective_num']
-        
-        for method in methods:
-            print(f"\n{'-'*80}")
-            print(f"Method: {method.upper()}")
-            print(f"{'-'*80}")
-            
-            weights = compute_class_weights(location_counts, method=method)
-            print_weight_statistics(weights, location_counts)
-            
-            # Save weights
-            metadata = {
-                'partition': partition_name,
-                'num_samples': num_samples,
-                'num_labels': len(all_locations),
-                'num_classes': len(location_counts),
-                'method': method,
-                'location_counts': dict(location_counts)
-            }
-            
-            output_path = output_dir / f"class_weights_{partition_name}_{method}.json"
-            save_weights(weights, output_path, metadata)
-        
-        # Also compute pos_weight for BCEWithLogitsLoss
+    # Only compute weights for train partition
+    partition_name = 'train'
+    partition_df = df[df['partition'] == partition_name]
+    num_samples = len(partition_df)
+    
+    if num_samples == 0:
+        print(f"ERROR: No samples found in {partition_name} partition")
+        return
+    
+    print(f"\n{'='*80}")
+    print(f"Processing partition: {partition_name.upper()} ({num_samples} samples)")
+    print(f"{'='*80}")
+    
+    # Extract locations and count
+    all_locations = extract_locations_per_partition(df, partition_name)
+    location_counts = Counter(all_locations)
+    
+    print(f"Total location labels: {len(all_locations)}")
+    print(f"Unique locations: {len(location_counts)}")
+    
+    # Compute weights using different methods
+    methods = ['inverse', 'inverse_sqrt', 'effective_num']
+    
+    for method in methods:
         print(f"\n{'-'*80}")
-        print("BCEWithLogitsLoss pos_weight")
+        print(f"Method: {method.upper()}")
         print(f"{'-'*80}")
         
-        pos_weights = compute_pos_weight(location_counts, num_samples)
+        weights = compute_class_weights(location_counts, method=method)
+        print_weight_statistics(weights, location_counts)
         
-        # Print top/bottom pos_weights
-        sorted_pos = sorted(pos_weights.items(), key=lambda x: x[1], reverse=True)
-        print(f"\nTop 10 Highest pos_weights (Rare Classes):")
-        print(f"{'Location':<30} {'Count':>10} {'pos_weight':>12}")
-        print('-' * 80)
-        for loc, pw in sorted_pos[:10]:
-            count = location_counts[loc]
-            print(f"{loc:<30} {count:>10} {pw:>12.4f}")
+        # Save weights
+        metadata = {
+            'partition': partition_name,
+            'num_samples': num_samples,
+            'num_labels': len(all_locations),
+            'num_classes': len(location_counts),
+            'method': method,
+            'location_counts': dict(location_counts)
+        }
         
-        metadata['method'] = 'pos_weight_bce'
-        output_path = output_dir / f"class_weights_{partition_name}_pos_weight.json"
-        save_weights(pos_weights, output_path, metadata)
+        output_path = output_dir / f"{method}.json"
+        save_weights(weights, output_path, metadata)
+    
+    # Also compute pos_weight for BCEWithLogitsLoss
+    print(f"\n{'-'*80}")
+    print("BCEWithLogitsLoss pos_weight")
+    print(f"{'-'*80}")
+    
+    pos_weights = compute_pos_weight(location_counts, num_samples)
+    
+    # Print top/bottom pos_weights
+    sorted_pos = sorted(pos_weights.items(), key=lambda x: x[1], reverse=True)
+    print(f"\nTop 10 Highest pos_weights (Rare Classes):")
+    print(f"{'Location':<30} {'Count':>10} {'pos_weight':>12}")
+    print('-' * 80)
+    for loc, pw in sorted_pos[:10]:
+        count = location_counts[loc]
+        print(f"{loc:<30} {count:>10} {pw:>12.4f}")
+    
+    metadata['method'] = 'pos_weight'
+    output_path = output_dir / "pos_weight.json"
+    save_weights(pos_weights, output_path, metadata)
     
     print(f"\n{'='*80}")
     print("USAGE INSTRUCTIONS")
@@ -259,7 +257,7 @@ To use these weights in your training pipeline:
 1. Load the weights file:
    
    import json
-   with open('artifacts/class_weights/class_weights_train_inverse.json', 'r') as f:
+   with open('data/class_weights/inverse.json', 'r') as f:
        data = json.load(f)
        weights_dict = data['weights']
 

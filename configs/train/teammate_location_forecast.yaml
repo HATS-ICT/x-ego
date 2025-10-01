@@ -42,7 +42,7 @@ model:
     kl_weight: 0.5
   # Task-specific loss functions
   loss_fn:
-    multi-label-cls: "bce"  # Options: bce, focal
+    multi-label-cls: "focal"  # Options: bce, focal
     grid-cls: "bce"  # Options: bce, focal
     multi-output-reg: "mse"  # Options: mse, mae
     density-cls: "mse"  # Options: mse, mae, kl

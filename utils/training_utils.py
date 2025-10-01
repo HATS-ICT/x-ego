@@ -232,48 +232,70 @@ def debug_batch_plot(batch, model, max_examples=4):
 
 def _plot_multi_agent_video(video_tensor, ax, num_agents):
     """
-    Plot multi-agent video frames.
+    Plot multi-agent video frames by stacking 5 frames per agent.
     
     Args:
         video_tensor: [A, T, C, H, W] tensor
         ax: Matplotlib axis
         num_agents: Number of agents
     """
-    # Select middle frame from each agent
     # video_tensor: [A, T, C, H, W]
     A, T, C, H, W = video_tensor.shape
-    mid_frame_idx = T // 2
     
-    # Get one frame per agent: [A, C, H, W]
-    frames = video_tensor[:, mid_frame_idx, :, :, :]
-    frames = _to_numpy(frames)
+    # Select 5 evenly spaced frames from each agent's video
+    num_frames_to_show = min(5, T)
+    frame_indices = np.linspace(0, T - 1, num_frames_to_show, dtype=int)
     
-    # Concatenate frames horizontally
-    frames_list = []
+    # Get frames for all agents: [A, num_frames_to_show, C, H, W]
+    video = video_tensor[:, frame_indices, :, :, :]
+    video = _to_numpy(video)
+    
+    # Stack frames for each agent
+    agent_strips = []
     for a in range(A):
-        frame = frames[a]  # [C, H, W]
-        # Convert to [H, W, C] and normalize
-        frame = np.transpose(frame, (1, 2, 0))
+        agent_video = video[a]  # [num_frames_to_show, C, H, W]
         
-        # Normalize to [0, 1]
-        if frame.max() > 1.0 or frame.min() < 0.0:
-            frame = (frame - frame.min()) / (frame.max() - frame.min() + 1e-8)
+        # Normalize and process each frame
+        frame_list = []
+        for t in range(num_frames_to_show):
+            frame = agent_video[t]  # [C, H, W]
+            
+            # Normalize per-frame robustly
+            fr = frame.astype(np.float32)
+            if fr.max() <= 1.0 and fr.min() >= -1.0 and fr.min() < 0.0:
+                # Values in [-1, 1] range, rescale to [0, 1]
+                fr = (fr + 1.0) / 2.0
+            else:
+                # Min-max normalization per frame
+                fmin, fmax = fr.min(), fr.max()
+                if fmax > fmin:
+                    fr = (fr - fmin) / (fmax - fmin)
+                else:
+                    fr = np.zeros_like(fr)
+            
+            # Convert to [H, W, C]
+            fr = np.transpose(fr, (1, 2, 0))
+            
+            # Handle grayscale
+            if fr.shape[-1] == 1:
+                fr = np.repeat(fr, 3, axis=-1)
+            
+            frame_list.append(fr)
         
-        # Handle grayscale
-        if frame.shape[-1] == 1:
-            frame = np.repeat(frame, 3, axis=-1)
-        
-        frames_list.append(frame)
+        # Concatenate frames horizontally: [H, num_frames_to_show*W, 3]
+        agent_strip = np.concatenate(frame_list, axis=1)
+        agent_strips.append(agent_strip)
     
-    # Concatenate horizontally
-    combined_frame = np.concatenate(frames_list, axis=1)  # [H, A*W, 3]
+    # Stack all agents vertically: [A*H, num_frames_to_show*W, 3]
+    combined_frame = np.concatenate(agent_strips, axis=0)
+    combined_frame = np.clip(combined_frame, 0.0, 1.0)
     
     ax.imshow(combined_frame)
     ax.axis('off')
     
     # Add agent labels
     for a in range(A):
-        ax.text(W * a + W // 2, H - 10, f'Agent {a+1}', 
+        ax.text(num_frames_to_show * W // 2, H * a + H - 10, f'Agent {a+1}', 
                ha='center', va='top', color='yellow', fontsize=10, 
                bbox=dict(boxstyle='round', facecolor='black', alpha=0.5))
 

@@ -5,7 +5,7 @@ from pathlib import Path
 from lightning.pytorch.callbacks import ModelCheckpoint
 
 # Local imports
-from utils.training_utils import setup_callbacks, setup_logger
+from utils.training_utils import setup_callbacks, setup_logger, print_task_info, setup_test_model_with_dataset_info
 
 
 def run_training_pipeline(cfg, model_class, datamodule_class, task_name, print_header=None):
@@ -75,31 +75,6 @@ def run_training_pipeline(cfg, model_class, datamodule_class, task_name, print_h
         wandb.finish()
     
     print(f"{task_name.replace('_', ' ').title()} training completed!")
-
-
-def print_task_info(cfg, datamodule, task_name):
-    """Print task-specific information"""
-    # Common info for location prediction tasks
-    if 'location' in task_name:
-        print(f"Number of agents: {cfg.data.num_agents}")
-        print(f"Task form: {cfg.data.task_form}")
-        print(f"Agent fusion method: {cfg.model.agent_fusion_method}")
-        
-        if cfg.data.task_form in ['coord-reg', 'generative']:
-            print(f"Loss function: {cfg.data.loss_fn}")
-            if cfg.data.loss_fn == 'sinkhorn':
-                print(f"  Sinkhorn blur: {cfg.data.sinkhorn_blur}")
-                print(f"  Sinkhorn scaling: {cfg.data.sinkhorn_scaling}")
-        
-        if cfg.data.task_form in ['multi-label-cls', 'multi-output-reg']:
-            # Get num_places from datamodule after setup and update cfg
-            cfg.num_places = datamodule.num_places
-            print(f"Number of places: {cfg.num_places}")
-        elif cfg.data.task_form in ['grid-cls', 'density-cls']:
-            grid_resolution = cfg.data.grid_resolution
-            print(f"Grid resolution: {grid_resolution}x{grid_resolution} = {grid_resolution * grid_resolution} cells")
-            if cfg.data.task_form == 'density-cls':
-                print(f"Gaussian sigma: {cfg.data.gaussian_sigma}")
 
 
 def setup_model_with_dataset_info(cfg, datamodule, model):
@@ -201,16 +176,6 @@ def run_testing(cfg, datamodule, model_class, trainer, callbacks, task_name):
                 print("Full traceback:")
                 traceback.print_exc()
             continue
-
-
-def setup_test_model_with_dataset_info(cfg, datamodule, test_model):
-    """Setup test model with dataset-specific information"""
-    if cfg.data.task_form in ['coord-reg', 'generative']:
-        # Set coordinate scaler from dataset
-        if hasattr(datamodule, 'test_dataset') and hasattr(datamodule.test_dataset, 'get_coordinate_scaler'):
-            scaler = datamodule.test_dataset.get_coordinate_scaler()
-            if hasattr(test_model, 'set_coordinate_scaler'):
-                test_model.set_coordinate_scaler(scaler)
 
 
 def find_checkpoints_to_test(callbacks):

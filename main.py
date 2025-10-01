@@ -8,10 +8,13 @@ from omegaconf import OmegaConf
 # Local imports
 from utils.config_utils import load_cfg, apply_cfg_overrides
 from utils.experiment_utils import create_experiment_dir, save_hyperparameters, setup_resume_cfg
-from train.train_tasks import (
+from train.run_tasks import (
     train_enemy_location_nowcast,
     train_enemy_location_forecast,
-    train_teammate_location_forecast
+    train_teammate_location_forecast,
+    test_enemy_location_nowcast,
+    test_enemy_location_forecast,
+    test_teammate_location_forecast
 )
 from utils.env_utils import get_src_base_path, get_data_base_path, get_output_base_path
 
@@ -35,11 +38,15 @@ def setup_argument_parser():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Every settings in config file can be overridden. Examples:
-  python main.py --mode train --task enemy_location_nowcast meta.seed=123
-  python main.py --mode train --task enemy_location_forecast data.batch_size=16 training.max_epochs=20
-  python main.py --mode dev --task teammate_location_forecast training.devices=[0,1] data.num_workers=8
-  python main.py --mode train --task enemy_location_nowcast data.num_agents=5
-  python main.py --mode train --task teammate_location_forecast data.num_agents=5
+  
+  Training mode (includes testing after training):
+    python main.py --mode train --task enemy_location_nowcast meta.seed=123
+    python main.py --mode train --task enemy_location_forecast data.batch_size=16 training.max_epochs=20
+    python main.py --mode dev --task teammate_location_forecast training.devices=[0,1] data.num_workers=8
+  
+  Test-only mode (requires resume_exp):
+    python main.py --mode test --task enemy_location_nowcast meta.resume_exp=enemy-nowcast-clip-250930-032609-1uqe
+    python main.py --mode test --task enemy_location_forecast meta.resume_exp=your-experiment-name
         """
     )
     
@@ -155,20 +162,40 @@ def main():
     cfg = apply_cfg_overrides(cfg, args.overrides)
     cfg = setup_base_pathing(cfg)
     
+    # Validate test mode requirements
+    if args.mode == 'test' and not cfg.meta.resume_exp:
+        raise ValueError(
+            "Test mode requires 'meta.resume_exp' to be set to the experiment name.\n"
+            "Example: python main.py --mode test --task enemy_location_nowcast "
+            "meta.resume_exp=enemy-nowcast-clip-250930-032609-1uqe"
+        )
+    
     # TODO: Validation need to be adjusted per training mode at the end
     # validate_cfg(cfg)
     
     cfg = setup_directory(cfg)
     
     # Dispatch based on task and mode
-    if args.task == 'enemy_location_nowcast':
-        train_enemy_location_nowcast(cfg)
-    elif args.task == 'enemy_location_forecast':
-        train_enemy_location_forecast(cfg)
-    elif args.task == 'teammate_location_forecast':
-        train_teammate_location_forecast(cfg)
+    if args.mode == 'test':
+        # Test-only mode
+        if args.task == 'enemy_location_nowcast':
+            test_enemy_location_nowcast(cfg)
+        elif args.task == 'enemy_location_forecast':
+            test_enemy_location_forecast(cfg)
+        elif args.task == 'teammate_location_forecast':
+            test_teammate_location_forecast(cfg)
+        else:
+            raise ValueError(f"Unknown task: {args.task}")
     else:
-        raise ValueError(f"Unknown task: {args.task}")
+        # Train mode (includes validation and testing after training)
+        if args.task == 'enemy_location_nowcast':
+            train_enemy_location_nowcast(cfg)
+        elif args.task == 'enemy_location_forecast':
+            train_enemy_location_forecast(cfg)
+        elif args.task == 'teammate_location_forecast':
+            train_teammate_location_forecast(cfg)
+        else:
+            raise ValueError(f"Unknown task: {args.task}")
 
 
 if __name__ == "__main__":

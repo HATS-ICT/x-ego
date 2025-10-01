@@ -35,7 +35,7 @@ from utils.serialization_utils import json_serializable
 from models.prediction_losses import LossComputer
 from models.prediction_metrics import MetricsCalculator
 from models.coordinate_utils import CoordinateScalerMixin
-from models.vae_mixins import VAEMixin
+from models.vae import ConditionalVariationalAutoencoder
 
 try:
     from video_encoder import VideoEncoder
@@ -62,7 +62,7 @@ ACT2CLS = {
 }
 
 
-class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixin):
+class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin):
     """
     Multi-agent enemy location prediction model supporting multiple task formulations.
     
@@ -145,15 +145,14 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
             if self.task_form == 'generative':
                 # VAE-specific components
                 self.latent_dim = cfg.model.vae.latent_dim
-                encoder_input_dim = self.output_dim + self.combined_dim
-                self.vae_encoder = self._build_mlp(
-                    encoder_input_dim, self.latent_dim * 2, 
-                    num_hidden_layers, hidden_dim, dropout
-                )
-                decoder_input_dim = self.latent_dim + self.combined_dim
-                self.predictor = self._build_mlp(
-                    decoder_input_dim, self.output_dim, 
-                    num_hidden_layers, hidden_dim, dropout
+                self.vae = ConditionalVariationalAutoencoder(
+                    output_dim=self.output_dim,
+                    combined_dim=self.combined_dim,
+                    latent_dim=self.latent_dim,
+                    num_hidden_layers=num_hidden_layers,
+                    hidden_dim=hidden_dim,
+                    dropout=dropout,
+                    activation_fn=ACT2CLS[cfg.model.activation]
                 )
             else:
                 # Standard coordinate regression
@@ -219,8 +218,6 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
         layers.append(nn.Linear(current_dim, output_dim))
         return nn.Sequential(*layers)
     
-    
-    
     # ============================================================================
     # Forward Pass
     # ============================================================================
@@ -278,35 +275,32 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
         """Forward pass for generative (VAE) mode."""
         if mode == 'sampling':
             # Sample from prior
-            predictions = self.sample_from_prior(combined_features, num_samples=1)
-            predictions = predictions.squeeze(1)  # [B, 5, 3]
+            vae_outputs = self.vae(None, combined_features, mode='sampling')
             
             return {
-                'predictions': predictions,
+                'predictions': vae_outputs['predictions'],
                 'fused_embeddings': fused_embeddings,
                 'team_embeddings': team_embeddings,
                 'combined_features': combined_features,
                 'agent_embeddings': agent_embeddings,
-                'mu': None,
-                'logvar': None,
-                'z': None
+                'mu': vae_outputs['mu'],
+                'logvar': vae_outputs['logvar'],
+                'z': vae_outputs['z']
             }
         else:
             # Full VAE: encode, reparameterize, decode
             target_locations = self._get_target_locations(batch)
-            mu, logvar = self.encode(target_locations, combined_features)
-            z = self.reparameterize(mu, logvar)
-            predictions = self.decode(z, combined_features)
+            vae_outputs = self.vae(target_locations, combined_features, mode='full')
             
             return {
-                'predictions': predictions,
+                'predictions': vae_outputs['predictions'],
                 'fused_embeddings': fused_embeddings,
                 'team_embeddings': team_embeddings,
                 'combined_features': combined_features,
                 'agent_embeddings': agent_embeddings,
-                'mu': mu,
-                'logvar': logvar,
-                'z': z
+                'mu': vae_outputs['mu'],
+                'logvar': vae_outputs['logvar'],
+                'z': vae_outputs['z']
             }
     
     def _forward_standard(self, combined_features, fused_embeddings, 
@@ -796,6 +790,47 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
             scaled_predictions_list, scaled_targets_list,
             plots_dir, map_name="de_mirage"
         )
+    
+    @torch.inference_mode()
+    def generate_multiple_predictions(self, sample, num_predictions=100):
+        """
+        Generate multiple predictions for a single test sample.
+        
+        Args:
+            sample: Dictionary containing 'video', 'pov_team_side_encoded', 'enemy_locations'
+            num_predictions: Number of predictions to generate
+            
+        Returns:
+            predictions: numpy array of shape [num_predictions, 5, 3] (unscaled)
+            target: numpy array of shape [5, 3] (unscaled ground truth)
+        """
+        self.eval()
+        
+        predictions = []
+        for _ in range(num_predictions):
+            if self.task_form == 'generative':
+                outputs = self.forward(sample, mode='sampling')
+            else:
+                outputs = self.forward(sample, mode='full')
+            
+            pred = outputs['predictions']  # [1, 5, 3]
+            
+            if self.task_form in ['coord-reg', 'generative']:
+                pred_unscaled = self.unscale_coordinates(pred)
+                predictions.append(pred_unscaled.cpu().numpy()[0])
+            else:
+                raise NotImplementedError(
+                    "Multiple predictions generation only supported for coordinate-based tasks"
+                )
+        
+        predictions = torch.tensor(predictions).numpy()  # [num_predictions, 5, 3]
+        
+        # Get unscaled ground truth
+        target_key = 'enemy_locations' if 'enemy_locations' in sample else 'future_locations'
+        target_unscaled = self.unscale_coordinates(sample[target_key])
+        target = target_unscaled.cpu().numpy()[0]  # [5, 3]
+        
+        return predictions, target
     
     # ============================================================================
     # Optimizer Configuration

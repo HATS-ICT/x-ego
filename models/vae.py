@@ -9,10 +9,61 @@ This module provides VAE-specific functionality including:
 """
 
 import torch
+import torch.nn as nn
 
 
-class VAEMixin:
-    """Mixin class providing VAE functionality for generative models."""
+class ConditionalVariationalAutoencoder(nn.Module):
+    """VAE module for generative multi-agent location prediction."""
+    
+    def __init__(self, output_dim, combined_dim, latent_dim, num_hidden_layers, 
+                 hidden_dim, dropout, activation_fn):
+        """
+        Initialize VAE encoder and decoder networks.
+        
+        Args:
+            output_dim: Dimension of target locations (e.g., 5 * 3 = 15)
+            combined_dim: Dimension of conditioning features
+            latent_dim: Dimension of latent space
+            num_hidden_layers: Number of hidden layers in encoder/decoder
+            hidden_dim: Hidden layer dimension
+            dropout: Dropout rate
+            activation_fn: Activation function class
+        """
+        super().__init__()
+        self.output_dim = output_dim
+        self.combined_dim = combined_dim
+        self.latent_dim = latent_dim
+        
+        # Encoder: target_locations + conditioning -> mu, logvar
+        encoder_input_dim = output_dim + combined_dim
+        self.encoder = self._build_mlp(
+            encoder_input_dim, latent_dim * 2, 
+            num_hidden_layers, hidden_dim, dropout, activation_fn
+        )
+        
+        # Decoder: latent + conditioning -> predictions
+        decoder_input_dim = latent_dim + combined_dim
+        self.decoder = self._build_mlp(
+            decoder_input_dim, output_dim, 
+            num_hidden_layers, hidden_dim, dropout, activation_fn
+        )
+    
+    def _build_mlp(self, input_dim, output_dim, num_hidden_layers, hidden_dim, 
+                   dropout, activation_fn):
+        """Build a multi-layer perceptron."""
+        layers = []
+        current_dim = input_dim
+        
+        for _ in range(num_hidden_layers):
+            layers.extend([
+                nn.Linear(current_dim, hidden_dim),
+                activation_fn(),
+                nn.Dropout(dropout)
+            ])
+            current_dim = hidden_dim
+        
+        layers.append(nn.Linear(current_dim, output_dim))
+        return nn.Sequential(*layers)
     
     def encode(self, target_locations, combined_features):
         """
@@ -26,9 +77,6 @@ class VAEMixin:
             mu: [B, latent_dim] - mean of latent distribution
             logvar: [B, latent_dim] - log variance of latent distribution
         """
-        if self.task_form != 'generative':
-            raise ValueError("encode() only available in generative mode")
-        
         # Flatten target locations if needed
         if target_locations.dim() == 3:  # [B, 5, 3]
             target_locations = target_locations.view(target_locations.shape[0], -1)
@@ -37,7 +85,7 @@ class VAEMixin:
         encoder_input = torch.cat([target_locations, combined_features], dim=1)
         
         # Get mu and logvar
-        encoder_output = self.vae_encoder(encoder_input)
+        encoder_output = self.encoder(encoder_input)
         mu, logvar = torch.chunk(encoder_output, 2, dim=1)
         
         return mu, logvar
@@ -71,14 +119,11 @@ class VAEMixin:
         Returns:
             predictions: [B, 5, 3] - predicted enemy locations
         """
-        if self.task_form != 'generative':
-            raise ValueError("decode() only available in generative mode")
-        
         # Concatenate latent with conditioning
         decoder_input = torch.cat([z, combined_features], dim=1)
         
         # Decode to predictions
-        predictions = self.predictor(decoder_input)
+        predictions = self.decoder(decoder_input)
         predictions = predictions.view(-1, 5, 3)
         return predictions
     
@@ -93,9 +138,6 @@ class VAEMixin:
         Returns:
             samples: [B, num_samples, 5, 3] - generated samples
         """
-        if self.task_form != 'generative':
-            raise ValueError("sample_from_prior() only available in generative mode")
-        
         batch_size = combined_features.shape[0]
         device = combined_features.device
         
@@ -110,42 +152,35 @@ class VAEMixin:
         samples = torch.stack(samples, dim=1)  # [B, num_samples, 5, 3]
         return samples
     
-    @torch.inference_mode()
-    def generate_multiple_predictions(self, sample, num_predictions=100):
+    def forward(self, target_locations, combined_features, mode='full'):
         """
-        Generate multiple predictions for a single test sample.
+        Forward pass through VAE.
         
         Args:
-            sample: Dictionary containing 'video', 'pov_team_side_encoded', 'enemy_locations'
-            num_predictions: Number of predictions to generate
+            target_locations: [B, 5, 3] - target locations (for training)
+            combined_features: [B, combined_dim] - conditioning features
+            mode: 'full' for encode-decode, 'sampling' for prior sampling
             
         Returns:
-            predictions: numpy array of shape [num_predictions, 5, 3] (unscaled)
-            target: numpy array of shape [5, 3] (unscaled ground truth)
+            Dictionary with predictions and latent variables
         """
-        self.eval()
-        
-        predictions = []
-        for _ in range(num_predictions):
-            if self.task_form == 'generative':
-                outputs = self.forward(sample, mode='sampling')
-            else:
-                outputs = self.forward(sample, mode='full')
-            
-            pred = outputs['predictions']  # [1, 5, 3]
-            
-            if self.task_form in ['coord-reg', 'generative']:
-                pred_unscaled = self.unscale_coordinates(pred)
-                predictions.append(pred_unscaled.cpu().numpy()[0])
-            else:
-                raise NotImplementedError(
-                    "Multiple predictions generation only supported for coordinate-based tasks"
-                )
-        
-        predictions = torch.tensor(predictions).numpy()  # [num_predictions, 5, 3]
-        
-        # Get unscaled ground truth
-        target_unscaled = self.unscale_coordinates(sample['enemy_locations'])
-        target = target_unscaled.cpu().numpy()[0]  # [5, 3]
-        
-        return predictions, target
+        if mode == 'sampling':
+            predictions = self.sample_from_prior(combined_features, num_samples=1)
+            predictions = predictions.squeeze(1)  # [B, 5, 3]
+            return {
+                'predictions': predictions,
+                'mu': None,
+                'logvar': None,
+                'z': None
+            }
+        else:
+            mu, logvar = self.encode(target_locations, combined_features)
+            z = self.reparameterize(mu, logvar)
+            predictions = self.decode(z, combined_features)
+            return {
+                'predictions': predictions,
+                'mu': mu,
+                'logvar': logvar,
+                'z': z
+            }
+    

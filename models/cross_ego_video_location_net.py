@@ -85,7 +85,7 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
         loss_fn = cfg.model.loss_fn[self.task_form]
         
         self.loss_computer = LossComputer(
-            self.task_form, loss_fn, cfg.model
+            self.task_form, loss_fn, cfg
         )
         self.metrics_calculator = MetricsCalculator(self.task_form)
         
@@ -391,10 +391,7 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
         predictions = outputs['predictions']
         
         # Compute loss
-        kl_weight = self.cfg.model.vae.kl_weight if self.task_form == 'generative' else None
-        loss, loss_components = self.loss_computer.compute_loss(
-            predictions, targets, outputs, kl_weight
-        )
+        loss, loss_components = self.loss_computer.compute_loss(outputs, targets)
         
         # Log main loss
         self.safe_log('train/loss', loss, batch_size=batch_size, 
@@ -450,10 +447,7 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
         predictions = outputs['predictions']
         
         # Compute loss
-        kl_weight = self.cfg.model.vae.kl_weight if self.task_form == 'generative' else None
-        loss, loss_components = self.loss_computer.compute_loss(
-            predictions, targets, outputs, kl_weight
-        )
+        loss, loss_components = self.loss_computer.compute_loss(outputs, targets)
         
         # Log main loss
         self.safe_log('val/loss', loss, batch_size=batch_size,
@@ -557,10 +551,7 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
         predictions = outputs['predictions']
         
         # Compute loss
-        kl_weight = self.cfg.model.vae.kl_weight if self.task_form == 'generative' else None
-        loss, loss_components = self.loss_computer.compute_loss(
-            predictions, targets, outputs, kl_weight
-        )
+        loss, loss_components = self.loss_computer.compute_loss(outputs, targets)
         
         # Log main loss
         self.safe_log('test/loss', loss, batch_size=batch_size,

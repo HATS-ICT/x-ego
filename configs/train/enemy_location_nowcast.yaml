@@ -37,6 +37,7 @@ model:
   num_hidden_layers: 3
   dropout: 0.1
   agent_fusion_method: "mean"  # Options: "mean", "max", "attention", "concat", "tublet_attentive_pooler"
+  class_weights: "pos_weight"  # Options: null, inverse, inverse_sqrt, effective_num, pos_weight
   vae:
     latent_dim: 64
     kl_weight: 0.5
@@ -89,7 +90,6 @@ training:
   limit_val_batches: 1.0
   limit_test_batches: 1.0
 
-
 optimization:
   lr: 0.0003
   weight_decay: 0.01
@@ -106,7 +106,7 @@ checkpoint:
     filename: ${meta.run_name}-e{epoch:02d}-s{step:06d}-l{val/loss:.4f}
     monitor: 'val/loss'
     mode: 'min'
-    save_top_k: -1  # Save all checkpoints (every epoch)
+    save_top_k: 1  # Save the best checkpoint
     save_last: true
     auto_insert_metric_name: false
     save_on_train_epoch_end: true

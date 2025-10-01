@@ -72,6 +72,7 @@ class AgentFuser(nn.Module):
             dropout
         )
     
+    # TODO: use the build_mlp function in architecture_utils.py
     def _build_mlp(self, input_dim, output_dim, num_layers, hidden_dim, dropout):
         """Build a multi-layer perceptron."""
         layers = []

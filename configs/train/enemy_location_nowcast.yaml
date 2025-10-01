@@ -68,11 +68,12 @@ model:
     video:
       freeze_backbone: true
       model_type: "dinov2"  # Options: clip, dinov2, siglip, vivit, videomae, vjepa2
+    proj_dim: ${model.agent_fusion.fused_agent_dim}
   contrastive:
     enable: true
-    proj_dim: ${model.agent_fusion.fused_agent_dim}
     logit_scale_init: 1.0
     logit_bias_init: 0.0
+    loss_weight: 1.0
 
 training:
   max_epochs: 20

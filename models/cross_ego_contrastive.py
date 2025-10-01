@@ -36,14 +36,13 @@ class CrossEgoContrastive(nn.Module):
          [0, 0, 0, 1, 1, 1]]
     """
     
-    def __init__(self, embed_dim, proj_dim, init_logit_scale=1.0, init_logit_bias=0.0, 
+    def __init__(self, embed_dim, init_logit_scale=1.0, init_logit_bias=0.0, 
                  learnable_temp=True, mlp_hidden_dim=None, mlp_dropout=0.1, mlp_activation='gelu'):
         """
         Initialize the cross-ego contrastive module.
         
         Args:
             embed_dim: Input embedding dimension
-            proj_dim: Output dimension after MLP projection
             init_logit_scale: Initial value for logit scale (temperature parameter)
             init_logit_bias: Initial bias for logits
             learnable_temp: Whether logit_scale and logit_bias are learnable
@@ -57,10 +56,9 @@ class CrossEgoContrastive(nn.Module):
         if mlp_hidden_dim is None:
             mlp_hidden_dim = embed_dim
         
-        self.proj_dim = proj_dim
         self.projector = build_mlp(
             input_dim=embed_dim,
-            output_dim=proj_dim,
+            output_dim=embed_dim,
             num_hidden_layers=1,  # 1 hidden layer = 2 layer MLP
             hidden_dim=mlp_hidden_dim,
             dropout=mlp_dropout,
@@ -131,7 +129,7 @@ class CrossEgoContrastive(nn.Module):
         if not return_loss:
             # Just return normalized embeddings reshaped back
             return {
-                'embeddings': normalized_embeddings.view(B, A, self.proj_dim)
+                'embeddings': normalized_embeddings.view(B, A, embed_dim)
             }
         
         # Compute cosine similarity matrix: [B*A, B*A]
@@ -157,7 +155,7 @@ class CrossEgoContrastive(nn.Module):
         
         # Reshape embeddings back to [B, A, proj_dim]
         output = {
-            'embeddings': normalized_embeddings.view(B, A, self.proj_dim),
+            'embeddings': normalized_embeddings.view(B, A, embed_dim),
             'loss': loss,
             'logits': logits
         }

@@ -28,7 +28,7 @@ def validate_cfg(cfg):
     
     # Optional sections that have required keys if they exist
     optional_sections = {
-        'wandb': ['enabled', 'project', 'tags', 'notes', 'save_dir'],
+        'wandb': ['enabled', 'project', 'tags', 'notes', 'save_dir', 'group'],
         'checkpoint': ['dirpath', 'filename', 'monitor', 'mode', 'save_top_k', 'save_last', 'auto_insert_metric_name'],
         'early_stopping': ['monitor', 'patience', 'mode']
     }

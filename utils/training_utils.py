@@ -96,6 +96,7 @@ def setup_logger(cfg):
     logger = WandbLogger(
         project=wandb_cfg.project,
         name=wandb_cfg.name,  # name can be None for auto-generation
+        group=wandb_cfg.group,
         tags=wandb_cfg.tags,
         notes=wandb_cfg.notes,
         save_dir=wandb_cfg.save_dir

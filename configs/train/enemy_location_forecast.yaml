@@ -101,6 +101,7 @@ optimization:
 wandb:
   enabled: true
   project: xego
+  group: '${meta.exp_name}'
   tags: ['${meta.exp_name}']
   notes: 'enemy location forecast - predict future enemy positions'
 

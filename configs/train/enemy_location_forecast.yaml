@@ -24,17 +24,6 @@ data:
   # Multi-agent enemy future location prediction specific parameters
   num_agents: 5  # Number of agents from team side to use (1-5)
   task_form: "multi-label-cls" # multi-label-cls, multi-output-reg, grid-cls, density-cls, coord-reg, generative
-  # Task-specific loss functions
-  loss_fn:
-    multi-label-cls: "bce"  # Options: bce, focal
-    grid-cls: "bce"  # Options: bce, focal
-    multi-output-reg: "mse"  # Options: mse, mae
-    density-cls: "mse"  # Options: mse, mae, kl
-    coord-reg: "sinkhorn"  # Options: mse, sinkhorn, hausdorff, energy
-    generative: "sinkhorn"  # Options: mse, sinkhorn, hausdorff, energy
-  # Sinkhorn loss parameters (for coord-reg and generative)
-  sinkhorn_blur: 0.05  # Controls smoothing (0.01-0.1)
-  sinkhorn_scaling: 0.8  # Speeds convergence with ε-scaling (<1)
   # Grid-based task parameters (for grid-cls and density-cls)
   grid_resolution: 10  # Grid resolution (10x10 = 100 cells)
   gaussian_sigma: 1.0  # Gaussian smoothing sigma for density-cls
@@ -51,6 +40,21 @@ model:
   vae:
     latent_dim: 64
     kl_weight: 0.5
+  # Task-specific loss functions
+  loss_fn:
+    multi-label-cls: "bce"  # Options: bce, focal
+    grid-cls: "bce"  # Options: bce, focal
+    multi-output-reg: "mse"  # Options: mse, mae
+    density-cls: "mse"  # Options: mse, mae, kl
+    coord-reg: "sinkhorn"  # Options: mse, sinkhorn, hausdorff, energy
+    generative: "sinkhorn"  # Options: mse, sinkhorn, hausdorff, energy
+  # Loss-specific parameters
+  sinkhorn:
+    blur: 0.05  # Controls smoothing (0.01-0.1)
+    scaling: 0.8  # Speeds convergence with ε-scaling (<1)
+  focal:
+    alpha: 0.25  # Class balance weight for positive class
+    gamma: 2.0  # Focusing parameter (higher = more focus on hard examples)
   encoder:
     video:
       freeze_backbone: true

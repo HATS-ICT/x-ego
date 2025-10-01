@@ -119,8 +119,6 @@ class TeammateLocationForecastDataset(BaseVideoDataset, Dataset):
             filtered_count = len(self.df)
             logger.info(f"Filtered dataset from {initial_count} to {filtered_count} samples for partition '{self.partition}'")
         
-        # Store additional configuration parameters
-        
         # Store output directory for saving/loading scaler
         self.output_dir = Path(cfg.path.exp)
         

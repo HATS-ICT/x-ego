@@ -166,63 +166,261 @@ def _stack_20_frames(video_20_tchw):
     return stacked
 
 
-def debug_batch_plot(batch):
+def debug_batch_plot(batch, model, max_examples=4):
     """
-    Shows 4 examples; each example has:
-    1) Top: 20 video frames stacked horizontally as one image
-    2) Middle: audio (e.g., spectrogram) with imshow
-    3) Bottom: raw text in a text-only axis
+    Visualize batch examples with inputs (multi-agent videos) and labels.
+    
+    For each example, shows:
+    1) Multi-agent video frames (one frame per agent)
+    2) Labels visualization (depends on task_form):
+       - multi-label-cls: Heatmap showing which places each player occupies
+       - grid-cls: Grid heatmap showing spatial occupancy
+       - coord-reg/generative: Scatter plot of coordinates
+       - density-cls: Density heatmap
+    
+    Args:
+        batch: Batch dictionary containing 'video' and labels
+        model: Model instance to access cfg and task-specific info
+        max_examples: Number of examples to visualize (default: 4)
     """
-    videos = batch["video"][:4]   # expected (B, T=20, C, H, W) or (B, 20, H, W, C)
-    audios = batch["audio"][:4]   # expected (B, 80, 3000) or similar 2D per example
-    texts  = batch["raw_text"][:4]
-
-    B = 4
-    # Create a single figure using a 12-row GridSpec (3 rows per example)
-    import matplotlib.gridspec as gridspec
-    fig = plt.figure(figsize=(16, 20))
-    gs = gridspec.GridSpec(B * 3, 1, height_ratios=[3, 2, 1] * B)
-
-    for i in range(B):
-        # --- Video (stack 20 frames) ---
-        ax_v = fig.add_subplot(gs[i*3 + 0, 0])
-        stacked_img = _stack_20_frames(videos[i])
-        ax_v.imshow(stacked_img)
-        ax_v.set_title(f"Example {i+1} — Video (20 frames stacked)")
-        ax_v.axis("off")
-
-        # --- Audio ---
-        ax_a = fig.add_subplot(gs[i*3 + 1, 0])
-        A = _to_numpy(audios[i])
-        if A.ndim != 2:
-            # Try to squeeze extra dims if present
-            A = np.squeeze(A)
-            if A.ndim != 2:
-                raise ValueError(f"Audio item {i} should be 2D, got shape {A.shape}")
-        im = ax_a.imshow(A, aspect="auto", origin="lower")
-        ax_a.set_ylabel("Freq bins")
-        ax_a.set_xlabel("Time")
-        ax_a.set_title(f"Example {i+1} — Audio")
-        fig.colorbar(im, ax=ax_a, fraction=0.015, pad=0.02)
-
-        # --- Text ---
-        ax_t = fig.add_subplot(gs[i*3 + 2, 0])
-        ax_t.axis("off")
-        txt = texts[i]
-        if not isinstance(txt, str):
-            txt = str(txt)
-        ax_t.text(
-            0.01, 0.9, f"Example {i+1} — Text",
-            fontsize=12, va="top", ha="left", transform=ax_t.transAxes
-        )
-        ax_t.text(
-            0.01, 0.75, txt,
-            fontsize=11, va="top", ha="left", transform=ax_t.transAxes,
-            wrap=True
-        )
-
+    import torch
+    
+    # Get batch info
+    batch_size = batch["video"].shape[0]
+    num_examples = min(max_examples, batch_size)
+    
+    # Get videos: [B, A, T, C, H, W]
+    videos = batch["video"][:num_examples]
+    num_agents = videos.shape[1]
+    num_frames = videos.shape[2]
+    
+    # Get labels based on task type
+    if 'enemy_locations' in batch:
+        labels = batch['enemy_locations'][:num_examples]
+        label_type = 'enemy'
+    elif 'future_locations' in batch:
+        labels = batch['future_locations'][:num_examples]
+        label_type = 'future'
+    else:
+        print("Warning: No labels found in batch")
+        return
+    
+    # Get task info from model
+    task_form = model.task_form
+    cfg = model.cfg
+    
+    # Create figure with subplots
+    # Each example gets 2 rows: video frames + labels
+    fig = plt.figure(figsize=(20, 5 * num_examples))
+    gs = fig.add_gridspec(num_examples * 2, 1, hspace=0.3)
+    
+    for i in range(num_examples):
+        # Row for video frames
+        video_ax = fig.add_subplot(gs[i * 2, 0])
+        _plot_multi_agent_video(videos[i], video_ax, num_agents)
+        video_ax.set_title(f"Example {i+1}: Multi-Agent Video (Team: {batch['team_side'][i] if 'team_side' in batch else 'N/A'})", 
+                          fontsize=14, fontweight='bold')
+        
+        # Row for labels
+        label_ax = fig.add_subplot(gs[i * 2 + 1, 0])
+        _plot_labels(labels[i], label_ax, task_form, cfg, label_type)
+    
     plt.tight_layout()
     plt.show()
+    plt.close()
+
+
+def _plot_multi_agent_video(video_tensor, ax, num_agents):
+    """
+    Plot multi-agent video frames.
+    
+    Args:
+        video_tensor: [A, T, C, H, W] tensor
+        ax: Matplotlib axis
+        num_agents: Number of agents
+    """
+    # Select middle frame from each agent
+    # video_tensor: [A, T, C, H, W]
+    A, T, C, H, W = video_tensor.shape
+    mid_frame_idx = T // 2
+    
+    # Get one frame per agent: [A, C, H, W]
+    frames = video_tensor[:, mid_frame_idx, :, :, :]
+    frames = _to_numpy(frames)
+    
+    # Concatenate frames horizontally
+    frames_list = []
+    for a in range(A):
+        frame = frames[a]  # [C, H, W]
+        # Convert to [H, W, C] and normalize
+        frame = np.transpose(frame, (1, 2, 0))
+        
+        # Normalize to [0, 1]
+        if frame.max() > 1.0 or frame.min() < 0.0:
+            frame = (frame - frame.min()) / (frame.max() - frame.min() + 1e-8)
+        
+        # Handle grayscale
+        if frame.shape[-1] == 1:
+            frame = np.repeat(frame, 3, axis=-1)
+        
+        frames_list.append(frame)
+    
+    # Concatenate horizontally
+    combined_frame = np.concatenate(frames_list, axis=1)  # [H, A*W, 3]
+    
+    ax.imshow(combined_frame)
+    ax.axis('off')
+    
+    # Add agent labels
+    for a in range(A):
+        ax.text(W * a + W // 2, H - 10, f'Agent {a+1}', 
+               ha='center', va='top', color='yellow', fontsize=10, 
+               bbox=dict(boxstyle='round', facecolor='black', alpha=0.5))
+
+
+def _plot_labels(labels_tensor, ax, task_form, cfg, label_type='enemy'):
+    """
+    Plot labels based on task form.
+    
+    Args:
+        labels_tensor: Label tensor (shape depends on task_form)
+        ax: Matplotlib axis
+        task_form: Task formulation (multi-label-cls, grid-cls, coord-reg, etc.)
+        cfg: Configuration object
+        label_type: 'enemy' or 'future'
+    """
+    labels = _to_numpy(labels_tensor)
+    
+    if task_form == 'multi-label-cls':
+        # Labels shape: [num_places] - binary vector indicating occupied places
+        place_names = cfg.place_names if hasattr(cfg, 'place_names') else None
+        
+        if place_names is None:
+            # Fallback: use indices
+            place_names = [f'Place {i}' for i in range(len(labels))]
+        
+        # Reshape to [1, num_places] for visualization as a single row heatmap
+        labels_2d = labels.reshape(1, -1)
+        
+        # Create heatmap
+        im = ax.imshow(labels_2d, aspect='auto', cmap='YlOrRd', vmin=0, vmax=1)
+        ax.set_xlabel('Place', fontsize=12)
+        ax.set_ylabel('Occupied', fontsize=12)
+        ax.set_title(f'{label_type.capitalize()} Location Labels (Multi-Label Classification)\nBinary vector: 1 = at least one player present', 
+                    fontsize=12, fontweight='bold')
+        
+        # Set y-axis
+        ax.set_yticks([0])
+        ax.set_yticklabels(['Any Player'])
+        
+        # Only show place names if there aren't too many
+        if len(place_names) <= 20:
+            ax.set_xticks(range(len(place_names)))
+            ax.set_xticklabels(list(place_names), rotation=45, ha='right', fontsize=8)
+        else:
+            # Show only some ticks
+            num_ticks = 10
+            tick_indices = np.linspace(0, len(place_names) - 1, num_ticks).astype(int)
+            ax.set_xticks(tick_indices)
+            ax.set_xticklabels([place_names[int(i)] for i in tick_indices], rotation=45, ha='right', fontsize=8)
+        
+        # Add colorbar
+        plt.colorbar(im, ax=ax, label='Presence (0=Absent, 1=Present)')
+        
+        # Add text annotations for positive labels
+        for place_idx in range(len(labels)):
+            if labels[place_idx] > 0.5:
+                ax.text(place_idx, 0, '✓', ha='center', va='center', 
+                       color='black', fontsize=10, fontweight='bold')
+    
+    elif task_form == 'grid-cls':
+        # Labels shape: [grid_res*grid_res] - binary classification over grid
+        grid_res = cfg.data.grid_resolution
+        
+        # Reshape to [grid_res, grid_res]
+        grid = labels.reshape(grid_res, grid_res)
+        
+        im = ax.imshow(grid, cmap='hot', origin='lower', vmin=0, vmax=1)
+        ax.set_xlabel('Grid X', fontsize=12)
+        ax.set_ylabel('Grid Y', fontsize=12)
+        ax.set_title(f'{label_type.capitalize()} Location Labels (Grid Classification, {grid_res}x{grid_res})', 
+                    fontsize=12, fontweight='bold')
+        plt.colorbar(im, ax=ax, label='Occupied (0=Absent, 1=Present)')
+    
+    elif task_form in ['coord-reg', 'generative']:
+        # Labels shape: [5, 3] - (x, y, z) coordinates for 5 players
+        coords = labels.reshape(-1, 3)  # [5, 3]
+        
+        # Plot x-y scatter
+        ax.scatter(coords[:, 0], coords[:, 1], s=100, c=range(len(coords)), 
+                  cmap='viridis', edgecolors='black', linewidths=2)
+        ax.set_xlabel('X Coordinate', fontsize=12)
+        ax.set_ylabel('Y Coordinate', fontsize=12)
+        ax.set_title(f'{label_type.capitalize()} Location Labels (Coordinate Regression)', 
+                    fontsize=12, fontweight='bold')
+        ax.grid(True, alpha=0.3)
+        
+        # Add player labels
+        for i in range(len(coords)):
+            ax.text(coords[i, 0], coords[i, 1], f'P{i+1}', 
+                   ha='center', va='center', color='white', fontsize=8, fontweight='bold')
+    
+    elif task_form == 'density-cls':
+        # Labels shape: [grid_res*grid_res] - density distribution over grid
+        grid_res = cfg.data.grid_resolution
+        
+        # Reshape to [grid_res, grid_res]
+        density_grid = labels.reshape(grid_res, grid_res)
+        
+        im = ax.imshow(density_grid, cmap='hot', origin='lower')
+        ax.set_xlabel('Grid X', fontsize=12)
+        ax.set_ylabel('Grid Y', fontsize=12)
+        ax.set_title(f'{label_type.capitalize()} Location Labels (Density Map, {grid_res}x{grid_res})', 
+                    fontsize=12, fontweight='bold')
+        plt.colorbar(im, ax=ax, label='Density')
+    
+    elif task_form in ['multi-output-reg']:
+        # Labels shape: [num_places] - regression of counts per place
+        place_names = cfg.place_names if hasattr(cfg, 'place_names') else None
+        
+        if place_names is None:
+            place_names = [f'Place {i}' for i in range(len(labels))]
+        
+        # Reshape to [1, num_places] for visualization as a single row heatmap
+        labels_2d = labels.reshape(1, -1)
+        
+        # Create heatmap
+        im = ax.imshow(labels_2d, aspect='auto', cmap='YlOrRd')
+        ax.set_xlabel('Place', fontsize=12)
+        ax.set_ylabel('Count', fontsize=12)
+        ax.set_title(f'{label_type.capitalize()} Location Labels (Multi-Output Regression)\nPlayer count per location', 
+                    fontsize=12, fontweight='bold')
+        
+        # Set y-axis
+        ax.set_yticks([0])
+        ax.set_yticklabels(['# Players'])
+        
+        if len(place_names) <= 20:
+            ax.set_xticks(range(len(place_names)))
+            ax.set_xticklabels(list(place_names), rotation=45, ha='right', fontsize=8)
+        else:
+            num_ticks = 10
+            tick_indices = np.linspace(0, len(place_names) - 1, num_ticks).astype(int)
+            ax.set_xticks(tick_indices)
+            ax.set_xticklabels([place_names[int(i)] for i in tick_indices], rotation=45, ha='right', fontsize=8)
+        
+        plt.colorbar(im, ax=ax, label='Player Count')
+        
+        # Add text annotations showing counts
+        for place_idx in range(len(labels)):
+            if labels[place_idx] > 0:
+                ax.text(place_idx, 0, f'{int(labels[place_idx])}', 
+                       ha='center', va='center', color='white', 
+                       fontsize=8, fontweight='bold')
+    
+    else:
+        ax.text(0.5, 0.5, f'Visualization not implemented for task_form: {task_form}', 
+               ha='center', va='center', transform=ax.transAxes, fontsize=12)
     
 def setup_test_model_with_dataset_info(cfg, datamodule, test_model):
     """Setup test model with dataset-specific information"""

@@ -31,7 +31,7 @@ data:
   recording_text_trajectory_weight: 0.5  # Weight for trajectory-based descriptions
   recording_text_transcription_weight: 0.5  # Weight for voice transcriptions
   max_text_per_clip: 3
-  mask_minimap: false
+  mask_minimap: true
   communication_types_to_exclude:
     - emotional_social
     - noise_artifacts

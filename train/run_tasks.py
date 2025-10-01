@@ -2,6 +2,7 @@
 from models.multi_agent_location_predictor import CrossEgoVideoLocationNet
 # from models.ctfm_contrastive import CTFMContrastive
 from data_module.enemy_location_nowcast import EnemyLocationNowcastDataModule
+from data_module.enemy_location_forecast import EnemyLocationForecastDataModule
 from data_module.teammate_location_forecast import TeammateLocationForecastDataModule
 # from data_module.contrastive import CTFMContrastiveDataModule
 from train.train_pipeline import run_training_pipeline
@@ -35,9 +36,9 @@ def train_enemy_location_forecast(cfg):
     run_training_pipeline(
         cfg=cfg,
         model_class=CrossEgoVideoLocationNet,
-        datamodule_class=EnemyLocationNowcastDataModule,
+        datamodule_class=EnemyLocationForecastDataModule,
         task_name="enemy_location_forecast",
-        print_header="=== TRAINING MODE MULTI-AGENT ENEMY LOCATION PREDICTION ==="
+        print_header="=== TRAINING MODE MULTI-AGENT ENEMY FUTURE LOCATION PREDICTION ==="
     )
 
 
@@ -71,7 +72,7 @@ def test_enemy_location_forecast(cfg):
     run_test_only_pipeline(
         cfg=cfg,
         model_class=CrossEgoVideoLocationNet,
-        datamodule_class=EnemyLocationNowcastDataModule,
+        datamodule_class=EnemyLocationForecastDataModule,
         task_name="enemy_location_forecast"
     )
 

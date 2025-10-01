@@ -13,7 +13,7 @@ model:
     kl_weight: 1.0
   encoder:
     video:
-      from_pretrained: openai/clip-vit-base-patch32
+      from_pretrained: facebook/dinov2-base
       # from_pretrained: facebook/vjepa2-vitl-fpc16-256-ssv2
 
 training:

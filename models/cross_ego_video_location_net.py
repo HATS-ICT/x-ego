@@ -6,7 +6,7 @@ in multi-agent scenarios, supporting six different task formulations:
 
 Task Forms:
 - coord-reg: Direct regression of (x, y, z) coordinates for each agent
-- generative: VAE-based generative model for sampling agent coordinates
+- coord-gen: VAE-based coord-gen model for sampling agent coordinates
 - multi-label-cls: Binary classification over predefined locations
 - multi-output-reg: Regression of agent counts per location
 - grid-cls: Binary classification over spatial grid cells
@@ -125,13 +125,13 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
     
     def _init_task_specific_components(self, cfg, hidden_dim, dropout, num_hidden_layers):
         """Initialize task-specific output heads and metrics."""
-        if self.task_form in ['coord-reg', 'generative']:
+        if self.task_form in ['coord-reg', 'coord-gen']:
             # Coordinate regression: output [num_agents * 3 coordinates]
             self.output_dim = cfg.model.num_target_agents * 3
             self.train_mse, self.val_mse = MeanSquaredError(), MeanSquaredError()
             self.train_mae, self.val_mae = MeanAbsoluteError(), MeanAbsoluteError()
             
-            if self.task_form == 'generative':
+            if self.task_form == 'coord-gen':
                 # VAE-specific components
                 self.latent_dim = cfg.model.vae.latent_dim
                 self.vae = ConditionalVariationalAutoencoder(
@@ -196,7 +196,7 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
                 - team_embeddings: Team embeddings
                 - combined_features: Combined video + team features
                 - agent_embeddings: Per-agent embeddings
-                - mu, logvar, z: VAE latent variables (generative mode only)
+                - mu, logvar, z: VAE latent variables (coord-gen mode only)
         """
         video = batch['video']  # [B, A, T, C, H, W]
         pov_team_side_encoded = batch['pov_team_side_encoded']  # [B]
@@ -225,8 +225,8 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
             'agent_embeddings': agent_embeddings
         }
         
-        if self.task_form == 'generative':
-            # Generative (VAE) mode
+        if self.task_form == 'coord-gen':
+            # coord-gen (VAE) mode
             if mode == 'sampling':
                 vae_outputs = self.vae(None, combined_features, mode='sampling')
             else:
@@ -240,7 +240,7 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
                 'z': vae_outputs['z']
             })
         else:
-            # Standard (non-generative) mode
+            # Standard (non-coord-gen) mode
             predictions = self.predictor(combined_features)
             if self.task_form == 'coord-reg':
                 predictions = predictions.view(-1, 5, 3)
@@ -291,7 +291,7 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
                             on_step=True, on_epoch=True, prog_bar=False)
         
         # Log coordinate-based metrics
-        if self.task_form in ['coord-reg', 'generative']:
+        if self.task_form in ['coord-reg', 'coord-gen']:
             self.train_mse(predictions.view(batch_size, -1), targets.view(batch_size, -1))
             self.train_mae(predictions.view(batch_size, -1), targets.view(batch_size, -1))
             self.safe_log('train/mse', self.train_mse, batch_size=batch_size,
@@ -346,8 +346,8 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
                 self.safe_log(f'val/{name}', value, batch_size=batch_size,
                             on_step=False, on_epoch=True, prog_bar=False)
         
-        # Test generative sampling for VAE
-        if self.task_form == 'generative':
+        # Test coord-gen sampling for VAE
+        if self.task_form == 'coord-gen':
             gen_outputs = self.forward(batch, mode='sampling')
             gen_predictions = gen_outputs['predictions']
             gen_loss = self.loss_computer._compute_regression_loss(gen_predictions, targets)
@@ -355,7 +355,7 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
                          on_step=False, on_epoch=True, prog_bar=False)
         
         # Log coordinate-based metrics
-        if self.task_form in ['coord-reg', 'generative']:
+        if self.task_form in ['coord-reg', 'coord-gen']:
             self.val_mse(predictions.view(batch_size, -1), targets.view(batch_size, -1))
             self.val_mae(predictions.view(batch_size, -1), targets.view(batch_size, -1))
             self.safe_log('val/mse', self.val_mse, batch_size=batch_size,
@@ -450,8 +450,8 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
                 self.safe_log(f'test/{name}', value, batch_size=batch_size,
                             on_step=False, on_epoch=True, prog_bar=False)
         
-        # Test generative sampling for VAE
-        if self.task_form == 'generative':
+        # Test coord-gen sampling for VAE
+        if self.task_form == 'coord-gen':
             gen_outputs = self.forward(batch, mode='sampling')
             gen_predictions = gen_outputs['predictions']
             gen_loss = self.loss_computer._compute_regression_loss(gen_predictions, targets)
@@ -459,7 +459,7 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
                          on_step=False, on_epoch=True, prog_bar=False)
         
         # Initialize and log coordinate-based metrics
-        if self.task_form in ['coord-reg', 'generative']:
+        if self.task_form in ['coord-reg', 'coord-gen']:
             if not hasattr(self, 'test_mse'):
                 self.test_mse = MeanSquaredError().to(self.device)
                 self.test_mae = MeanAbsoluteError().to(self.device)
@@ -496,7 +496,7 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
         # Store predictions and targets
         self.test_pov_team_sides.extend(pov_team_sides)
         
-        if self.task_form in ['coord-reg', 'generative']:
+        if self.task_form in ['coord-reg', 'coord-gen']:
             # Store both scaled and unscaled versions
             predictions_unscaled = self.unscale_coordinates(predictions)
             targets_unscaled = self.unscale_coordinates(targets)
@@ -535,7 +535,7 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
         test_results = self.metrics_calculator.calculate_metrics(predictions, targets)
         
         # Add geometric distances for coordinate-based tasks
-        if self.task_form in ['coord-reg', 'generative']:
+        if self.task_form in ['coord-reg', 'coord-gen']:
             geometric_metrics = self.metrics_calculator.calculate_geometric_distances(
                 self.test_predictions, self.test_targets
             )
@@ -558,7 +558,7 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
         test_results['team_distribution'] = dict(zip(unique_teams.tolist(), team_counts.tolist()))
         
         # Add task-specific metadata
-        if self.task_form in ['coord-reg', 'generative']:
+        if self.task_form in ['coord-reg', 'coord-gen']:
             analyzer.add_coordinate_metadata(test_results)
         
         # Save results to JSON using TestAnalyzer
@@ -568,7 +568,7 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
         analyzer.create_visualization_plots(predictions, targets, plots_dir, pov_team_sides)
         
         # Create KDE heatmaps for coordinate-based tasks
-        if self.task_form in ['coord-reg', 'generative']:
+        if self.task_form in ['coord-reg', 'coord-gen']:
             analyzer.create_prediction_heatmaps(plots_dir, self.test_raw_samples_by_team)
     
     # ============================================================================

@@ -93,7 +93,7 @@ class EnemyLocationNowcastDataset(BaseVideoDataset, Dataset):
         if self.num_agents < 1 or self.num_agents > 5:
             raise ValueError(f"num_agents must be between 1 and 5, got {self.num_agents}")
             
-        valid_task_forms = ['coord-reg', 'generative', 'multi-label-cls', 'multi-output-reg', 'grid-cls', 'density-cls']
+        valid_task_forms = ['coord-reg', 'coord-gen', 'multi-label-cls', 'multi-output-reg', 'grid-cls', 'density-cls']
         if self.task_form not in valid_task_forms:
             raise ValueError(f"task_form must be one of {valid_task_forms}, got {self.task_form}")
         
@@ -126,7 +126,7 @@ class EnemyLocationNowcastDataset(BaseVideoDataset, Dataset):
         # Initialize coordinate scaler for coordinate-based tasks
         self.coordinate_scaler = None
         self.scaler_fitted = False
-        if self.task_form in ['coord-reg', 'generative', 'grid-cls', 'density-cls']:
+        if self.task_form in ['coord-reg', 'coord-gen', 'grid-cls', 'density-cls']:
             self._init_coordinate_scaler()
         
         # Initialize label creator
@@ -304,7 +304,7 @@ class EnemyLocationNowcastDataset(BaseVideoDataset, Dataset):
         """Initialize label creator based on task form."""
         kwargs = {}
         
-        if self.task_form in ['coord-reg', 'generative', 'grid-cls', 'density-cls']:
+        if self.task_form in ['coord-reg', 'coord-gen', 'grid-cls', 'density-cls']:
             kwargs['coordinate_scaler'] = self.coordinate_scaler if self.scaler_fitted else None
         
         if self.task_form in ['multi-label-cls', 'multi-output-reg']:

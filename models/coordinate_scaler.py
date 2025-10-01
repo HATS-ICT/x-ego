@@ -18,7 +18,7 @@ class CoordinateScaler:
         Args:
             scaler: sklearn scaler object (e.g., MinMaxScaler)
         """
-        if hasattr(self, 'task_form') and self.task_form in ['coord-reg', 'generative', 'grid-cls', 'density-cls']:
+        if hasattr(self, 'task_form') and self.task_form in ['coord-reg', 'coord-gen', 'grid-cls', 'density-cls']:
             self.coordinate_scaler = scaler
             if scaler is not None:
                 print(f"Set coordinate scaler with data_min_: {scaler.data_min_}, "
@@ -36,7 +36,7 @@ class CoordinateScaler:
         Returns:
             Unscaled coordinates in same format as input
         """
-        if hasattr(self, 'task_form') and self.task_form in ['coord-reg', 'generative']:
+        if hasattr(self, 'task_form') and self.task_form in ['coord-reg', 'coord-gen']:
             assert self.coordinate_scaler is not None, \
                 "Coordinate scaler must be set for coordinate regression modes"
         

@@ -7,7 +7,7 @@ Supports 6 different label formulations:
 3. grid-cls: Binary vector of occupied grid cells
 4. density-cls: Smoothed density distribution over grid cells
 5. coord-reg: Direct 3D coordinate regression
-6. generative: Same as coord-reg but used with VAE/generative models
+6. coord-gen: Same as coord-reg but used with VAE/coord-gen models
 """
 
 import torch
@@ -266,8 +266,8 @@ def create_label_creator(cfg: Dict, **kwargs) -> LabelCreatorBase:
             cfg, 
             coordinate_scaler=kwargs.get('coordinate_scaler')
         )
-    elif task_form == 'generative':
-        # Generative uses same labels as coord-reg
+    elif task_form == 'coord-gen':
+        # coord-gen uses same labels as coord-reg
         return CoordRegLabelCreator(
             cfg, 
             coordinate_scaler=kwargs.get('coordinate_scaler')

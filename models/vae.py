@@ -1,9 +1,9 @@
 """
-VAE Components for Generative Multi-Agent Location Prediction
+VAE Components for coord-gen Multi-Agent Location Prediction
 
 This module provides VAE-specific functionality including:
 - Encoder (posterior approximation)
-- Decoder (generative model)
+- Decoder (coord-gen model)
 - Reparameterization trick
 - Prior sampling
 """
@@ -13,7 +13,7 @@ import torch.nn as nn
 
 
 class ConditionalVariationalAutoencoder(nn.Module):
-    """VAE module for generative multi-agent location prediction."""
+    """VAE module for coord-gen multi-agent location prediction."""
     
     def __init__(self, output_dim, combined_dim, latent_dim, num_hidden_layers, 
                  hidden_dim, dropout, activation_fn):
@@ -129,7 +129,7 @@ class ConditionalVariationalAutoencoder(nn.Module):
     
     def sample_from_prior(self, combined_features, num_samples=1):
         """
-        Sample from prior distribution for generative testing.
+        Sample from prior distribution for coord-gen testing.
         
         Args:
             combined_features: [B, combined_dim] - conditioning features

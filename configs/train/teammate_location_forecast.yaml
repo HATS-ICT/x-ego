@@ -23,7 +23,7 @@ data:
   video_size_mode: resize_distort
   # Multi-agent self-team future location prediction specific parameters
   num_agents: 5  # Number of agents from team side to use (1-5, recommend 5 for full team)
-  task_form: "multi-label-cls" # multi-label-cls, multi-output-reg, grid-cls, density-cls, coord-reg, generative
+  task_form: "multi-label-cls" # multi-label-cls, multi-output-reg, grid-cls, density-cls, coord-reg, coord-gen
   # Grid-based task parameters (for grid-cls and density-cls)
   grid_resolution: 10  # Grid resolution (10x10 = 100 cells)
   gaussian_sigma: 1.0  # Gaussian smoothing sigma for density-cls
@@ -53,7 +53,7 @@ model:
     multi-output-reg: "mse"  # Options: mse, mae
     density-cls: "mse"  # Options: mse, mae, kl
     coord-reg: "sinkhorn"  # Options: mse, sinkhorn, hausdorff, energy
-    generative: "sinkhorn"  # Options: mse, sinkhorn, hausdorff, energy
+    coord-gen: "sinkhorn"  # Options: mse, sinkhorn, hausdorff, energy
   # Loss-specific parameters
   sinkhorn:
     blur: 0.05  # Controls smoothing (0.01-0.1)

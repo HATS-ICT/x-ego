@@ -20,7 +20,7 @@ class LossComputer:
     Handles loss computation for different task formulations.
     
     Task-specific loss functions:
-    - coord-reg, generative: 'mse', 'sinkhorn', 'hausdorff', 'energy'
+    - coord-reg, coord-gen: 'mse', 'sinkhorn', 'hausdorff', 'energy'
     - multi-label-cls, grid-cls: 'bce', 'focal'
     - multi-output-reg, density-cls: 'mse', 'mae', 'kl'
     """
@@ -30,7 +30,7 @@ class LossComputer:
         Initialize loss computer.
         
         Args:
-            task_form: Type of task ('coord-reg', 'generative', 'multi-label-cls', etc.)
+            task_form: Type of task ('coord-reg', 'coord-gen', 'multi-label-cls', etc.)
             loss_fn: Task-specific loss function (see class docstring for options)
             cfg: Root configuration object
         """
@@ -50,7 +50,7 @@ class LossComputer:
         # Define valid loss functions for each task form
         valid_loss_fns = {
             'coord-reg': ['mse', 'sinkhorn', 'hausdorff', 'energy'],
-            'generative': ['mse', 'sinkhorn', 'hausdorff', 'energy'],
+            'coord-gen': ['mse', 'sinkhorn', 'hausdorff', 'energy'],
             'multi-label-cls': ['bce', 'focal'],
             'grid-cls': ['bce', 'focal'],
             'multi-output-reg': ['mse', 'mae', 'kl'],
@@ -67,7 +67,7 @@ class LossComputer:
                 )
         
         # Initialize geometric loss functions for coordinate-based tasks
-        if self.task_form in ['coord-reg', 'generative']:
+        if self.task_form in ['coord-reg', 'coord-gen']:
             if self.loss_fn == 'sinkhorn':
                 self.geometric_loss = SamplesLoss(
                     loss="sinkhorn", 
@@ -139,7 +139,7 @@ class LossComputer:
             predictions: Model predictions
             targets: Ground truth targets
             outputs: Full model outputs (for VAE components)
-            kl_weight: Weight for KL divergence (generative mode only)
+            kl_weight: Weight for KL divergence (coord-gen mode only)
             
         Returns:
             loss: Computed loss value
@@ -149,11 +149,11 @@ class LossComputer:
         if self.task_form == 'coord-reg':
             return self._compute_regression_loss(predictions, targets), {}
         
-        elif self.task_form == 'generative':
+        elif self.task_form == 'coord-gen':
             if outputs is None or 'mu' not in outputs or 'logvar' not in outputs:
-                raise ValueError("outputs with 'mu' and 'logvar' required for generative mode")
+                raise ValueError("outputs with 'mu' and 'logvar' required for coord-gen mode")
             if self.model_cfg.vae.kl_weight is None:
-                raise ValueError("kl_weight required for generative mode")
+                raise ValueError("kl_weight required for coord-gen mode")
             
             mu, logvar = outputs['mu'], outputs['logvar']
             total_loss, recon_loss, kl_loss = self._compute_vae_loss(

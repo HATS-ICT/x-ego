@@ -129,7 +129,7 @@ def debug_batch_plot(batch, model, max_examples=4):
     2) Labels visualization (depends on task_form):
        - multi-label-cls: Heatmap showing which places each player occupies
        - grid-cls: Grid heatmap showing spatial occupancy
-       - coord-reg/generative: Scatter plot of coordinates
+       - coord-reg/coord-gen: Scatter plot of coordinates
        - density-cls: Density heatmap
     
     Args:
@@ -316,7 +316,7 @@ def _plot_labels(labels_tensor, ax, task_form, cfg, label_type='enemy'):
                     fontsize=12, fontweight='bold')
         plt.colorbar(im, ax=ax, label='Occupied (0=Absent, 1=Present)')
     
-    elif task_form in ['coord-reg', 'generative']:
+    elif task_form in ['coord-reg', 'coord-gen']:
         # Labels shape: [5, 3] - (x, y, z) coordinates for 5 players
         coords = labels.reshape(-1, 3)  # [5, 3]
         
@@ -393,7 +393,7 @@ def _plot_labels(labels_tensor, ax, task_form, cfg, label_type='enemy'):
     
 def setup_test_model_with_dataset_info(cfg, datamodule, test_model):
     """Setup test model with dataset-specific information"""
-    if cfg.data.task_form in ['coord-reg', 'generative']:
+    if cfg.data.task_form in ['coord-reg', 'coord-gen']:
         # Set coordinate scaler from dataset
         if hasattr(datamodule, 'test_dataset') and hasattr(datamodule.test_dataset, 'get_coordinate_scaler'):
             scaler = datamodule.test_dataset.get_coordinate_scaler()
@@ -409,7 +409,7 @@ def print_task_info(cfg, datamodule, task_name):
         print(f"Task form: {cfg.data.task_form}")
         print(f"Agent fusion method: {cfg.model.agent_fusion.method}")
         
-        if cfg.data.task_form in ['coord-reg', 'generative']:
+        if cfg.data.task_form in ['coord-reg', 'coord-gen']:
             loss_fn = cfg.data.loss_fn[cfg.data.task_form]
             print(f"Loss function: {loss_fn}")
             if loss_fn == 'sinkhorn':

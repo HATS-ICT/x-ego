@@ -42,7 +42,7 @@ class TestAnalyzer:
             metrics = team_specific_metrics[team]
             team_prefix = f'test/{team.lower()}'
             
-            if self.task_form in ['coord-reg', 'generative']:
+            if self.task_form in ['coord-reg', 'coord-gen']:
                 self.model.safe_log(f'{team_prefix}_mse', metrics['mse'], on_epoch=True)
                 self.model.safe_log(f'{team_prefix}_mae', metrics['mae'], on_epoch=True)
                 
@@ -81,7 +81,7 @@ class TestAnalyzer:
     
     def log_overall_metrics(self, test_results):
         """Log overall test metrics to logger."""
-        if self.task_form in ['coord-reg', 'generative']:
+        if self.task_form in ['coord-reg', 'coord-gen']:
             if 'geometric_distances' in test_results:
                 geom = test_results['geometric_distances']
                 self.model.safe_log('test/chamfer_distance', 
@@ -118,7 +118,7 @@ class TestAnalyzer:
             test_results['sinkhorn_blur'] = self.model.loss_computer.sinkhorn_blur
             test_results['sinkhorn_scaling'] = self.model.loss_computer.sinkhorn_scaling
         
-        if self.task_form == 'generative':
+        if self.task_form == 'coord-gen':
             test_results['latent_dim'] = self.model.latent_dim
             test_results['kl_weight'] = self.cfg.model.vae.kl_weight
     
@@ -198,14 +198,14 @@ class TestAnalyzer:
         
         predictions = []
         for _ in range(num_predictions):
-            if self.task_form == 'generative':
+            if self.task_form == 'coord-gen':
                 outputs = self.model.forward(sample, mode='sampling')
             else:
                 outputs = self.model.forward(sample, mode='full')
             
             pred = outputs['predictions']  # [1, 5, 3]
             
-            if self.task_form in ['coord-reg', 'generative']:
+            if self.task_form in ['coord-reg', 'coord-gen']:
                 pred_unscaled = self.model.unscale_coordinates(pred)
                 predictions.append(pred_unscaled.cpu().numpy()[0])
             else:

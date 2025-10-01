@@ -166,8 +166,8 @@ def debug_batch_plot(batch, model, max_examples=4):
     # Create separate figure for each example
     for i in range(num_examples):
         # Create figure with side-by-side layout: video (left, large) and labels (right, compact)
-        fig = plt.figure(figsize=(18, 6))
-        gs = fig.add_gridspec(1, 2, width_ratios=[2.5, 1], wspace=0.25)
+        fig = plt.figure(figsize=(22, 6))
+        gs = fig.add_gridspec(1, 2, width_ratios=[1, 1], wspace=0.25)
         
         # Left: video frames (larger)
         video_ax = fig.add_subplot(gs[0, 0])
@@ -291,15 +291,8 @@ def _plot_labels(labels_tensor, ax, task_form, cfg, label_type='enemy'):
         ax.set_yticklabels(['Any Player'])
         
         # Only show place names if there aren't too many
-        if len(place_names) <= 20:
-            ax.set_xticks(range(len(place_names)))
-            ax.set_xticklabels(list(place_names), rotation=45, ha='right', fontsize=8)
-        else:
-            # Show only some ticks
-            num_ticks = 10
-            tick_indices = np.linspace(0, len(place_names) - 1, num_ticks).astype(int)
-            ax.set_xticks(tick_indices)
-            ax.set_xticklabels([place_names[int(i)] for i in tick_indices], rotation=45, ha='right', fontsize=8)
+        ax.set_xticks(range(len(place_names)))
+        ax.set_xticklabels(list(place_names), rotation=45, ha='right', fontsize=8)
         
         # Add colorbar
         plt.colorbar(im, ax=ax, label='Presence (0=Absent, 1=Present)')

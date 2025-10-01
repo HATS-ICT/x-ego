@@ -386,9 +386,9 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
         batch_size = batch["video"].shape[0]
         
         # Debug visualization for first batch of first epoch only
-        if batch_idx == 0 and self.current_epoch == 0:
-            from utils.training_utils import debug_batch_plot
-            debug_batch_plot(batch, self)
+        # TODO: Remove
+        # from utils.training_utils import debug_batch_plot
+        # debug_batch_plot(batch, self)
         
         targets = self._get_target_locations(batch)
         

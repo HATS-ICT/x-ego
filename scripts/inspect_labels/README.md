@@ -78,7 +78,7 @@ Add this to your model initialization (e.g., in `models/multi_agent_location_pre
 import json
 from pathlib import Path
 
-class MultiAgentEnemyLocationPredictionModel(L.LightningModule):
+class CrossEgoVideoLocationNet(L.LightningModule):
     def __init__(self, cfg):
         super().__init__()
         # ... existing initialization ...

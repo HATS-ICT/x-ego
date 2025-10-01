@@ -38,12 +38,12 @@ from models.coordinate_utils import CoordinateScalerMixin
 from models.vae_mixins import VAEMixin
 
 try:
-    from video_encoder_baseline import VideoEncoderBaseline
+    from video_encoder import VideoEncoder
 except ImportError:
-    from .video_encoder_baseline import VideoEncoderBaseline
+    from .video_encoder import VideoEncoder
 
 
-class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScalerMixin, VAEMixin):
+class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixin):
     """
     Multi-agent enemy location prediction model supporting multiple task formulations.
     
@@ -98,7 +98,7 @@ class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScaler
     
     def init_video_encoder(self, video_encoder_cfg):
         """Initialize the video encoder."""
-        return VideoEncoderBaseline(video_encoder_cfg)
+        return VideoEncoder(video_encoder_cfg)
     
     def _get_target_locations(self, batch):
         """

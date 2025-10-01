@@ -381,130 +381,6 @@ class VideoEncoderVJEPA2(nn.Module):
         return video_features
 
 
-class VideoEncoderFromContrastive(nn.Module):
-    """
-    Video encoder that loads CTFMVideoEncoderModel from a contrastive learning checkpoint.
-    
-    This encoder extracts the pretrained video encoder from a contrastive model checkpoint
-    and uses it for video classification tasks.
-    """
-    
-    def __init__(self, cfg: Dict[str, Any]):
-        super().__init__()
-        self.cfg = cfg
-        
-        self.contrastive_checkpoint_path = cfg.contrastive_checkpoint_path
-        
-        # Load the contrastive model and extract video encoder
-        self.video_encoder = self._load_video_encoder_from_contrastive()
-        
-        # The actual output dimension is the shared_proj_dim, not the encoder's embed_dim
-        if hasattr(self.video_encoder, 'projection') and self.video_encoder.projection is not None:
-            # Get the output dimension from the last layer of the projection
-            self.embed_dim = self.video_encoder.projection[-1].out_features
-        else:
-            # Fallback to the encoder's embed_dim if no projection
-            self.embed_dim = self.video_encoder.embed_dim
-        
-        print(f"Video encoder actual output dimension: {self.embed_dim}")
-        
-        if cfg.freeze_backbone:
-            self._freeze_backbone()
-    
-    def _load_video_encoder_from_contrastive(self):
-        """Load CTFMVideoEncoderModel from contrastive checkpoint"""
-        from models.ctfm_contrastive import CTFMContrastive
-        
-        # Find the checkpoint path
-        checkpoint_path = self._find_checkpoint_path()
-        
-        print(f"Loading contrastive checkpoint from: {checkpoint_path}")
-        
-        # Load the checkpoint (weights_only=False for compatibility with PyTorch 2.6+)
-        checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
-        
-        # Extract the config from the checkpoint
-        if 'hyper_parameters' in checkpoint:
-            contrastive_config = checkpoint['hyper_parameters']['config']
-        else:
-            raise ValueError("Could not find config in checkpoint. Expected 'hyper_parameters' key.")
-        
-        # Create the contrastive model to get the video encoder structure
-        contrastive_model = CTFMContrastive(contrastive_config)
-        
-        # Load the state dict
-        contrastive_model.load_state_dict(checkpoint['state_dict'])
-        
-        # Extract the video encoder
-        if contrastive_model.video_encoder is None:
-            raise ValueError("No video encoder found in the contrastive model")
-        
-        print("Successfully loaded video encoder from contrastive checkpoint")
-        print(f"Video encoder embed_dim: {contrastive_model.video_encoder.embed_dim}")
-        
-        return contrastive_model.video_encoder
-    
-    def _find_checkpoint_path(self):
-        """Find the checkpoint path by constructing it from the output folder and experiment name"""
-        from utils.env_utils import get_output_base_path
-        
-        experiment_name = self.contrastive_checkpoint_path
-        
-        # Always construct the full path from output folder
-        output_base_path = Path(get_output_base_path())
-        experiment_dir = output_base_path / experiment_name
-        checkpoint_dir = experiment_dir / 'checkpoint'
-        last_ckpt = checkpoint_dir / 'last.ckpt'
-        
-        print(f"Looking for checkpoint at: {last_ckpt}")
-        
-        if last_ckpt.exists():
-            return str(last_ckpt)
-        else:
-            # Also try without the checkpoint subdirectory (in case it's directly in experiment folder)
-            last_ckpt_alt = experiment_dir / 'last.ckpt'
-            if last_ckpt_alt.exists():
-                print(f"Found checkpoint at alternative location: {last_ckpt_alt}")
-                return str(last_ckpt_alt)
-            
-            raise FileNotFoundError(
-                f"Could not find last.ckpt for experiment '{experiment_name}'\n"
-                f"Tried:\n  - {last_ckpt}\n  - {last_ckpt_alt}\n"
-                f"Make sure the experiment folder exists in {output_base_path}"
-            )
-    
-    def _freeze_backbone(self):
-        """Freeze video encoder parameters."""
-        for param in self.video_encoder.parameters():
-            param.requires_grad = False
-        print("Frozen video encoder backbone parameters")
-    
-    def forward(self, pixel_values: torch.Tensor, return_last_hidden_state: bool = False) -> Tensor:
-        """
-        Forward pass through the contrastive-pretrained video encoder.
-        
-        Args:
-            pixel_values: Video tensor of shape [batch_size, num_frames, channels, height, width]
-            
-        Returns:
-            Video features from the contrastive model's video encoder
-        """
-        # The CTFMVideoEncoderModel returns a ModelOutput object with last_hidden_state
-        output = self.video_encoder(pixel_values)
-        
-        if hasattr(output, 'last_hidden_state'):
-            video_features = output.last_hidden_state
-        else:
-            # Fallback if it's just a tensor
-            video_features = output
-        
-        return video_features
-    
-    def get_embeddings(self, pixel_values: torch.Tensor) -> Tensor:
-        """Get video embeddings (alias for forward method)."""
-        return self.forward(pixel_values)
-
-
 class VideoEncoder(nn.Module):
     """
     Factory class for video encoders that automatically selects the appropriate encoder
@@ -523,31 +399,25 @@ class VideoEncoder(nn.Module):
         super().__init__()
         self.cfg = cfg
         
-        # Check if we should load from contrastive checkpoint
-        if 'contrastive_checkpoint_path' in cfg and cfg.get('contrastive_checkpoint_path') is not None:
-            print("Loading video encoder from contrastive checkpoint")
-            self.video_encoder = VideoEncoderFromContrastive(cfg)
+        model_type = cfg.model_type
+        
+        if model_type == 'clip':
+            self.video_encoder = VideoEncoderClip(cfg)
+        elif model_type == 'siglip':
+            self.video_encoder = VideoEncoderSigLIP(cfg)
+        elif model_type == 'dinov2':
+            self.video_encoder = VideoEncoderDinov2(cfg)
+        elif model_type == 'vivit':
+            self.video_encoder = VideoEncoderVivit(cfg)
+        elif model_type == 'videomae':
+            self.video_encoder = VideoEncoderVideoMAE(cfg)
+        elif model_type == 'vjepa2':
+            self.video_encoder = VideoEncoderVJEPA2(cfg)
         else:
-            # Use the standard pretrained model approach based on model_type
-            model_type = cfg.get('model_type', 'dinov2')
-            
-            if model_type == 'clip':
-                self.video_encoder = VideoEncoderClip(cfg)
-            elif model_type == 'siglip':
-                self.video_encoder = VideoEncoderSigLIP(cfg)
-            elif model_type == 'dinov2':
-                self.video_encoder = VideoEncoderDinov2(cfg)
-            elif model_type == 'vivit':
-                self.video_encoder = VideoEncoderVivit(cfg)
-            elif model_type == 'videomae':
-                self.video_encoder = VideoEncoderVideoMAE(cfg)
-            elif model_type == 'vjepa2':
-                self.video_encoder = VideoEncoderVJEPA2(cfg)
-            else:
-                raise ValueError(
-                    f"Unknown model_type: '{model_type}'. "
-                    f"Supported types: {list(MODEL_TYPE_TO_PRETRAINED.keys())}"
-                )
+            raise ValueError(
+                f"Unknown model_type: '{model_type}'. "
+                f"Supported types: {list(MODEL_TYPE_TO_PRETRAINED.keys())}"
+            )
         
         self.embed_dim = self.video_encoder.embed_dim
     

@@ -235,11 +235,15 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
         
         # Optional contrastive learning (align agents from same batch)
         contrastive_loss = None
+        contrastive_metrics = None
         if self.use_contrastive:
-            contrastive_out = self.contrastive(agent_embeddings, return_loss=self.training)
+            # Compute contrastive loss/metrics during training or validation (not test)
+            contrastive_out = self.contrastive(agent_embeddings)
             agent_embeddings = contrastive_out['embeddings']
-            if self.training:
-                contrastive_loss = contrastive_out['loss']
+            contrastive_loss = contrastive_out['loss']
+            contrastive_metrics = contrastive_out['retrieval_metrics']
+            # Add temperature to metrics
+            contrastive_metrics['temperature'] = contrastive_out['temperature']
         
         # Fuse agent embeddings
         fused_embeddings = self.agent_fuser(agent_embeddings)  # [B, proj_dim]
@@ -254,7 +258,8 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
             'team_embeddings': team_embeddings,
             'combined_features': combined_features,
             'agent_embeddings': agent_embeddings,
-            'contrastive_loss': contrastive_loss
+            'contrastive_loss': contrastive_loss,
+            'contrastive_metrics': contrastive_metrics
         }
         
         if self.task_form == 'coord-gen':
@@ -318,6 +323,13 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
             loss = loss + self.cfg.model.contrastive.loss_weight * contrastive_loss
             self.safe_log('train/contrastive_loss', contrastive_loss, batch_size=batch_size,
                          on_step=True, on_epoch=True, prog_bar=False)
+            
+            # Log contrastive retrieval metrics
+            if 'contrastive_metrics' in outputs:
+                metrics = outputs['contrastive_metrics']
+                for metric_name, metric_value in metrics.items():
+                    self.safe_log(f'train/contrastive_{metric_name}', metric_value, 
+                                batch_size=batch_size, on_step=True, on_epoch=True, prog_bar=False)
         
         # Log main loss
         self.safe_log('train/loss', loss, batch_size=batch_size, 
@@ -374,6 +386,19 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
         
         # Compute loss
         loss, loss_components = self.loss_computer.compute_loss(outputs, targets)
+        
+        # Log contrastive metrics if enabled (without adding to loss in validation)
+        if outputs['contrastive_loss'] is not None:
+            contrastive_loss = outputs['contrastive_loss']
+            self.safe_log('val/contrastive_loss', contrastive_loss, batch_size=batch_size,
+                         on_step=False, on_epoch=True, prog_bar=False)
+            
+            # Log contrastive retrieval metrics  
+            if 'contrastive_metrics' in outputs:
+                metrics = outputs['contrastive_metrics']
+                for metric_name, metric_value in metrics.items():
+                    self.safe_log(f'val/contrastive_{metric_name}', metric_value,
+                                batch_size=batch_size, on_step=False, on_epoch=True, prog_bar=False)
         
         # Log main loss (without contrastive loss added in validation)
         self.safe_log('val/loss', loss, batch_size=batch_size,
@@ -482,6 +507,19 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
         # Log main loss
         self.safe_log('test/loss', loss, batch_size=batch_size,
                      on_step=False, on_epoch=True, prog_bar=True)
+        
+        # Log contrastive metrics if enabled
+        if outputs['contrastive_loss'] is not None:
+            contrastive_loss = outputs['contrastive_loss']
+            self.safe_log('test/contrastive_loss', contrastive_loss, batch_size=batch_size,
+                         on_step=False, on_epoch=True, prog_bar=False)
+            
+            # Log contrastive retrieval metrics
+            if 'contrastive_metrics' in outputs:
+                metrics = outputs['contrastive_metrics']
+                for metric_name, metric_value in metrics.items():
+                    self.safe_log(f'test/contrastive_{metric_name}', metric_value,
+                                batch_size=batch_size, on_step=False, on_epoch=True, prog_bar=False)
         
         # Log VAE components
         if loss_components:

@@ -11,7 +11,7 @@ data:
   labels_filename: enemy_location_nowcast_s1s_l5s.csv # CSV with player locations
   video_folder: video_544x306_30fps
   batch_size: 8
-  num_workers: 8
+  num_workers: 9
   persistent_workers: true
   pin_mem: true
   prefetch_factor: 2

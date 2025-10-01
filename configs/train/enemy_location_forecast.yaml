@@ -11,7 +11,7 @@ data:
   labels_filename: enemy_location_forecast_s1s_l5s_f10s.csv  # CSV with enemy future locations
   video_folder: video_544x306_30fps
   batch_size: 8
-  num_workers: 8
+  num_workers: 9
   persistent_workers: true
   pin_mem: true
   prefetch_factor: 2
@@ -75,7 +75,7 @@ model:
     logit_scale_init: 1.0
     logit_bias_init: 0.0
     loss_weight: 1.0
-    
+
 training:
   max_epochs: 20
   accelerator: gpu

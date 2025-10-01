@@ -97,23 +97,95 @@ class CrossEgoContrastive(nn.Module):
         
         return labels
     
-    def forward(self, agent_embeddings, return_loss=True):
+    def compute_retrieval_metrics(self, logits, labels):
+        """
+        Compute retrieval accuracy metrics from similarity logits.
+        
+        For each query agent, there are A-1 positive agents (all other agents from same batch).
+        Metrics measure whether the top-K retrieved agents include any of these positives.
+        
+        Example: B=2 batches, A=3 agents per batch
+        - Query B1A1 has positives: [B1A2, B1A3] (2 positives)
+        - Top-1 accuracy: % of queries where rank-1 retrieval is a same-batch agent
+        - Top-K accuracy: % of queries where at least one of top-K is a same-batch agent
+        
+        Args:
+            logits: Similarity matrix [N, N] where N = B*A
+            labels: Label matrix [N, N] with 1 for same batch, 0 otherwise (block-diagonal)
+            
+        Returns:
+            Dictionary of retrieval metrics:
+                - top1_acc: Top-1 retrieval accuracy
+                - top3_acc: Top-3 retrieval accuracy  
+                - top5_acc: Top-5 retrieval accuracy
+                - mrr: Mean reciprocal rank
+        """
+        N = logits.shape[0]
+        
+        # Mask out self-similarity (diagonal) - we don't want to retrieve ourselves
+        mask = torch.eye(N, device=logits.device, dtype=torch.bool)
+        masked_logits = logits.clone()
+        masked_logits[mask] = float('-inf')
+        
+        # Get top-k indices for each query
+        k_max = min(5, N - 1)  # Can't retrieve more than N-1 (excluding self)
+        _, top_k_indices = torch.topk(masked_logits, k=k_max, dim=1)
+        
+        # Get ground truth labels for each query (excluding self)
+        # Each query has A-1 positives (all same-batch agents except self)
+        gt_labels = labels.clone()
+        gt_labels[mask] = 0  # Remove self from positive pairs
+        
+        # Calculate Top-K accuracies
+        metrics = {}
+        
+        for k in [1, 3, 5]:
+            if k > k_max:
+                continue
+                
+            # For each query, check if any of top-k retrievals are positive
+            top_k_idx = top_k_indices[:, :k]  # [N, k]
+            
+            # Gather labels for top-k retrievals
+            batch_indices = torch.arange(N, device=logits.device).unsqueeze(1).expand(-1, k)
+            top_k_labels = gt_labels[batch_indices, top_k_idx]  # [N, k]
+            
+            # Check if at least one positive in top-k
+            has_positive = (top_k_labels.sum(dim=1) > 0).float()
+            metrics[f'top{k}_acc'] = has_positive.mean()
+        
+        # Calculate Mean Reciprocal Rank (MRR)
+        # For each query, find rank of first positive
+        reciprocal_ranks = []
+        for i in range(N):
+            # Get labels for retrieved items in order
+            retrieved_labels = gt_labels[i, top_k_indices[i]]
+            # Find first positive
+            positive_mask = retrieved_labels > 0
+            if positive_mask.any():
+                first_positive_rank = positive_mask.int().argmax().item() + 1
+                reciprocal_ranks.append(1.0 / first_positive_rank)
+            else:
+                reciprocal_ranks.append(0.0)
+        
+        metrics['mrr'] = torch.tensor(reciprocal_ranks, device=logits.device).mean()
+        
+        return metrics
+    
+    def forward(self, agent_embeddings):
         """
         Forward pass through contrastive module.
         
         Args:
             agent_embeddings: Agent embeddings of shape [B, A, embed_dim]
-            return_loss: Whether to compute and return the contrastive loss
             
         Returns:
-            If return_loss=True:
-                Dictionary containing:
-                    - embeddings: Normalized embeddings [B, A, proj_dim] 
-                    - loss: Contrastive loss scalar
-                    - logits: Similarity matrix [B*A, B*A]
-            If return_loss=False:
-                Dictionary containing:
-                    - embeddings: Normalized embeddings [B, A, proj_dim]
+            Dictionary containing:
+                - embeddings: Normalized embeddings [B, A, proj_dim] 
+                - loss: Contrastive loss scalar
+                - logits: Similarity matrix [B*A, B*A]
+                - retrieval_metrics: Dict of retrieval accuracy metrics
+
         """
         B, A, embed_dim = agent_embeddings.shape
         
@@ -126,11 +198,6 @@ class CrossEgoContrastive(nn.Module):
         # L2 normalize embeddings
         normalized_embeddings = projected_embeddings / projected_embeddings.norm(p=2, dim=-1, keepdim=True)
         
-        if not return_loss:
-            # Just return normalized embeddings reshaped back
-            return {
-                'embeddings': normalized_embeddings.view(B, A, embed_dim)
-            }
         
         # Compute cosine similarity matrix: [B*A, B*A]
         logits = torch.matmul(normalized_embeddings, normalized_embeddings.t())
@@ -153,11 +220,35 @@ class CrossEgoContrastive(nn.Module):
         nll = -torch.sum(loglik, dim=-1)
         loss = nll.mean()
         
+        # Compute retrieval metrics
+        retrieval_metrics = self.compute_retrieval_metrics(logits, labels)
+        
+        # Compute binary classification accuracy
+        # Sigmoid loss treats each pair as binary classification: same batch (1) or not (0)
+        pred_probs = torch.sigmoid(logits)
+        pred_binary = (pred_probs > 0.5).float()
+        binary_acc = (pred_binary == labels).float().mean()
+        
+        # Add to metrics
+        retrieval_metrics['binary_acc'] = binary_acc
+        
+        # Calculate positive and negative pair accuracies separately
+        pos_mask = labels == 1
+        neg_mask = labels == 0
+        if pos_mask.any():
+            pos_acc = (pred_binary[pos_mask] == labels[pos_mask]).float().mean()
+            retrieval_metrics['pos_pair_acc'] = pos_acc
+        if neg_mask.any():
+            neg_acc = (pred_binary[neg_mask] == labels[neg_mask]).float().mean()
+            retrieval_metrics['neg_pair_acc'] = neg_acc
+        
         # Reshape embeddings back to [B, A, proj_dim]
         output = {
             'embeddings': normalized_embeddings.view(B, A, embed_dim),
             'loss': loss,
-            'logits': logits
+            'logits': logits,
+            'retrieval_metrics': retrieval_metrics,
+            'temperature': logit_scale
         }
         
         return output

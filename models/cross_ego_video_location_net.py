@@ -281,7 +281,7 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
         Args:
             batch: Input batch containing:
                 - video: [B, A, T, C, H, W] - multi-agent video
-                - team_side_encoded: [B] - team encoding (0=T, 1=CT)
+                - pov_team_side_encoded: [B] - team encoding (0=T, 1=CT)
                 - enemy_locations or future_locations: [B, 5, 3] - targets (for training/full mode)
             mode: 'full' for full VAE forward pass, 'sampling' for sampling from prior
             
@@ -295,14 +295,14 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
                 - mu, logvar, z: VAE latent variables (generative mode only)
         """
         video = batch['video']  # [B, A, T, C, H, W]
-        team_side_encoded = batch['team_side_encoded']  # [B]
+        pov_team_side_encoded = batch['pov_team_side_encoded']  # [B]
         
         if len(video.shape) != 6:
             raise ValueError(f"Expected video shape [B, A, T, C, H, W], got {video.shape}")
         
         # Encode video and team information
         fused_embeddings, agent_embeddings = self.process_multi_agent_video(video)
-        team_embeddings = self.team_encoder(team_side_encoded)  # [B, team_embed_dim]
+        team_embeddings = self.team_encoder(pov_team_side_encoded)  # [B, team_embed_dim]
         combined_features = torch.cat([fused_embeddings, team_embeddings], dim=1)
         
         # Task-specific forward pass
@@ -508,7 +508,7 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
     
     def on_test_start(self):
         """Initialize test tracking variables."""
-        self.test_team_sides = []
+        self.test_pov_team_sides = []
         self.test_targets = []
         self.test_predictions = []
         self.test_targets_unscaled = []
@@ -526,21 +526,21 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
     def test_step(self, batch, batch_idx):
         """Test step with sample collection for visualization."""
         # Store raw samples for visualization (5 per team)
-        team_sides = batch['team_side']
+        pov_team_sides = batch['pov_team_side']
         samples_per_team = 5
         
         for i in range(batch['video'].shape[0]):
-            team_side = team_sides[i]
-            if len(self.test_raw_samples_by_team[team_side]) < samples_per_team:
+            pov_team_side = pov_team_sides[i]
+            if len(self.test_raw_samples_by_team[pov_team_side]) < samples_per_team:
                 # Get target locations key dynamically
                 target_key = 'enemy_locations' if 'enemy_locations' in batch else 'future_locations'
                 sample = {
                     'video': batch['video'][i:i+1].clone(),
-                    'team_side_encoded': batch['team_side_encoded'][i:i+1].clone(),
+                    'pov_team_side_encoded': batch['pov_team_side_encoded'][i:i+1].clone(),
                     target_key: batch[target_key][i:i+1].clone(),
-                    'team_side': team_side
+                    'pov_team_side': pov_team_side
                 }
-                self.test_raw_samples_by_team[team_side].append(sample)
+                self.test_raw_samples_by_team[pov_team_side].append(sample)
             
             # Break if we have enough samples
             if all(len(samples) >= samples_per_team 
@@ -613,7 +613,7 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
                          on_step=False, on_epoch=True, prog_bar=True)
         
         # Store predictions and targets
-        self.test_team_sides.extend(team_sides)
+        self.test_pov_team_sides.extend(pov_team_sides)
         
         if self.task_form in ['coord-reg', 'generative']:
             # Store both scaled and unscaled versions
@@ -636,8 +636,8 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
         # Concatenate all predictions and targets
         predictions = torch.cat(self.test_predictions, dim=0).cpu().numpy()
         targets = torch.cat(self.test_targets, dim=0).cpu().numpy()
-        team_sides = np.array(self.test_team_sides)
-        unique_teams, team_counts = np.unique(team_sides, return_counts=True)
+        pov_team_sides = np.array(self.test_pov_team_sides)
+        unique_teams, team_counts = np.unique(pov_team_sides, return_counts=True)
         
         # Setup output directory
         output_dir = Path(self.output_dir)
@@ -659,7 +659,7 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
         
         # Calculate team-specific metrics
         team_specific_metrics = self.metrics_calculator.calculate_team_metrics(
-            predictions, targets, team_sides, self.test_predictions, self.test_targets
+            predictions, targets, pov_team_sides, self.test_predictions, self.test_targets
         )
         test_results['team_specific_metrics'] = team_specific_metrics
         
@@ -684,7 +684,7 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
         print(f"Test results saved to: {results_file}")
         
         # Create visualization plots
-        create_prediction_plots(self.task_form, predictions, targets, plots_dir, team_sides)
+        create_prediction_plots(self.task_form, predictions, targets, plots_dir, pov_team_sides)
         
         # Create KDE heatmaps for coordinate-based tasks
         if self.task_form in ['coord-reg', 'generative']:
@@ -795,7 +795,7 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
         
         predictions_list = []
         targets_list = []
-        team_sides_list = []
+        pov_team_sides_list = []
         scaled_predictions_list = []
         scaled_targets_list = []
         
@@ -827,13 +827,13 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScalerMixin, VAEMixi
             
             predictions_list.append(multi_predictions)
             targets_list.append(target)
-            team_sides_list.append(sample['team_side'])
+            pov_team_sides_list.append(sample['pov_team_side'])
             scaled_predictions_list.append(scaled_pred)
             scaled_targets_list.append(scaled_target)
         
         # Create heatmap grid
         create_prediction_heatmaps_grid(
-            predictions_list, targets_list, team_sides_list,
+            predictions_list, targets_list, pov_team_sides_list,
             scaled_predictions_list, scaled_targets_list,
             plots_dir, map_name="de_mirage"
         )

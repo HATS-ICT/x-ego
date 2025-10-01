@@ -38,7 +38,7 @@ def enemy_location_nowcast_collate_fn(batch):
         batch: List of dictionaries containing:
             - 'video': Video features tensor [A, T, C, H, W] where A is num_agents
             - 'enemy_locations': Enemy location labels (regression or classification)
-            - 'team_side': String indicating team side
+            - 'pov_team_side': String indicating team side
             - 'agent_ids': List of agent IDs used
     
     Returns:
@@ -50,11 +50,11 @@ def enemy_location_nowcast_collate_fn(batch):
     for key in batch[0].keys():
         values = [item[key] for item in batch]
         
-        if key in ['team_side', 'agent_ids']:
+        if key in ['pov_team_side', 'agent_ids']:
             # Keep string/list values as lists
             collated[key] = values
         else:
-            # For tensors (video, enemy_locations, team_side_encoded), use default collate
+            # For tensors (video, enemy_locations, pov_team_side_encoded), use default collate
             collated[key] = torch.utils.data.default_collate(values)
     
     return collated
@@ -186,8 +186,8 @@ class EnemyLocationNowcastDataset(BaseVideoDataset, Dataset):
             row = self.df.iloc[idx]
             # For scaler fitting, we need to consider both teams as potential enemies
             # Get all players and extract coordinates from both teams
-            for team_side in ['T', 'CT']:
-                team_players = self._get_team_players(row, team_side)
+            for pov_team_side in ['T', 'CT']:
+                team_players = self._get_team_players(row, pov_team_side)
                 
                 for player in team_players:
                     try:
@@ -263,14 +263,14 @@ class EnemyLocationNowcastDataset(BaseVideoDataset, Dataset):
             'name': row[f'player_{player_idx}_name']
         }
     
-    def _get_team_players(self, row: pd.Series, team_side: str) -> List[Dict]:
+    def _get_team_players(self, row: pd.Series, pov_team_side: str) -> List[Dict]:
         """Get all players from a specific team side."""
         team_players = []
         
         for i in range(10):  # Assuming 10 players (0-9)
             try:
                 player_data = self._get_player_data(row, i)
-                if player_data['side'] == team_side.lower():  # sides are lowercase in data
+                if player_data['side'] == pov_team_side.lower():  # sides are lowercase in data
                     team_players.append(player_data)
             except KeyError:
                 # Player column doesn't exist, skip
@@ -335,8 +335,8 @@ class EnemyLocationNowcastDataset(BaseVideoDataset, Dataset):
             dict: Dictionary containing:
                 - 'video': Multi-agent video features tensor [A, T, C, H, W]
                 - 'enemy_locations': Enemy location labels
-                - 'team_side': Team side used for input (string)
-                - 'team_side_encoded': Team side encoded as boolean (0 for T, 1 for CT)
+                - 'pov_team_side': Team side used for input (string)
+                - 'pov_team_side_encoded': Team side encoded as boolean (0 for T, 1 for CT)
                 - 'agent_ids': List of agent IDs used
         """
         # Get sample information
@@ -347,12 +347,12 @@ class EnemyLocationNowcastDataset(BaseVideoDataset, Dataset):
         round_num = row['round_num']
         
         # Randomly select team side for this sample
-        selected_team_side = random.choice(['CT', 'T'])
-        enemy_team_side = 'T' if selected_team_side == 'CT' else 'CT'
+        selected_pov_team_side = random.choice(['CT', 'T'])
+        enemy_pov_team_side = 'T' if selected_pov_team_side == 'CT' else 'CT'
         
         # Get team players (input) and enemy players (labels)
-        team_players = self._get_team_players(row, selected_team_side)
-        enemy_players = self._get_team_players(row, enemy_team_side)
+        team_players = self._get_team_players(row, selected_pov_team_side)
+        enemy_players = self._get_team_players(row, enemy_pov_team_side)
         
         # Select subset of agents from team
         selected_agents = self._select_agents(team_players)
@@ -376,14 +376,14 @@ class EnemyLocationNowcastDataset(BaseVideoDataset, Dataset):
         enemy_location_labels = self._create_enemy_location_labels(enemy_players)
         
         # Encode team side as boolean for model input (T=0, CT=1)
-        team_side_encoded = 1 if selected_team_side == 'CT' else 0
+        pov_team_side_encoded = 1 if selected_pov_team_side == 'CT' else 0
         
         # Prepare return dictionary
         result = {
             'video': multi_agent_video,
             'enemy_locations': enemy_location_labels,
-            'team_side': selected_team_side,
-            'team_side_encoded': torch.tensor(team_side_encoded, dtype=torch.long),
+            'pov_team_side': selected_pov_team_side,
+            'pov_team_side_encoded': torch.tensor(pov_team_side_encoded, dtype=torch.long),
             'agent_ids': agent_ids
         }
         

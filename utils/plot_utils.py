@@ -13,14 +13,14 @@ from matplotlib.figure import Figure, Axes
 from .metric_utils import chamfer_distance_batch
 
 
-def create_prediction_plots(task_form, predictions, targets, output_dir, team_sides=None):
+def create_prediction_plots(task_form, predictions, targets, output_dir, pov_team_sides=None):
     """Create and save prediction analysis plots."""
     if task_form == 'regression':
-        create_regression_plots(predictions, targets, output_dir, team_sides)
+        create_regression_plots(predictions, targets, output_dir, pov_team_sides)
     elif task_form == 'classification':
-        create_classification_plots(predictions, targets, output_dir, team_sides)
+        create_classification_plots(predictions, targets, output_dir, pov_team_sides)
 
-def create_regression_plots(predictions, targets, output_dir, team_sides=None):
+def create_regression_plots(predictions, targets, output_dir, pov_team_sides=None):
     """Create plots for regression predictions."""
     # predictions and targets shape: [N, 5, 3]
     predictions_flat = predictions.reshape(-1, 15)  # [N, 15]
@@ -37,9 +37,9 @@ def create_regression_plots(predictions, targets, output_dir, team_sides=None):
             ax = axes[coord_idx, player]
             
             # Plot with team-specific colors if available
-            if team_sides is not None:
-                ct_mask = team_sides == 'CT'
-                t_mask = team_sides == 'T'
+            if pov_team_sides is not None:
+                ct_mask = pov_team_sides == 'CT'
+                t_mask = pov_team_sides == 'T'
                 
                 if np.any(ct_mask):
                     ax.scatter(targets_flat[ct_mask, dim_idx], predictions_flat[ct_mask, dim_idx], 
@@ -66,7 +66,7 @@ def create_regression_plots(predictions, targets, output_dir, team_sides=None):
     plt.close()
     print(f"Regression prediction plots saved to: {save_path}")
 
-def create_classification_plots(predictions, targets, output_dir, team_sides=None):
+def create_classification_plots(predictions, targets, output_dir, pov_team_sides=None):
     """Create plots for classification predictions."""
     # predictions are logits [N, num_places], targets are counts [N, num_places]
     
@@ -81,9 +81,9 @@ def create_classification_plots(predictions, targets, output_dir, team_sides=Non
     
     # Overall scatter plot: predicted vs actual counts
     ax = axes[0, 0]
-    if team_sides is not None:
-        ct_mask = team_sides == 'CT'
-        t_mask = team_sides == 'T'
+    if pov_team_sides is not None:
+        ct_mask = pov_team_sides == 'CT'
+        t_mask = pov_team_sides == 'T'
         
         if np.any(ct_mask):
             ax.scatter(targets[ct_mask].flatten(), pred_counts[ct_mask].flatten(), 
@@ -103,9 +103,9 @@ def create_classification_plots(predictions, targets, output_dir, team_sides=Non
     
     # Distribution of actual vs predicted counts
     ax = axes[0, 1]
-    if team_sides is not None:
-        ct_mask = team_sides == 'CT'
-        t_mask = team_sides == 'T'
+    if pov_team_sides is not None:
+        ct_mask = pov_team_sides == 'CT'
+        t_mask = pov_team_sides == 'T'
         
         if np.any(ct_mask):
             ax.hist(targets[ct_mask].flatten(), bins=np.arange(0, 6.5, 0.5), 
@@ -332,18 +332,18 @@ def heatmap(
     return fig, ax
 
 
-def create_prediction_heatmaps(predictions_list, targets_list, team_sides_list, output_dir, map_name):
+def create_prediction_heatmaps(predictions_list, targets_list, pov_team_sides_list, output_dir, map_name):
     """
     Create KDE heatmaps for multiple prediction instances with ground truth overlay.
     
     Args:
         predictions_list: List of prediction arrays, each of shape [num_predictions, 5, 3]
         targets_list: List of target arrays, each of shape [5, 3]
-        team_sides_list: List of team sides for each instance
+        pov_team_sides_list: List of team sides for each instance
         output_dir: Directory to save plots
         map_name: CS:GO map name for background
     """
-    for idx, (predictions, target, team_side) in enumerate(zip(predictions_list, targets_list, team_sides_list)):
+    for idx, (predictions, target, pov_team_side) in enumerate(zip(predictions_list, targets_list, pov_team_sides_list)):
         # predictions: [num_predictions, 5, 3] - multiple predictions for 5 agents
         # target: [5, 3] - ground truth for 5 agents
         
@@ -379,19 +379,19 @@ def create_prediction_heatmaps(predictions_list, targets_list, team_sides_list, 
         # Add legend and title
         ax.legend(loc='upper right', framealpha=0.8, fontsize='small', markerscale=0.8)
         
-        plt.title(f'Enemy Location Predictions - Sample {idx+1} ({team_side})\n'
+        plt.title(f'Enemy Location Predictions - Sample {idx+1} ({pov_team_side})\n'
                     f'{predictions.shape[0]} predictions for 5 agents', 
                     fontsize=14, pad=20)
         
         # Save the plot
-        save_path = output_dir / f'heatmap_sample_{idx+1}_{team_side.lower()}.png'
+        save_path = output_dir / f'heatmap_sample_{idx+1}_{pov_team_side.lower()}.png'
         plt.savefig(save_path, dpi=300, pad_inches=0, facecolor='#100C07')
         plt.close()
         
         print(f"Heatmap saved to: {save_path}")
 
 
-def create_prediction_heatmaps_grid(predictions_list, targets_list, team_sides_list, 
+def create_prediction_heatmaps_grid(predictions_list, targets_list, pov_team_sides_list, 
                                   scaled_predictions_list, scaled_targets_list, output_dir, map_name):
     """
     Create a grid of KDE heatmaps with T samples on top row and CT samples on bottom row.
@@ -399,7 +399,7 @@ def create_prediction_heatmaps_grid(predictions_list, targets_list, team_sides_l
     Args:
         predictions_list: List of prediction arrays, each of shape [num_predictions, 5, 3] (unscaled)
         targets_list: List of target arrays, each of shape [5, 3] (unscaled)
-        team_sides_list: List of team sides for each instance
+        pov_team_sides_list: List of team sides for each instance
         scaled_predictions_list: List of scaled prediction tensors for Chamfer distance calculation
         scaled_targets_list: List of scaled target tensors for Chamfer distance calculation
         output_dir: Directory to save plots
@@ -411,12 +411,12 @@ def create_prediction_heatmaps_grid(predictions_list, targets_list, team_sides_l
     t_samples = []
     ct_samples = []
     
-    for predictions, target, team_side, scaled_pred, scaled_target in zip(
-        predictions_list, targets_list, team_sides_list, scaled_predictions_list, scaled_targets_list):
-        if team_side == 'T':
-            t_samples.append((predictions, target, team_side, scaled_pred, scaled_target))
+    for predictions, target, pov_team_side, scaled_pred, scaled_target in zip(
+        predictions_list, targets_list, pov_team_sides_list, scaled_predictions_list, scaled_targets_list):
+        if pov_team_side == 'T':
+            t_samples.append((predictions, target, pov_team_side, scaled_pred, scaled_target))
         else:
-            ct_samples.append((predictions, target, team_side, scaled_pred, scaled_target))
+            ct_samples.append((predictions, target, pov_team_side, scaled_pred, scaled_target))
     
     # Ensure we have 5 samples from each team
     t_samples = t_samples[:4]
@@ -427,7 +427,7 @@ def create_prediction_heatmaps_grid(predictions_list, targets_list, team_sides_l
     fig.patch.set_facecolor('#100C07')
     
     # Plot T samples on top row
-    for col, (predictions, target, team_side, scaled_pred, scaled_target) in enumerate(t_samples):
+    for col, (predictions, target, pov_team_side, scaled_pred, scaled_target) in enumerate(t_samples):
         ax = axes[0, col]
         
         # Calculate Chamfer distance using scaled coordinates
@@ -444,7 +444,7 @@ def create_prediction_heatmaps_grid(predictions_list, targets_list, team_sides_l
                                        title, predictions.shape[0])
     
     # Plot CT samples on bottom row
-    for col, (predictions, target, team_side, scaled_pred, scaled_target) in enumerate(ct_samples):
+    for col, (predictions, target, pov_team_side, scaled_pred, scaled_target) in enumerate(ct_samples):
         ax = axes[1, col]
         
         # Calculate Chamfer distance using scaled coordinates

@@ -205,14 +205,14 @@ class MetricsCalculator:
             'num_valid_samples': len(chamfer_distances)
         }
     
-    def calculate_team_metrics(self, predictions, targets, team_sides, pred_tensors, target_tensors):
+    def calculate_team_metrics(self, predictions, targets, pov_team_sides, pred_tensors, target_tensors):
         """
         Calculate metrics separately for each team.
         
         Args:
             predictions: numpy array of predictions
             targets: numpy array of targets
-            team_sides: numpy array of team labels
+            pov_team_sides: numpy array of team labels
             pred_tensors: List of prediction tensors (for geometric distances)
             target_tensors: List of target tensors (for geometric distances)
             
@@ -222,7 +222,7 @@ class MetricsCalculator:
         team_metrics = {}
         
         for team in ['CT', 'T']:
-            team_mask = team_sides == team
+            team_mask = pov_team_sides == team
             if not np.any(team_mask):
                 continue
             

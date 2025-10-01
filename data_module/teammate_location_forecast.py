@@ -66,8 +66,8 @@ class TeammateLocationForecastDataModule(BaseDataModule):
         logger.info(f"  Task form: {self.task_form}")
         
         # Print team distribution
-        if 'team_side' in df.columns:
-            team_counts = df['team_side'].value_counts()
+        if 'pov_team_side' in df.columns:
+            team_counts = df['pov_team_side'].value_counts()
             logger.info(f"  Team distribution: {dict(team_counts)}")
         
         if self.task_form in ['multi-label-cls', 'multi-output-reg'] and hasattr(self, 'place_names') and self.place_names:

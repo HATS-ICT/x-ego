@@ -114,7 +114,7 @@ class TeammateLocationForecastCreator(LocationPredictionBase):
                 
                 # Create segment for T side
                 t_segment_info = {
-                    'team_side': 't',
+                    'pov_team_side': 't',
                     'start_tick': current_tick,
                     'end_tick': end_tick,
                     'forecast_tick': forecast_tick,
@@ -133,7 +133,7 @@ class TeammateLocationForecastCreator(LocationPredictionBase):
                 
                 # Create segment for CT side
                 ct_segment_info = {
-                    'team_side': 'ct',
+                    'pov_team_side': 'ct',
                     'start_tick': current_tick,
                     'end_tick': end_tick,
                     'forecast_tick': forecast_tick,
@@ -164,7 +164,7 @@ class TeammateLocationForecastCreator(LocationPredictionBase):
             row = {
                 'idx': idx,
                 'partition': segment['partition'],
-                'team_side': segment['team_side'],
+                'pov_team_side': segment['pov_team_side'],
                 'seg_duration_sec': segment['duration_seconds'],
                 'forecast_interval_sec': segment['forecast_interval_seconds'],
                 'start_tick': segment['start_tick'],
@@ -197,7 +197,7 @@ class TeammateLocationForecastCreator(LocationPredictionBase):
         # Create DataFrame and sort
         df = pd.DataFrame(output_rows)
         if len(df) > 0:
-            df = df.sort_values(['partition', 'team_side', 'match_id', 'round_num'], 
+            df = df.sort_values(['partition', 'pov_team_side', 'match_id', 'round_num'], 
                                ascending=[True, True, True, True])
             df = df.reset_index(drop=True)
             # Update idx after sorting

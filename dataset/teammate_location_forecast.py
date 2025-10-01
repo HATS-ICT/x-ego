@@ -39,7 +39,7 @@ def teammate_location_forecast_collate_fn(batch):
         batch: List of dictionaries containing:
             - 'video': Video features tensor [A, T, C, H, W] where A is num_agents
             - 'future_locations': Future location labels (regression or classification)
-            - 'team_side': String indicating team side
+            - 'pov_team_side': String indicating team side
             - 'agent_ids': List of agent IDs used
     
     Returns:
@@ -51,11 +51,11 @@ def teammate_location_forecast_collate_fn(batch):
     for key in batch[0].keys():
         values = [item[key] for item in batch]
         
-        if key in ['team_side', 'agent_ids']:
+        if key in ['pov_team_side', 'agent_ids']:
             # Keep string/list values as lists
             collated[key] = values
         else:
-            # For tensors (video, future_locations, team_side_encoded), use default collate
+            # For tensors (video, future_locations, pov_team_side_encoded), use default collate
             collated[key] = torch.utils.data.default_collate(values)
     
     return collated
@@ -344,8 +344,8 @@ class TeammateLocationForecastDataset(BaseVideoDataset, Dataset):
             dict: Dictionary containing:
                 - 'video': Multi-agent video features tensor [A, T, C, H, W]
                 - 'future_locations': Future location labels
-                - 'team_side': Team side used (string)
-                - 'team_side_encoded': Team side encoded as boolean (0 for T, 1 for CT)
+                - 'pov_team_side': Team side used (string)
+                - 'pov_team_side_encoded': Team side encoded as boolean (0 for T, 1 for CT)
                 - 'agent_ids': List of agent IDs used
         """
         # Get sample information
@@ -354,7 +354,7 @@ class TeammateLocationForecastDataset(BaseVideoDataset, Dataset):
         end_seconds = row['normalized_end_seconds']
         match_id = row['match_id']
         round_num = row['round_num']
-        team_side = row['team_side'].upper()  # Convert to uppercase (T or CT)
+        pov_team_side = row['team_side'].upper()  # Convert to uppercase (T or CT)
         
         # Get team players (both input and labels from same team)
         team_players = self._get_all_team_players(row)
@@ -381,14 +381,14 @@ class TeammateLocationForecastDataset(BaseVideoDataset, Dataset):
         future_location_labels = self._create_future_location_labels(team_players)
         
         # Encode team side as boolean for model input (T=0, CT=1)
-        team_side_encoded = 1 if team_side == 'CT' else 0
+        pov_team_side_encoded = 1 if pov_team_side == 'CT' else 0
         
         # Prepare return dictionary
         result = {
             'video': multi_agent_video,
             'future_locations': future_location_labels,
-            'team_side': team_side,
-            'team_side_encoded': torch.tensor(team_side_encoded, dtype=torch.long),
+            'pov_team_side': pov_team_side,
+            'pov_team_side_encoded': torch.tensor(pov_team_side_encoded, dtype=torch.long),
             'agent_ids': agent_ids
         }
         

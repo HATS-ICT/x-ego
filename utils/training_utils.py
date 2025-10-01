@@ -120,52 +120,6 @@ def _to_numpy(x):
     return np.asarray(x)
 
 
-def _stack_20_frames(video_20_tchw):
-    """
-    video_20_tchw: shape (T=20, C=3, H, W) or (20, H, W, C)
-    Returns a single H x (20*W) x 3 image by concatenating frames along width.
-    """
-    v = _to_numpy(video_20_tchw)
-    # Ensure shape (20, 3, H, W)
-    if v.ndim != 4:
-        raise ValueError(f"Expected 4D video tensor, got shape {v.shape}")
-    if v.shape[0] != 20:
-        raise ValueError(f"Expected 20 frames, got {v.shape[0]}")
-
-    # If (20, H, W, C), move to (20, C, H, W)
-    if v.shape[-1] in (1, 3) and v.shape[1] not in (1, 3):
-        v = np.transpose(v, (0, 3, 1, 2))  # (T, C, H, W)
-
-    if v.shape[1] not in (1, 3):
-        raise ValueError(f"Expected channels=1 or 3, got {v.shape[1]}")
-
-    # Normalize per-frame to [0,1] robustly
-    vv = []
-    for t in range(20):
-        frame = v[t]  # (C, H, W)
-        # If values look like [-1,1], rescale; else min-max per frame
-        fr = frame.astype(np.float32)
-        if fr.max() <= 1.0 and fr.min() >= -1.0 and fr.min() < 0.0:
-            fr = (fr + 1.0) / 2.0
-        else:
-            fmin, fmax = fr.min(), fr.max()
-            if fmax > fmin:
-                fr = (fr - fmin) / (fmax - fmin)
-            else:
-                fr = np.zeros_like(fr)
-        # To HWC
-        fr = np.transpose(fr, (1, 2, 0))
-        # If grayscale, repeat to 3 channels
-        if fr.shape[-1] == 1:
-            fr = np.repeat(fr, 3, axis=-1)
-        vv.append(fr)
-
-    # Concatenate along width
-    stacked = np.concatenate(vv, axis=1)  # H x (20*W) x 3
-    stacked = np.clip(stacked, 0.0, 1.0)
-    return stacked
-
-
 def debug_batch_plot(batch, model, max_examples=4):
     """
     Visualize batch examples with inputs (multi-agent videos) and labels.
@@ -209,25 +163,26 @@ def debug_batch_plot(batch, model, max_examples=4):
     task_form = model.task_form
     cfg = model.cfg
     
-    # Create figure with subplots
-    # Each example gets 2 rows: video frames + labels
-    fig = plt.figure(figsize=(20, 5 * num_examples))
-    gs = fig.add_gridspec(num_examples * 2, 1, hspace=0.3)
-    
+    # Create separate figure for each example
     for i in range(num_examples):
-        # Row for video frames
-        video_ax = fig.add_subplot(gs[i * 2, 0])
+        # Create figure with side-by-side layout: video (left, large) and labels (right, compact)
+        fig = plt.figure(figsize=(18, 6))
+        gs = fig.add_gridspec(1, 2, width_ratios=[2.5, 1], wspace=0.25)
+        
+        # Left: video frames (larger)
+        video_ax = fig.add_subplot(gs[0, 0])
         _plot_multi_agent_video(videos[i], video_ax, num_agents)
-        video_ax.set_title(f"Example {i+1}: Multi-Agent Video (Team: {batch['team_side'][i] if 'team_side' in batch else 'N/A'})", 
+        team_info = batch['pov_team_side'][i] if 'pov_team_side' in batch else 'N/A'
+        video_ax.set_title(f"Example {i+1}: Multi-Agent Video (Team: {team_info})", 
                           fontsize=14, fontweight='bold')
         
-        # Row for labels
-        label_ax = fig.add_subplot(gs[i * 2 + 1, 0])
+        # Right: labels (more compact)
+        label_ax = fig.add_subplot(gs[0, 1])
         _plot_labels(labels[i], label_ax, task_form, cfg, label_type)
-    
-    plt.tight_layout()
-    plt.show()
-    plt.close()
+        
+        plt.tight_layout()
+        plt.show()
+        plt.close()
 
 
 def _plot_multi_agent_video(video_tensor, ax, num_agents):

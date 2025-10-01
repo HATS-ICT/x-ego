@@ -117,7 +117,7 @@ class VAEMixin:
         Generate multiple predictions for a single test sample.
         
         Args:
-            sample: Dictionary containing 'video', 'team_side_encoded', 'enemy_locations'
+            sample: Dictionary containing 'video', 'pov_team_side_encoded', 'enemy_locations'
             num_predictions: Number of predictions to generate
             
         Returns:

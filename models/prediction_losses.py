@@ -127,9 +127,9 @@ class LossComputer:
         print(f"Loaded class weights: {class_weights_method} ({len(weights_list)} classes)")
         print(f"  Weight range: [{self.class_weights.min():.4f}, {self.class_weights.max():.4f}]")
         if class_weights_method == 'pos_weight':
-            print(f"  Using pos_weight parameter (weights positive samples only)")
+            print("  Using pos_weight parameter (weights positive samples only)")
         else:
-            print(f"  Using manual weighting (weights all samples)")
+            print("  Using manual weighting (weights all samples)")
     
     def compute_loss(self, outputs, targets):
         """

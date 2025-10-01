@@ -3,7 +3,6 @@ Configuration utilities for X-EGO project.
 Handles loading, validation, and manipulation of training configurations.
 """
 
-from pathlib import Path
 from omegaconf import OmegaConf
 
 

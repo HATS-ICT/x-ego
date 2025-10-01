@@ -7,7 +7,6 @@ import torch
 from torch.utils.data import Dataset
 import numpy as np
 import pickle
-import random
 from sklearn.preprocessing import MinMaxScaler
 
 try:
@@ -23,7 +22,6 @@ except ImportError:
     import sys
     from pathlib import Path
     sys.path.append(str(Path(__file__).parent.parent))
-    from utils.dataset_utils import apply_minimap_mask
 
 
 # Setup logging

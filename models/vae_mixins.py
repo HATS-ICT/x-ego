@@ -9,7 +9,6 @@ This module provides VAE-specific functionality including:
 """
 
 import torch
-import torch.nn as nn
 
 
 class VAEMixin:

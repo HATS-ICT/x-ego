@@ -8,7 +8,6 @@ to identify potential class imbalance issues.
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
 from pathlib import Path
 from collections import Counter
 import sys

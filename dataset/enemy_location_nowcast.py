@@ -23,7 +23,6 @@ except ImportError:
     import sys
     from pathlib import Path
     sys.path.append(str(Path(__file__).parent.parent))
-    from utils.dataset_utils import apply_minimap_mask
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)

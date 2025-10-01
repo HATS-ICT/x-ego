@@ -117,14 +117,14 @@ def print_weight_statistics(weights: dict, location_counts: Counter):
     # Sort by weight (descending)
     sorted_weights = sorted(weights.items(), key=lambda x: x[1], reverse=True)
     
-    print(f"\nTop 10 Highest Weights (Rare Classes):")
+    print("\nTop 10 Highest Weights (Rare Classes):")
     print(f"{'Location':<30} {'Count':>10} {'Weight':>12}")
     print('-' * 80)
     for loc, weight in sorted_weights[:10]:
         count = location_counts[loc]
         print(f"{loc:<30} {count:>10} {weight:>12.4f}")
     
-    print(f"\nTop 10 Lowest Weights (Common Classes):")
+    print("\nTop 10 Lowest Weights (Common Classes):")
     print(f"{'Location':<30} {'Count':>10} {'Weight':>12}")
     print('-' * 80)
     for loc, weight in sorted_weights[-10:]:
@@ -237,7 +237,7 @@ def main():
     
     # Print top/bottom pos_weights
     sorted_pos = sorted(pos_weights.items(), key=lambda x: x[1], reverse=True)
-    print(f"\nTop 10 Highest pos_weights (Rare Classes):")
+    print("\nTop 10 Highest pos_weights (Rare Classes):")
     print(f"{'Location':<30} {'Count':>10} {'pos_weight':>12}")
     print('-' * 80)
     for loc, pw in sorted_pos[:10]:

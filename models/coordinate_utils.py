@@ -6,7 +6,6 @@ in multi-agent location prediction tasks.
 """
 
 import torch
-import numpy as np
 
 
 class CoordinateScalerMixin:

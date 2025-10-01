@@ -12,7 +12,7 @@ Supports 6 different label formulations:
 
 import torch
 import numpy as np
-from typing import List, Dict, Tuple
+from typing import List, Dict
 from scipy.ndimage import gaussian_filter
 from sklearn.preprocessing import MinMaxScaler
 

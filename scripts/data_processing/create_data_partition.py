@@ -1,6 +1,5 @@
 import csv
 from pathlib import Path
-import glob
 import os
 import random
 from dotenv import load_dotenv

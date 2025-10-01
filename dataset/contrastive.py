@@ -19,7 +19,7 @@ except ImportError:
     import sys
     from pathlib import Path
     sys.path.append(str(Path(__file__).parent.parent))
-    from utils.dataset_utils import get_random_segment, get_team_voice_audio_clip_from_video_path, get_team_transcription_path_from_video_path, extract_text_segments_from_transcription, apply_minimap_mask
+    from utils.dataset_utils import get_team_voice_audio_clip_from_video_path, get_team_transcription_path_from_video_path, extract_text_segments_from_transcription
 
 # TODO: generate_segment_description_seconds function is not found - may need to be implemented or removed
 

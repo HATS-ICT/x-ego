@@ -137,7 +137,6 @@ def debug_batch_plot(batch, model, max_examples=4):
         model: Model instance to access cfg and task-specific info
         max_examples: Number of examples to visualize (default: 4)
     """
-    import torch
     
     # Get batch info
     batch_size = batch["video"].shape[0]

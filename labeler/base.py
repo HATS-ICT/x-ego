@@ -1,4 +1,3 @@
-import sys
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -6,7 +5,6 @@ from typing import Dict, List, Any, Optional, Tuple
 import random
 import multiprocessing as mp
 from tqdm import tqdm
-import os
 from abc import ABC, abstractmethod
 
 class LocationPredictionBase(ABC):
@@ -312,7 +310,7 @@ class LocationPredictionBase(ABC):
             if key not in cfg:
                 raise ValueError(f"Missing required configuration key: {key}")
         
-        print(f"Processing segments with configuration:")
+        print("Processing segments with configuration:")
         print(f"  Segment length: {cfg.segment_length_sec} seconds")
         print(f"  Partitions: {cfg.partition}")
         

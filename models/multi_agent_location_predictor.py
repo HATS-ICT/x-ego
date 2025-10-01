@@ -81,7 +81,8 @@ class MultiAgentEnemyLocationPredictionModel(L.LightningModule, CoordinateScaler
         self._init_task_specific_components(cfg, hidden_dim, dropout, num_hidden_layers)
         
         # Initialize loss and metrics calculators
-        loss_fn = cfg.data.loss_fn
+        # Extract task-specific loss function
+        loss_fn = cfg.data.loss_fn[self.task_form]
         sinkhorn_blur = cfg.data.sinkhorn_blur
         sinkhorn_scaling = cfg.data.sinkhorn_scaling
         self.loss_computer = LossComputer(self.task_form, loss_fn, sinkhorn_blur, sinkhorn_scaling)

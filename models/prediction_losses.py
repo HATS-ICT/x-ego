@@ -14,7 +14,14 @@ from geomloss import SamplesLoss
 
 
 class LossComputer:
-    """Handles loss computation for different task formulations."""
+    """
+    Handles loss computation for different task formulations.
+    
+    Task-specific loss functions:
+    - coord-reg, generative: 'mse', 'sinkhorn', 'hausdorff', 'energy'
+    - multi-label-cls, grid-cls: 'bce', 'focal'
+    - multi-output-reg, density-cls: 'mse', 'mae', 'kl'
+    """
     
     def __init__(self, task_form, loss_fn='mse', sinkhorn_blur=0.05, sinkhorn_scaling=0.9):
         """
@@ -22,7 +29,7 @@ class LossComputer:
         
         Args:
             task_form: Type of task ('coord-reg', 'generative', 'multi-label-cls', etc.)
-            loss_fn: Loss function for coordinate tasks ('mse', 'sinkhorn', 'hausdorff', 'energy')
+            loss_fn: Task-specific loss function (see class docstring for options)
             sinkhorn_blur: Blur parameter for Sinkhorn loss
             sinkhorn_scaling: Scaling parameter for Sinkhorn loss
         """
@@ -35,12 +42,28 @@ class LossComputer:
         self._init_loss_functions()
     
     def _init_loss_functions(self):
-        """Initialize geometric loss functions if needed."""
+        """Initialize and validate task-specific loss functions."""
+        # Define valid loss functions for each task form
+        valid_loss_fns = {
+            'coord-reg': ['mse', 'sinkhorn', 'hausdorff', 'energy'],
+            'generative': ['mse', 'sinkhorn', 'hausdorff', 'energy'],
+            'multi-label-cls': ['bce', 'focal'],
+            'grid-cls': ['bce', 'focal'],
+            'multi-output-reg': ['mse', 'mae', 'kl'],
+            'density-cls': ['mse', 'mae', 'kl']
+        }
+        
+        # Validate loss function for current task form
+        if self.task_form in valid_loss_fns:
+            allowed_fns = valid_loss_fns[self.task_form]
+            if self.loss_fn not in allowed_fns:
+                raise ValueError(
+                    f"Invalid loss_fn '{self.loss_fn}' for task_form '{self.task_form}'. "
+                    f"Must be one of {allowed_fns}"
+                )
+        
+        # Initialize geometric loss functions for coordinate-based tasks
         if self.task_form in ['coord-reg', 'generative']:
-            valid_loss_fns = ['mse', 'sinkhorn', 'hausdorff', 'energy']
-            if self.loss_fn not in valid_loss_fns:
-                raise ValueError(f"Invalid loss_fn '{self.loss_fn}'. Must be one of {valid_loss_fns}")
-            
             if self.loss_fn == 'sinkhorn':
                 self.geometric_loss = SamplesLoss(
                     loss="sinkhorn", 
@@ -89,12 +112,25 @@ class LossComputer:
             }
         
         elif self.task_form in ['multi-label-cls', 'grid-cls']:
-            # Binary cross-entropy for multi-label/grid classification
-            return F.binary_cross_entropy_with_logits(predictions, targets), {}
+            # Multi-label/grid classification losses
+            if self.loss_fn == 'bce':
+                loss = F.binary_cross_entropy_with_logits(predictions, targets)
+            elif self.loss_fn == 'focal':
+                # TODO: Implement focal loss for imbalanced classification
+                raise NotImplementedError("Focal loss not yet implemented")
+            return loss, {}
         
         elif self.task_form in ['multi-output-reg', 'density-cls']:
-            # MSE loss for count regression and density distribution
-            return F.mse_loss(predictions, targets), {}
+            # Regression and density losses
+            if self.loss_fn == 'mse':
+                loss = F.mse_loss(predictions, targets)
+            elif self.loss_fn == 'mae':
+                loss = F.l1_loss(predictions, targets)
+            elif self.loss_fn == 'kl':
+                # KL divergence for density distributions
+                # TODO: Implement KL divergence loss
+                raise NotImplementedError("KL divergence loss not yet implemented")
+            return loss, {}
         
         else:
             raise ValueError(f"Unknown task_form: {self.task_form}")

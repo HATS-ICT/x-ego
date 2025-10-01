@@ -242,8 +242,9 @@ def print_task_info(cfg, datamodule, task_name):
         print(f"Agent fusion method: {cfg.model.agent_fusion_method}")
         
         if cfg.data.task_form in ['coord-reg', 'generative']:
-            print(f"Loss function: {cfg.data.loss_fn}")
-            if cfg.data.loss_fn == 'sinkhorn':
+            loss_fn = cfg.data.loss_fn[cfg.data.task_form]
+            print(f"Loss function: {loss_fn}")
+            if loss_fn == 'sinkhorn':
                 print(f"  Sinkhorn blur: {cfg.data.sinkhorn_blur}")
                 print(f"  Sinkhorn scaling: {cfg.data.sinkhorn_scaling}")
         

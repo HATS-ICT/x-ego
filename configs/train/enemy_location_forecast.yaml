@@ -64,12 +64,7 @@ model:
   encoder:
     video:
       freeze_backbone: true
-      # from_pretrained: openai/clip-vit-base-patch32
-      # from_pretrained: google/siglip-base-patch16-224 
-      from_pretrained: facebook/dinov2-base
-      # from_pretrained: google/vivit-b-16x2-kinetics400
-      # from_pretrained: MCG-NJU/videomae-base
-      # from_pretrained: facebook/vjepa2-vitl-fpc16-256-ssv2
+      model_type: "dinov2"  # Options: clip, dinov2, siglip, vivit, videomae, vjepa2
 
 training:
   max_epochs: 20

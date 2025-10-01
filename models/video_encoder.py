@@ -8,6 +8,17 @@ from typing import Dict, Any
 from pathlib import Path
 
 
+# Mapping from model_type to HuggingFace pretrained model identifier
+MODEL_TYPE_TO_PRETRAINED = {
+    "clip": "openai/clip-vit-base-patch32",
+    "siglip": "google/siglip-base-patch16-224",
+    "dinov2": "facebook/dinov2-base",
+    "vivit": "google/vivit-b-16x2-kinetics400",
+    "videomae": "MCG-NJU/videomae-base",
+    "vjepa2": "facebook/vjepa2-vitl-fpc16-256-ssv2",
+}
+
+
 def temporal_sampling(frames: torch.Tensor, target_frames: int) -> torch.Tensor:
     """
     Temporal sampling of video frames to match target frame count.
@@ -52,14 +63,14 @@ class VideoEncoderClip(nn.Module):
         super().__init__()
         self.cfg = cfg
         
-        self.from_pretrained = cfg.from_pretrained
-        self.freeze_backbone = cfg.freeze_backbone
+        self.model_type = cfg.model_type
+        self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
         
         self.vision_model = CLIPModel.from_pretrained(self.from_pretrained).vision_model
         
         self.embed_dim = self.vision_model.config.hidden_size
         
-        if self.freeze_backbone:
+        if cfg.freeze_backbone:
             self._freeze_backbone()
     
     def _freeze_backbone(self):
@@ -102,13 +113,14 @@ class VideoEncoderSigLIP(nn.Module):
         super().__init__()
         self.cfg = cfg
         
-        self.from_pretrained = cfg.from_pretrained
-        self.freeze_backbone = cfg.freeze_backbone
+        self.model_type = cfg.model_type
+        self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
+        
         
         self.vision_model = SiglipModel.from_pretrained(self.from_pretrained).vision_model
         self.embed_dim = self.vision_model.config.hidden_size
         
-        if self.freeze_backbone:
+        if cfg.freeze_backbone:
             self._freeze_backbone()
     
     def _freeze_backbone(self):
@@ -152,13 +164,14 @@ class VideoEncoderDinov2(nn.Module):
         super().__init__()
         self.cfg = cfg
         
-        self.from_pretrained = cfg.from_pretrained
-        self.freeze_backbone = cfg.freeze_backbone
+        self.model_type = cfg.model_type
+        self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
+        
         
         self.vision_model = Dinov2Model.from_pretrained(self.from_pretrained)
         self.embed_dim = self.vision_model.config.hidden_size * 2
         
-        if self.freeze_backbone:
+        if cfg.freeze_backbone:
             self._freeze_backbone()
     
     def _freeze_backbone(self):
@@ -207,15 +220,16 @@ class VideoEncoderVivit(nn.Module):
         super().__init__()
         self.cfg = cfg
         
-        self.from_pretrained = cfg.from_pretrained
-        self.freeze_backbone = cfg.freeze_backbone
+        self.model_type = cfg.model_type
+        self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
+        
         
         self.vision_model = VivitModel.from_pretrained(self.from_pretrained)
         
         self.expected_num_frames = 32
         self.embed_dim = self.vision_model.config.hidden_size
         
-        if self.freeze_backbone:
+        if cfg.freeze_backbone:
             self._freeze_backbone()
     
     def _freeze_backbone(self):
@@ -257,8 +271,9 @@ class VideoEncoderVideoMAE(nn.Module):
         super().__init__()
         self.cfg = cfg
         
-        self.from_pretrained = cfg.from_pretrained
-        self.freeze_backbone = cfg.freeze_backbone
+        self.model_type = cfg.model_type
+        self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
+        
         
         self.vision_model = VideoMAEModel.from_pretrained(self.from_pretrained)
         
@@ -272,7 +287,7 @@ class VideoEncoderVideoMAE(nn.Module):
         else:
             self.fc_norm = None
         
-        if self.freeze_backbone:
+        if cfg.freeze_backbone:
             self._freeze_backbone()
     
     def _freeze_backbone(self):
@@ -321,15 +336,16 @@ class VideoEncoderVJEPA2(nn.Module):
         super().__init__()
         self.cfg = cfg
         
-        self.from_pretrained = cfg.from_pretrained
-        self.freeze_backbone = cfg.freeze_backbone
+        self.model_type = cfg.model_type
+        self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
+        
         
         self.vision_model = VJEPA2Model.from_pretrained(self.from_pretrained)
         self.pooler = VJEPA2AttentivePooler(self.vision_model.config)
         
         self.embed_dim = self.vision_model.config.hidden_size
         
-        if self.freeze_backbone:
+        if cfg.freeze_backbone:
             self._freeze_backbone()
     
     def _freeze_backbone(self):
@@ -378,7 +394,7 @@ class VideoEncoderFromContrastive(nn.Module):
         self.cfg = cfg
         
         self.contrastive_checkpoint_path = cfg.contrastive_checkpoint_path
-        self.freeze_backbone = cfg.freeze_backbone
+        
         
         # Load the contrastive model and extract video encoder
         self.video_encoder = self._load_video_encoder_from_contrastive()
@@ -393,7 +409,7 @@ class VideoEncoderFromContrastive(nn.Module):
         
         print(f"Video encoder actual output dimension: {self.embed_dim}")
         
-        if self.freeze_backbone:
+        if cfg.freeze_backbone:
             self._freeze_backbone()
     
     def _load_video_encoder_from_contrastive(self):
@@ -493,15 +509,15 @@ class VideoEncoderFromContrastive(nn.Module):
 class VideoEncoder(nn.Module):
     """
     Factory class for video encoders that automatically selects the appropriate encoder
-    based on the from_pretrained model name.
+    based on the model_type parameter.
     
     Supports:
-    - CLIP models (openai/clip-*)
-    - SigLIP models (google/siglip-*)
-    - DINOv2 models (facebook/dinov2-*)
-    - ViViT models (google/vivit-*)
-    - VideoMAE models (MCG-NJU/videomae-*)
-    - VJEPA2 models (facebook/vjepa2-*)
+    - CLIP models (model_type="clip")
+    - SigLIP models (model_type="siglip")
+    - DINOv2 models (model_type="dinov2")
+    - ViViT models (model_type="vivit")
+    - VideoMAE models (model_type="videomae")
+    - VJEPA2 models (model_type="vjepa2")
     """
     
     def __init__(self, cfg: Dict[str, Any]):
@@ -509,28 +525,30 @@ class VideoEncoder(nn.Module):
         self.cfg = cfg
         
         # Check if we should load from contrastive checkpoint
-        if 'contrastive_checkpoint_path' in cfg and cfg['contrastive_checkpoint_path'] is not None:
+        if 'contrastive_checkpoint_path' in cfg and cfg.get('contrastive_checkpoint_path') is not None:
             print("Loading video encoder from contrastive checkpoint")
             self.video_encoder = VideoEncoderFromContrastive(cfg)
         else:
-            # Use the standard pretrained model approach
-            self.from_pretrained = cfg.from_pretrained
+            # Use the standard pretrained model approach based on model_type
+            model_type = cfg.get('model_type', 'dinov2')
             
-            if 'clip' in self.from_pretrained.lower():
+            if model_type == 'clip':
                 self.video_encoder = VideoEncoderClip(cfg)
-            elif 'siglip' in self.from_pretrained.lower():
+            elif model_type == 'siglip':
                 self.video_encoder = VideoEncoderSigLIP(cfg)
-            elif 'dinov2' in self.from_pretrained.lower():
+            elif model_type == 'dinov2':
                 self.video_encoder = VideoEncoderDinov2(cfg)
-            elif 'vivit' in self.from_pretrained.lower():
+            elif model_type == 'vivit':
                 self.video_encoder = VideoEncoderVivit(cfg)
-            elif 'videomae' in self.from_pretrained.lower():
+            elif model_type == 'videomae':
                 self.video_encoder = VideoEncoderVideoMAE(cfg)
-            elif 'vjepa2' in self.from_pretrained.lower():
+            elif model_type == 'vjepa2':
                 self.video_encoder = VideoEncoderVJEPA2(cfg)
             else:
-                print(f"Warning: Model type unclear from '{self.from_pretrained}', defaulting to CLIP")
-                self.video_encoder = VideoEncoderClip(cfg)
+                raise ValueError(
+                    f"Unknown model_type: '{model_type}'. "
+                    f"Supported types: {list(MODEL_TYPE_TO_PRETRAINED.keys())}"
+                )
         
         self.embed_dim = self.video_encoder.embed_dim
     

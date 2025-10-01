@@ -13,8 +13,7 @@ model:
     kl_weight: 1.0
   encoder:
     video:
-      from_pretrained: facebook/dinov2-base
-      # from_pretrained: facebook/vjepa2-vitl-fpc16-256-ssv2
+      model_type: "dinov2"  # Options: clip, dinov2, siglip, vivit, videomae, vjepa2
 
 training:
   max_epochs: 2

@@ -64,7 +64,7 @@ model:
   encoder:
     video:
       freeze_backbone: true
-      model_type: "dinov2" # Options: clip, dinov2, siglip, vivit, videomae, vjepa2
+      model_type: "dinov2"  # Options: clip, dinov2, siglip, vivit, videomae, vjepa2
 
 training:
   max_epochs: 40

@@ -5,13 +5,11 @@ from pathlib import Path
 from typing import Dict, List, Any
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
-
-# Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
 
 from labeler.base import LocationPredictionBase
+
+load_dotenv()
 
 
 class EnemyLocationForecastCreator(LocationPredictionBase):

@@ -1,10 +1,8 @@
 # Local imports
 from models.cross_ego_video_location_net import CrossEgoVideoLocationNet
-# from models.ctfm_contrastive import CTFMContrastive
 from data_module.enemy_location_nowcast import EnemyLocationNowcastDataModule
 from data_module.enemy_location_forecast import EnemyLocationForecastDataModule
 from data_module.teammate_location_forecast import TeammateLocationForecastDataModule
-# from data_module.contrastive import CTFMContrastiveDataModule
 from train.train_pipeline import run_training_pipeline
 from train.test_pipeline import run_test_only_pipeline
 
@@ -40,18 +38,6 @@ def train_enemy_location_forecast(cfg):
         task_name="enemy_location_forecast",
         print_header="=== TRAINING MODE MULTI-AGENT ENEMY FUTURE LOCATION PREDICTION ==="
     )
-
-
-# def train_contrastive(cfg):
-#     """Training mode implementation for contrastive learning"""
-#     run_training_pipeline(
-#         cfg=cfg,
-#         model_class=CTFMContrastive,
-#         datamodule_class=CTFMContrastiveDataModule,
-#         task_name="contrastive",
-#         print_header="=== TRAINING MODE CONTRASTIVE ==="
-#     )
-
 
 # ============================================================================
 # Test-only mode functions

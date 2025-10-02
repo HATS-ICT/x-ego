@@ -19,7 +19,6 @@ import lightning as L
 from torch.optim import AdamW
 import torch._dynamo
 import numpy as np
-import json
 from pathlib import Path
 from torchmetrics import MeanSquaredError, MeanAbsoluteError
 from torchmetrics.classification import (
@@ -28,7 +27,6 @@ from torchmetrics.classification import (
     MultilabelF1Score
 )
 
-from utils.serialization_utils import json_serializable
 
 # Import refactored components
 from models.prediction_losses import LossComputer

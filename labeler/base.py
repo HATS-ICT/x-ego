@@ -340,7 +340,7 @@ class LocationPredictionBase(ABC):
             partition = row['split']
             
             try:
-                segments = self._extract_segments_from_round(match_id, round_num, config)
+                segments = self._extract_segments_from_round(match_id, round_num, cfg)
                 
                 # Add partition info to each segment
                 for segment in segments:
@@ -362,7 +362,7 @@ class LocationPredictionBase(ABC):
         
         # Create output CSV
         print("\nCreating output CSV...")
-        df = self._create_output_csv(all_segments, config)
+        df = self._create_output_csv(all_segments, cfg)
         
         output_path = self.output_dir / cfg.output_file_name
         df.to_csv(output_path, index=False)

@@ -58,7 +58,6 @@ class BaseDataModule(L.LightningDataModule, ABC):
     
     def _build_data_root_path(self) -> Path:
         """Build data root path from config."""
-        data_cfg = self.cfg.data
         return Path(self.cfg.path.data)
     
     def _validate_paths(self) -> None:

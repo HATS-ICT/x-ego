@@ -11,15 +11,15 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
-
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from labeler.enemy_location_nowcast import EnemyLocationNowcastCreator
 from labeler.enemy_location_forecast import EnemyLocationForecastCreator
 from labeler.teammate_location_forecast import TeammateLocationForecastCreator
+
+
+load_dotenv()
 
 
 def main():

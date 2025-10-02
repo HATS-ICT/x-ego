@@ -165,7 +165,6 @@ def debug_batch_plot(batch, model, max_examples=4):
     # Get videos: [B, A, T, C, H, W]
     videos = batch["video"][:num_examples]
     num_agents = videos.shape[1]
-    num_frames = videos.shape[2]
     
     # Get labels based on task type
     if 'enemy_locations' in batch:

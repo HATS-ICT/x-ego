@@ -18,7 +18,7 @@ data:
                      # When contrastive learning is enabled, dataset always samples 5 agents,
                      # then model randomly selects num_pov_agents from these 5 for inference
   mask_minimap: true
-  time_jitter_max_seconds: 0.3  # Maximum random time jitter (±seconds) applied to each sampled frame for temporal augmentation. Set to 0 to disable.
+  time_jitter_max_seconds: 0.0  # Maximum random time jitter (±seconds) applied to each sampled frame for temporal augmentation. Set to 0 to disable.
   grid_resolution: 100  # Grid resolution (10x10 = 100 cells)
   gaussian_sigma: 2.0  # Gaussian smoothing sigma for density-cls
 

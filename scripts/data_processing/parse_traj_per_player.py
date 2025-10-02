@@ -159,7 +159,6 @@ def parse_demo_files():
     
     # Define paths using environment variable
     demo_dir = DATA_BASE_PATH / "demo"
-    metadata_dir = DATA_BASE_PATH / "metadata"
     output_dir = DATA_BASE_PATH / "trajectory"
     
     # Create output directory if it doesn't exist

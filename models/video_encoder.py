@@ -5,7 +5,6 @@ from transformers import CLIPModel, SiglipModel, Dinov2Model, VivitModel, VideoM
 from transformers.models.vjepa2.modeling_vjepa2 import VJEPA2AttentivePooler
 from torch import Tensor
 from typing import Dict, Any
-from pathlib import Path
 
 
 # Mapping from model_type to HuggingFace pretrained model identifier

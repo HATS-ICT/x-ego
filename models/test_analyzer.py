@@ -7,7 +7,6 @@ and creating visualizations for location prediction tasks.
 
 import torch
 import numpy as np
-from pathlib import Path
 import json
 
 from utils.plot_utils import create_prediction_plots, create_prediction_heatmaps_grid

@@ -223,12 +223,12 @@ def main():
 
     print(f"Generated {len(all_jobs)} job(s) in {jobs_root}")
     print(f"Logs will be written to {log_root}")
-    print(f"\nBreakdown:")
+    print("\nBreakdown:")
     print(f"  - {len(TASKS)} tasks")
     print(f"  - {len(MULTI_LABEL_CLS_CONFIGS)} multi-label-cls configs per task")
     print(f"  - {len(DENSITY_CLS_CONFIGS)} density-cls configs per task")
     print(f"  - Total: {len(TASKS)} × ({len(MULTI_LABEL_CLS_CONFIGS)} + {len(DENSITY_CLS_CONFIGS)}) = {len(all_jobs)} jobs")
-    print(f"\nTo submit all jobs, run:")
+    print("\nTo submit all jobs, run:")
     print(f"  bash {sbatch_all_path}")
 
 if __name__ == "__main__":

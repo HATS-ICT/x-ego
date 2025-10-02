@@ -2,14 +2,14 @@
 from pathlib import Path
 
 # ===== Configuration =====
-PROJECT_SRC = "/home1/yunzhewa/projects/CTFM"
+PROJECT_SRC = "/home1/yunzhewa/projects/x-ego"
 ACCOUNT = "ustun_1726"
 PARTITION = "gpu"
-GPU_TYPE = "a40"
+GPU_CONSTRAINT = "a40|a100"  # Use constraint to get either A40 or A100
 GPU_COUNT = 1
-CPUS = 10
-MEM = "80G"
-TIME = "01:30:00"  # 1.5 hours per job
+CPUS = 15
+MEM = "44G"
+TIME = "01:15:00"
 MAIL_USER = "yunzhewa@usc.edu"
 MAIL_TYPE = "all"
 LOGS_SUBDIR = "logs"
@@ -72,7 +72,8 @@ SCRIPT_HEADER = """#!/bin/bash
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task={cpus}
-{gpu_line}
+#SBATCH --constraint={gpu_constraint}
+#SBATCH --gres=gpu:{gpu_count}
 #SBATCH --mem={mem}
 #SBATCH --time={time}
 #SBATCH --job-name={job_name}
@@ -128,12 +129,6 @@ done
 """
 
 # ===== Helpers =====
-def build_gpu_line(gpu_type: str, gpu_count: int) -> str:
-    if gpu_type:
-        return f"#SBATCH --gpus-per-task={gpu_type}:{gpu_count}"
-    else:
-        return f"#SBATCH --gpus={gpu_count}"
-
 def build_mail_block(mail_user: str, mail_type: str) -> str:
     if mail_type.upper() == "NONE":
         return ""
@@ -154,7 +149,6 @@ def main():
     jobs_root.mkdir(parents=True, exist_ok=True)
     log_root.mkdir(parents=True, exist_ok=True)
 
-    gpu_line = build_gpu_line(GPU_TYPE.strip(), GPU_COUNT)
     mail_block = build_mail_block(MAIL_USER, MAIL_TYPE)
 
     all_jobs = []
@@ -167,7 +161,8 @@ def main():
             
             header = SCRIPT_HEADER.format(
                 account=ACCOUNT, partition=PARTITION, cpus=CPUS,
-                gpu_line=gpu_line, mem=MEM, time=TIME,
+                gpu_constraint=GPU_CONSTRAINT, gpu_count=GPU_COUNT,
+                mem=MEM, time=TIME,
                 job_name=run_name, log_dir=str(log_root),
                 mail_block=mail_block,
             ).rstrip()
@@ -198,7 +193,8 @@ def main():
             
             header = SCRIPT_HEADER.format(
                 account=ACCOUNT, partition=PARTITION, cpus=CPUS,
-                gpu_line=gpu_line, mem=MEM, time=TIME,
+                gpu_constraint=GPU_CONSTRAINT, gpu_count=GPU_COUNT,
+                mem=MEM, time=TIME,
                 job_name=run_name, log_dir=str(log_root),
                 mail_block=mail_block,
             ).rstrip()

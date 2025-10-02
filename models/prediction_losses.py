@@ -12,6 +12,7 @@ import torch
 import torch.nn.functional as F
 from geomloss import SamplesLoss
 import json
+import os
 from pathlib import Path
 
 
@@ -113,7 +114,8 @@ class LossComputer:
             return
         
         # Load class weights from JSON file
-        weights_path = Path(__file__).parent.parent / "data" / "class_weights" / f"{class_weights_method}.json"
+        data_base_path = Path(os.getenv('DATA_BASE_PATH'))
+        weights_path = data_base_path / "class_weights" / f"{class_weights_method}.json"
         
         with open(weights_path, 'r') as f:
             data = json.load(f)

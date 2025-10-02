@@ -410,11 +410,11 @@ def print_task_info(cfg, datamodule, task_name):
         print(f"Agent fusion method: {cfg.model.agent_fusion.method}")
         
         if cfg.data.task_form in ['coord-reg', 'coord-gen']:
-            loss_fn = cfg.data.loss_fn[cfg.data.task_form]
+            loss_fn = cfg.model.loss_fn[cfg.data.task_form]
             print(f"Loss function: {loss_fn}")
             if loss_fn == 'sinkhorn':
-                print(f"  Sinkhorn blur: {cfg.data.sinkhorn_blur}")
-                print(f"  Sinkhorn scaling: {cfg.data.sinkhorn_scaling}")
+                print(f"  Sinkhorn blur: {cfg.model.sinkhorn.blur}")
+                print(f"  Sinkhorn scaling: {cfg.model.sinkhorn.scaling}")
         
         if cfg.data.task_form in ['multi-label-cls', 'multi-output-reg']:
             # Get num_places from datamodule after setup and update cfg

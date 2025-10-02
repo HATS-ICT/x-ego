@@ -69,11 +69,14 @@ class LossComputer:
         # Initialize geometric loss functions for coordinate-based tasks
         if self.task_form in ['coord-reg', 'coord-gen']:
             if self.loss_fn == 'sinkhorn':
+                # Store sinkhorn parameters as attributes for later reference
+                self.sinkhorn_blur = self.model_cfg.sinkhorn.blur
+                self.sinkhorn_scaling = self.model_cfg.sinkhorn.scaling
                 self.geometric_loss = SamplesLoss(
                     loss="sinkhorn", 
                     p=self.model_cfg.sinkhorn.p, 
-                    blur=self.model_cfg.sinkhorn.blur, 
-                    scaling=self.model_cfg.sinkhorn.scaling
+                    blur=self.sinkhorn_blur, 
+                    scaling=self.sinkhorn_scaling
                 )
             elif self.loss_fn == 'hausdorff':
                 self.geometric_loss = SamplesLoss(loss="hausdorff", p=self.model_cfg.hausdorff.p)

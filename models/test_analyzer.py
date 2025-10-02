@@ -213,7 +213,7 @@ class TestAnalyzer:
                     "Multiple predictions generation only supported for coordinate-based tasks"
                 )
         
-        predictions = torch.tensor(predictions).numpy()  # [num_predictions, 5, 3]
+        predictions = np.array(predictions)  # [num_predictions, 5, 3]
         
         # Get unscaled ground truth
         target_key = 'enemy_locations' if 'enemy_locations' in sample else 'future_locations'

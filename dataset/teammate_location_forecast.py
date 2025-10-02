@@ -1,28 +1,15 @@
 import sys
 import logging
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
-import numpy as np
-import pickle
-from sklearn.preprocessing import MinMaxScaler
 
 try:
     from .base import BaseVideoDataset
-    from .label_creators import create_label_creator
 except ImportError:
     from base import BaseVideoDataset
-    from label_creators import create_label_creator
-
-try:
-    from utils.dataset_utils import apply_minimap_mask
-except ImportError:
-    import sys
-    from pathlib import Path
-    sys.path.append(str(Path(__file__).parent.parent))
-
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -74,60 +61,8 @@ class TeammateLocationForecastDataset(BaseVideoDataset, Dataset):
         Args:
             cfg: Configuration dictionary containing dataset parameters
         """
-        # Initialize base class first
+        # Initialize base class - handles all common initialization
         super().__init__(cfg)
-        
-        # Get data config section
-        self.cfg = cfg
-        
-        # Load label CSV file
-        self.label_path = cfg.data.label_path
-        self.df = pd.read_csv(self.label_path, keep_default_na=False)
-        
-        # Multi-agent future location prediction parameters
-        self.num_agents = cfg.data.num_agents  # Should be 5 for full team
-        self.task_form = cfg.data.task_form  # regression or classification
-        
-        # Validate parameters
-        if self.num_agents < 1 or self.num_agents > 5:
-            raise ValueError(f"num_agents must be between 1 and 5, got {self.num_agents}")
-            
-        valid_task_forms = ['coord-reg', 'coord-gen', 'multi-label-cls', 'multi-output-reg', 'grid-cls', 'density-cls']
-        if self.task_form not in valid_task_forms:
-            raise ValueError(f"task_form must be one of {valid_task_forms}, got {self.task_form}")
-        
-        # Get unique place names for place-based classification tasks
-        if self.task_form in ['multi-label-cls', 'multi-output-reg']:
-            self.place_names = self._extract_unique_places()
-            self.place_to_idx = {place: idx for idx, place in enumerate(self.place_names)}
-            self.idx_to_place = {idx: place for place, idx in self.place_to_idx.items()}
-            self.num_places = len(self.place_names)
-            logger.info(f"Found {self.num_places} unique places: {self.place_names}")
-        else:
-            self.place_names = None
-            self.place_to_idx = None
-            self.idx_to_place = None
-            self.num_places = None
-        
-        # Filter by partition if specified
-        self.partition = cfg.data.partition
-        if self.partition != 'all':
-            initial_count = len(self.df)
-            self.df = self.df[self.df['partition'] == self.partition].reset_index(drop=True)
-            filtered_count = len(self.df)
-            logger.info(f"Filtered dataset from {initial_count} to {filtered_count} samples for partition '{self.partition}'")
-        
-        # Store output directory for saving/loading scaler
-        self.output_dir = Path(cfg.path.exp)
-        
-        # Initialize coordinate scaler for coordinate-based tasks
-        self.coordinate_scaler = None
-        self.scaler_fitted = False
-        if self.task_form in ['coord-reg', 'coord-gen', 'grid-cls', 'density-cls']:
-            self._init_coordinate_scaler()
-        
-        # Initialize label creator
-        self._init_label_creator()
             
         logger.info(f"Dataset initialized with {len(self.df)} samples")
         logger.info(f"Number of agents: {self.num_agents}, Task form: {self.task_form}")
@@ -154,99 +89,20 @@ class TeammateLocationForecastDataset(BaseVideoDataset, Dataset):
         
         return sorted(list(places))
     
-    def _init_coordinate_scaler(self):
-        """Initialize coordinate scaler for regression mode."""
-        self.coordinate_scaler = MinMaxScaler()
-        self.scaler_path = self.output_dir / "future_coordinate_minmax_scaler.pkl"
-        
-        # Try to load existing scaler first
-        if self.scaler_path.exists():
-            try:
-                with open(self.scaler_path, 'rb') as f:
-                    self.coordinate_scaler = pickle.load(f)
-                self.scaler_fitted = True
-                logger.info(f"Loaded existing coordinate scaler from {self.scaler_path}")
-                logger.info(f"Scaler data_min_: {self.coordinate_scaler.data_min_}")
-                logger.info(f"Scaler data_max_: {self.coordinate_scaler.data_max_}")
-                logger.info(f"Scaler scale_: {self.coordinate_scaler.scale_}")
-                return
-            except Exception as e:
-                logger.warning(f"Failed to load existing scaler: {e}")
-                self.coordinate_scaler = MinMaxScaler()
-        
-        # Fit scaler on all future coordinate data
-        logger.info("Fitting coordinate scaler on all future location data...")
-        all_coords = []
-        
-        for idx in range(len(self.df)):
-            row = self.df.iloc[idx]
-            # Get future coordinates for all 5 teammates
-            for i in range(5):
-                try:
-                    x_col = f'teammate_{i}_future_X'
-                    y_col = f'teammate_{i}_future_Y'
-                    z_col = f'teammate_{i}_future_Z'
-                    
-                    if all(col in row.index for col in [x_col, y_col, z_col]):
-                        coords = [float(row[x_col]), float(row[y_col]), float(row[z_col])]
-                        all_coords.append(coords)
-                except (ValueError, KeyError):
-                    # Skip invalid coordinates
-                    continue
-        
-        if all_coords:
-            all_coords = np.array(all_coords)
-            self.coordinate_scaler.fit(all_coords)
-            self.scaler_fitted = True
-            
-            # Save the fitted scaler
-            self.output_dir.mkdir(parents=True, exist_ok=True)
-            with open(self.scaler_path, 'wb') as f:
-                pickle.dump(self.coordinate_scaler, f)
-            
-            logger.info(f"Fitted and saved coordinate scaler to {self.scaler_path}")
-            logger.info(f"Scaler data_min_: {self.coordinate_scaler.data_min_}")
-            logger.info(f"Scaler data_max_: {self.coordinate_scaler.data_max_}")
-            logger.info(f"Scaler scale_: {self.coordinate_scaler.scale_}")
-            logger.info(f"Fitted on {len(all_coords)} coordinate samples")
-        else:
-            logger.warning("No valid future coordinates found for fitting scaler!")
+    def _get_scaler_path(self) -> Path:
+        """Get the path for saving/loading the coordinate scaler."""
+        return self.output_dir / "future_coordinate_minmax_scaler.pkl"
     
-    def _scale_coordinates(self, coords: np.ndarray) -> np.ndarray:
-        """Scale coordinates using the fitted scaler."""
-        if self.coordinate_scaler is None or not self.scaler_fitted:
-            return coords
-        
-        # coords shape: [5, 3] or [N, 3]
-        original_shape = coords.shape
-        coords_flat = coords.reshape(-1, 3)
-        
-        # Only scale non-zero coordinates (padding coordinates remain [0, 0, 0])
-        mask = np.any(coords_flat != 0, axis=1)
-        if np.any(mask):
-            coords_flat[mask] = self.coordinate_scaler.transform(coords_flat[mask])
-        
-        return coords_flat.reshape(original_shape)
-    
-    def _unscale_coordinates(self, scaled_coords: np.ndarray) -> np.ndarray:
-        """Unscale coordinates using the fitted scaler."""
-        if self.coordinate_scaler is None or not self.scaler_fitted:
-            return scaled_coords
-        
-        # scaled_coords shape: [5, 3] or [N, 3]
-        original_shape = scaled_coords.shape
-        coords_flat = scaled_coords.reshape(-1, 3)
-        
-        # Only unscale non-zero coordinates (padding coordinates remain [0, 0, 0])
-        mask = np.any(coords_flat != 0, axis=1)
-        if np.any(mask):
-            coords_flat[mask] = self.coordinate_scaler.inverse_transform(coords_flat[mask])
-        
-        return coords_flat.reshape(original_shape)
-    
-    def get_coordinate_scaler(self):
-        """Get the fitted coordinate scaler for external use."""
-        return self.coordinate_scaler if self.scaler_fitted else None
+    def _get_coordinate_columns_for_scaler(self) -> List[Tuple[str, str, str]]:
+        """Get list of (X, Y, Z) column name tuples for fitting the coordinate scaler."""
+        coord_columns = []
+        # For teammate future locations, consider all 5 teammates
+        for i in range(5):  # 5 teammates per team
+            x_col = f'teammate_{i}_future_X'
+            y_col = f'teammate_{i}_future_Y'
+            z_col = f'teammate_{i}_future_Z'
+            coord_columns.append((x_col, y_col, z_col))
+        return coord_columns
     
     def _get_team_player_data(self, row: pd.Series, player_idx: int) -> Dict:
         """Extract team player data from a row."""
@@ -273,43 +129,6 @@ class TeammateLocationForecastDataset(BaseVideoDataset, Dataset):
                 continue
         
         return team_players
-    
-    def _select_agents(self, team_players: List[Dict]) -> List[Dict]:
-        """Select a subset of agents from team players."""
-        if len(team_players) < self.num_agents:
-            logger.warning(f"Not enough players in team. Found {len(team_players)}, need {self.num_agents}")
-            # Pad with the last player if not enough players
-            while len(team_players) < self.num_agents:
-                if team_players:
-                    team_players.append(team_players[-1])
-                else:
-                    raise ValueError("No players found in team")
-        
-        # Take the first num_agents players
-        return team_players[:self.num_agents]
-    
-    def _construct_video_path(self, match_id: str, player_id: str, round_num: int) -> str:
-        """Construct video path for a player's round."""
-        video_folder = self.cfg.data.video_folder
-        video_path = Path('data') / video_folder / str(match_id) / str(player_id) / f"round_{round_num}.mp4"
-        return str(video_path)
-    
-    def __len__(self) -> int:
-        return len(self.df)
-    
-    def _init_label_creator(self):
-        """Initialize label creator based on task form."""
-        kwargs = {}
-        
-        if self.task_form in ['coord-reg', 'coord-gen', 'grid-cls', 'density-cls']:
-            kwargs['coordinate_scaler'] = self.coordinate_scaler if self.scaler_fitted else None
-        
-        if self.task_form in ['multi-label-cls', 'multi-output-reg']:
-            kwargs['place_to_idx'] = self.place_to_idx
-            kwargs['num_places'] = self.num_places
-        
-        self.label_creator = create_label_creator(self.cfg, **kwargs)
-        logger.info(f"Initialized label creator: {self.label_creator.__class__.__name__}")
     
     def _create_future_location_labels(self, team_players: List[Dict]) -> torch.Tensor:
         """

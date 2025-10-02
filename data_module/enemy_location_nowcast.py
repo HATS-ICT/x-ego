@@ -36,7 +36,7 @@ class EnemyLocationNowcastDataModule(BaseDataModule):
         super().__init__(cfg)
         
         # Multi-agent enemy location prediction parameters
-        self.num_agents = cfg.data.num_agents # default to 3 agents
+        self.num_agents = cfg.data.num_pov_agents # default to 3 agents
         self.task_form = cfg.data.task_form
         
         # Store dataset info for model configuration

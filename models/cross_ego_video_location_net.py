@@ -76,7 +76,7 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
             activation=cfg.model.activation
         )
         
-        self.num_agents = cfg.data.num_agents
+        self.num_agents = cfg.data.num_pov_agents
         self.task_form = cfg.data.task_form
         
         # Optional contrastive learning module (between video encoder and agent fuser)
@@ -210,6 +210,8 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
         Args:
             batch: Input batch containing:
                 - video: [B, A, T, C, H, W] - multi-agent video
+                  When contrastive is enabled: A=5 (all agents), then num_pov_agents randomly selected for inference
+                  When contrastive is disabled: A=num_pov_agents
                 - pov_team_side_encoded: [B] - team encoding (0=T, 1=CT)
                 - enemy_locations or future_locations: [B, 5, 3] - targets (for training/full mode)
             mode: 'full' for full VAE forward pass, 'sampling' for sampling from prior
@@ -242,14 +244,34 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
         if self.use_contrastive:
             # Compute contrastive loss/metrics during training or validation (not test)
             contrastive_out = self.contrastive(agent_embeddings)
-            agent_embeddings = contrastive_out['embeddings']
+            agent_embeddings_contrastive = contrastive_out['embeddings']
             contrastive_loss = contrastive_out['loss']
             contrastive_metrics = contrastive_out['retrieval_metrics']
             # Add temperature to metrics
             contrastive_metrics['temperature'] = contrastive_out['temperature']
+            
+            # When contrastive is enabled, randomly select num_agents from all A agents for inference
+            # This happens after video embeddings are computed to avoid recomputation
+            if A > self.num_agents:
+                # Randomly select num_agents indices for each batch
+                selected_indices = torch.stack([
+                    torch.randperm(A, device=agent_embeddings.device)[:self.num_agents]
+                    for _ in range(B)
+                ])  # [B, num_agents]
+                
+                # Gather selected embeddings: [B, num_agents, proj_dim]
+                agent_embeddings_for_inference = torch.gather(
+                    agent_embeddings_contrastive,
+                    dim=1,
+                    index=selected_indices.unsqueeze(-1).expand(-1, -1, agent_embeddings_contrastive.shape[-1])
+                )
+            else:
+                agent_embeddings_for_inference = agent_embeddings_contrastive
+        else:
+            agent_embeddings_for_inference = agent_embeddings
         
-        # Fuse agent embeddings
-        fused_embeddings = self.agent_fuser(agent_embeddings)  # [B, proj_dim]
+        # Fuse agent embeddings (using selected subset if contrastive enabled)
+        fused_embeddings = self.agent_fuser(agent_embeddings_for_inference)  # [B, proj_dim]
         
         # Encode team information
         team_embeddings = self.team_encoder(pov_team_side_encoded)  # [B, team_embed_dim]
@@ -260,7 +282,7 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
             'fused_embeddings': fused_embeddings,
             'team_embeddings': team_embeddings,
             'combined_features': combined_features,
-            'agent_embeddings': agent_embeddings,
+            'agent_embeddings': agent_embeddings_for_inference,
             'contrastive_loss': contrastive_loss,
             'contrastive_metrics': contrastive_metrics
         }
@@ -632,7 +654,7 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
         analyzer.log_overall_metrics(test_results)
         
         # Add experiment metadata
-        test_results['num_agents'] = self.cfg.data.num_agents
+        test_results['num_agents'] = self.cfg.data.num_pov_agents
         test_results['agent_fusion_method'] = self.cfg.model.agent_fusion.method
         test_results['task_form'] = self.task_form
         test_results['team_distribution'] = dict(zip(unique_teams.tolist(), team_counts.tolist()))

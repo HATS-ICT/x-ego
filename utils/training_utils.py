@@ -425,7 +425,7 @@ def print_task_info(cfg, datamodule, task_name):
     """Print task-specific information"""
     # Common info for location prediction tasks
     if 'location' in task_name:
-        print(f"Number of agents: {cfg.data.num_agents}")
+        print(f"Number of agents: {cfg.data.num_pov_agents}")
         print(f"Task form: {cfg.data.task_form}")
         print(f"Agent fusion method: {cfg.model.agent_fusion.method}")
         

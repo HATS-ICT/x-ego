@@ -36,7 +36,7 @@ class TeammateLocationForecastDataModule(BaseDataModule):
         super().__init__(cfg)
         
         # Multi-agent future location prediction parameters
-        self.num_agents = cfg.data.num_agents # default to 5 agents (full team)
+        self.num_agents = cfg.data.num_pov_agents # default to 5 agents (full team)
         self.task_form = cfg.data.task_form
         
         # Store dataset info for model configuration

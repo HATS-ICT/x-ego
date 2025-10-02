@@ -14,7 +14,9 @@ data:
   video_column_name: video_path
   video_processor_model: facebook/vjepa2-vitl-fpc16-256-ssv2
   video_size_mode: resize_distort
-  num_agents: 5  # Number of agents from team side to use (1-5, recommend 5 for full team)
+  num_pov_agents: 5  # Number of agents from team side to use for inference (1-5, recommend 5 for full team)
+                     # When contrastive learning is enabled, dataset always samples 5 agents,
+                     # then model randomly selects num_pov_agents from these 5 for inference
   mask_minimap: true
   time_jitter_max_seconds: 0.3  # Maximum random time jitter (±seconds) applied to each sampled frame for temporal augmentation. Set to 0 to disable.
   grid_resolution: 100  # Grid resolution (10x10 = 100 cells)

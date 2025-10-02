@@ -203,6 +203,36 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
     # Forward Pass
     # ============================================================================
     
+    def _select_agent_subset(self, agent_embeddings, num_agents):
+        """
+        Randomly select a subset of agent embeddings.
+        
+        Args:
+            agent_embeddings: [B, A, proj_dim] agent embeddings
+            num_agents: number of agents to select
+            
+        Returns:
+            [B, num_agents, proj_dim] selected agent embeddings
+        """
+        B, A, proj_dim = agent_embeddings.shape
+        
+        if A > num_agents:
+            # Randomly select num_agents indices for each batch
+            selected_indices = torch.stack([
+                torch.randperm(A, device=agent_embeddings.device)[:num_agents]
+                for _ in range(B)
+            ])  # [B, num_agents]
+            
+            # Gather selected embeddings: [B, num_agents, proj_dim]
+            selected_embeddings = torch.gather(
+                agent_embeddings,
+                dim=1,
+                index=selected_indices.unsqueeze(-1).expand(-1, -1, proj_dim)
+            )
+            return selected_embeddings
+        else:
+            return agent_embeddings
+    
     def forward(self, batch, mode='full'):
         """
         Forward pass through the model.
@@ -252,21 +282,9 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
             
             # When contrastive is enabled, randomly select num_agents from all A agents for inference
             # This happens after video embeddings are computed to avoid recomputation
-            if A > self.num_agents:
-                # Randomly select num_agents indices for each batch
-                selected_indices = torch.stack([
-                    torch.randperm(A, device=agent_embeddings.device)[:self.num_agents]
-                    for _ in range(B)
-                ])  # [B, num_agents]
-                
-                # Gather selected embeddings: [B, num_agents, proj_dim]
-                agent_embeddings_for_inference = torch.gather(
-                    agent_embeddings_contrastive,
-                    dim=1,
-                    index=selected_indices.unsqueeze(-1).expand(-1, -1, agent_embeddings_contrastive.shape[-1])
-                )
-            else:
-                agent_embeddings_for_inference = agent_embeddings_contrastive
+            agent_embeddings_for_inference = self._select_agent_subset(
+                agent_embeddings_contrastive, self.num_agents
+            )
         else:
             agent_embeddings_for_inference = agent_embeddings
         

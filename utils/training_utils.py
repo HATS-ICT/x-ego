@@ -79,7 +79,7 @@ def setup_callbacks(cfg):
 
 
 def setup_logger(cfg):
-    """Setup WandB logger"""
+    """Setup WandB logger with automatic tags"""
     if 'wandb' not in cfg:
         return None
         
@@ -92,12 +92,32 @@ def setup_logger(cfg):
     if wandb_cfg.save_dir is None:
         return None
     
+    # Automatically generate tags
+    tags = list(wandb_cfg.tags) if wandb_cfg.tags else []
+    
+    # Add task type tag based on exp_name
+    exp_name = cfg.meta.exp_name
+    if 'enemy-nowcast' in exp_name or 'enemy-now' in exp_name:
+        tags.append('task:enemy-now')
+    elif 'enemy-forecast' in exp_name or 'enemy-fore' in exp_name:
+        tags.append('task:enemy-fore')
+    elif 'self-future' in exp_name or 'teammate' in exp_name:
+        tags.append('task:team-fore')
+    
+    # Add task form tag
+    task_form = cfg.data.task_form
+    tags.append(f'form:{task_form}')
+    
+    # Add contrastive tag
+    contrastive_enabled = cfg.model.contrastive.enable
+    tags.append('yes_contra' if contrastive_enabled else 'no_contra')
+    
     # Initialize wandb
     logger = WandbLogger(
         project=wandb_cfg.project,
         name=wandb_cfg.name,  # name can be None for auto-generation
         group=wandb_cfg.group,
-        tags=wandb_cfg.tags,
+        tags=tags,
         notes=wandb_cfg.notes,
         save_dir=wandb_cfg.save_dir
     )

@@ -308,8 +308,8 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
         
         # Debug visualization for first batch of first epoch only
         # TODO: Remove
-        from utils.training_utils import debug_batch_plot
-        debug_batch_plot(batch, self)
+        # from utils.training_utils import debug_batch_plot
+        # debug_batch_plot(batch, self)
         
         targets = self._get_target_locations(batch)
         

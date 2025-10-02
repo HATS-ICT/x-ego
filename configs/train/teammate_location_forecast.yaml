@@ -9,8 +9,7 @@ data:
   batch_size: 8
   num_workers: 9
   task_form: multi-label-cls # multi-label-cls, multi-output-reg, grid-cls, density-cls, coord-reg, coord-gen
-  grid_resolution: 10  # Grid resolution (10x10 = 100 cells)
-  gaussian_sigma: 1.0  # Gaussian smoothing sigma for density-cls
+
 
 model:
   class_weights: null  # Options: null, inverse, inverse_sqrt, effective_num, pos_weight

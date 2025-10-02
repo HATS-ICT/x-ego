@@ -9,13 +9,13 @@ GPU_CONSTRAINT = "a40|a100"  # Use constraint to get either A40 or A100
 GPU_COUNT = 1
 CPUS = 15
 MEM = "44G"
-TIME = "01:15:00"
+TIME = "03:00:00"
 MAIL_USER = "yunzhewa@usc.edu"
 MAIL_TYPE = "all"
 LOGS_SUBDIR = "logs"
 
 # Experiment configuration
-EXP_PREFIX = "loss_probe"
+EXP_PREFIX = "loss_probe_v2"
 MODEL = "dinov2"
 MAX_EPOCHS = 1
 
@@ -26,8 +26,8 @@ TASKS = [
     "enemy_location_nowcast",
 ]
 
-# multi-label-cls configurations
-MULTI_LABEL_CLS_CONFIGS = [
+# grid-cls configurations (same as multi-label-cls from v1)
+GRID_CLS_CONFIGS = [
     {
         "name": "bce_null",
         "loss": "bce",
@@ -58,11 +58,13 @@ MULTI_LABEL_CLS_CONFIGS = [
     },
 ]
 
-# density-cls configurations
-DENSITY_CLS_CONFIGS = [
-    {"name": "mse_sigma10", "loss": "mse", "gaussian_sigma": 1.0},
-    {"name": "mse_sigma20", "loss": "mse", "gaussian_sigma": 2.0},
-    {"name": "mse_sigma30", "loss": "mse", "gaussian_sigma": 3.0},
+# coord-gen configurations
+COORD_GEN_CONFIGS = [
+    {"name": "mse", "loss": "mse", "sinkhorn_blur": None, "sinkhorn_p": None},
+    {"name": "sinkhorn_b005_p1", "loss": "sinkhorn", "sinkhorn_blur": 0.05, "sinkhorn_p": 1},
+    {"name": "sinkhorn_b005_p2", "loss": "sinkhorn", "sinkhorn_blur": 0.05, "sinkhorn_p": 2},
+    {"name": "sinkhorn_b010_p1", "loss": "sinkhorn", "sinkhorn_blur": 0.1, "sinkhorn_p": 1},
+    {"name": "sinkhorn_b010_p2", "loss": "sinkhorn", "sinkhorn_blur": 0.1, "sinkhorn_p": 2},
 ]
 
 # ===== Templates =====
@@ -82,29 +84,28 @@ SCRIPT_HEADER = """#!/bin/bash
 {mail_block}
 """
 
-JOB_BODY_MULTI_LABEL = """module restore
+JOB_BODY_GRID_CLS = """module restore
 
 cd {project_src}
 
 uv run python main.py --mode train --task {task} \\
-  data.task_form=multi-label-cls \\
+  data.task_form=grid-cls \\
   model.encoder.video.model_type={model} \\
-  model.loss_fn.multi-label-cls={loss} \\
+  model.loss_fn.grid-cls={loss} \\
   model.class_weights={class_weights}{focal_params} \\
   training.max_epochs={max_epochs} \\
   meta.exp_name={exp_name} \\
   meta.run_name={run_name}
 """
 
-JOB_BODY_DENSITY = """module restore
+JOB_BODY_COORD_GEN = """module restore
 
 cd {project_src}
 
 uv run python main.py --mode train --task {task} \\
-  data.task_form=density-cls \\
-  data.gaussian_sigma={gaussian_sigma} \\
+  data.task_form=coord-gen \\
   model.encoder.video.model_type={model} \\
-  model.loss_fn.density-cls={loss} \\
+  model.loss_fn.coord-gen={loss}{sinkhorn_params} \\
   training.max_epochs={max_epochs} \\
   meta.exp_name={exp_name} \\
   meta.run_name={run_name}
@@ -140,6 +141,12 @@ def build_focal_params(alpha, gamma):
         return f" \\\n  model.focal.alpha={alpha} \\\n  model.focal.gamma={gamma}"
     return ""
 
+def build_sinkhorn_params(blur, p):
+    """Build sinkhorn loss parameter string"""
+    if blur is not None and p is not None:
+        return f" \\\n  model.sinkhorn.blur={blur} \\\n  model.sinkhorn.p={p}"
+    return ""
+
 # ===== Main =====
 def main():
     project_src = Path(PROJECT_SRC).resolve()
@@ -155,9 +162,9 @@ def main():
 
     # Generate jobs for each task
     for task in TASKS:
-        # multi-label-cls configurations
-        for config in MULTI_LABEL_CLS_CONFIGS:
-            run_name = f"{EXP_PREFIX}-{task}-mlcls-{config['name']}"
+        # grid-cls configurations
+        for config in GRID_CLS_CONFIGS:
+            run_name = f"{EXP_PREFIX}-{task}-gcls-{config['name']}"
             
             header = SCRIPT_HEADER.format(
                 account=ACCOUNT, partition=PARTITION, cpus=CPUS,
@@ -169,7 +176,7 @@ def main():
 
             focal_params = build_focal_params(config['focal_alpha'], config['focal_gamma'])
             
-            body = JOB_BODY_MULTI_LABEL.format(
+            body = JOB_BODY_GRID_CLS.format(
                 project_src=str(project_src),
                 task=task,
                 model=MODEL,
@@ -187,9 +194,9 @@ def main():
             job_path.chmod(0o750)
             all_jobs.append(job_path)
 
-        # density-cls configurations
-        for config in DENSITY_CLS_CONFIGS:
-            run_name = f"{EXP_PREFIX}-{task}-dcls-{config['name']}"
+        # coord-gen configurations
+        for config in COORD_GEN_CONFIGS:
+            run_name = f"{EXP_PREFIX}-{task}-cgen-{config['name']}"
             
             header = SCRIPT_HEADER.format(
                 account=ACCOUNT, partition=PARTITION, cpus=CPUS,
@@ -199,12 +206,14 @@ def main():
                 mail_block=mail_block,
             ).rstrip()
 
-            body = JOB_BODY_DENSITY.format(
+            sinkhorn_params = build_sinkhorn_params(config['sinkhorn_blur'], config['sinkhorn_p'])
+            
+            body = JOB_BODY_COORD_GEN.format(
                 project_src=str(project_src),
                 task=task,
                 model=MODEL,
                 loss=config['loss'],
-                gaussian_sigma=config['gaussian_sigma'],
+                sinkhorn_params=sinkhorn_params,
                 max_epochs=MAX_EPOCHS,
                 exp_name=EXP_PREFIX,
                 run_name=run_name,
@@ -217,7 +226,7 @@ def main():
             all_jobs.append(job_path)
 
     # Generate sbatch_all script
-    sbatch_all_path = jobs_root / "sbatch_all_loss_probe.sh"
+    sbatch_all_path = jobs_root / "sbatch_all_loss_probe_v2.sh"
     sbatch_all_path.write_text(SBATCH_ALL_HEADER, encoding="utf-8")
     sbatch_all_path.chmod(0o750)
 
@@ -225,12 +234,13 @@ def main():
     print(f"Logs will be written to {log_root}")
     print(f"\nBreakdown:")
     print(f"  - {len(TASKS)} tasks")
-    print(f"  - {len(MULTI_LABEL_CLS_CONFIGS)} multi-label-cls configs per task")
-    print(f"  - {len(DENSITY_CLS_CONFIGS)} density-cls configs per task")
-    print(f"  - Total: {len(TASKS)} × ({len(MULTI_LABEL_CLS_CONFIGS)} + {len(DENSITY_CLS_CONFIGS)}) = {len(all_jobs)} jobs")
+    print(f"  - {len(GRID_CLS_CONFIGS)} grid-cls configs per task")
+    print(f"  - {len(COORD_GEN_CONFIGS)} coord-gen configs per task")
+    print(f"  - Total: {len(TASKS)} × ({len(GRID_CLS_CONFIGS)} + {len(COORD_GEN_CONFIGS)}) = {len(all_jobs)} jobs")
     print(f"\nTo submit all jobs, run:")
     print(f"  bash {sbatch_all_path}")
 
 if __name__ == "__main__":
     main()
+
 

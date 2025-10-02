@@ -213,3 +213,5 @@ data/
 artifacts/
 output/
 lightning_logs/
+jobs/
+logs/

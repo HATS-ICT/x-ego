@@ -34,12 +34,16 @@ class TestAnalyzer:
     
     def log_team_metrics(self, team_specific_metrics):
         """Log team-specific metrics to logger."""
+        # Get checkpoint-specific prefix (test/last or test/best)
+        checkpoint_name = getattr(self.model, 'checkpoint_name', 'last')
+        base_prefix = f'test/{checkpoint_name}'
+        
         for team in ['CT', 'T']:
             if team not in team_specific_metrics:
                 continue
             
             metrics = team_specific_metrics[team]
-            team_prefix = f'test/{team.lower()}'
+            team_prefix = f'{base_prefix}/{team.lower()}'
             
             if self.task_form in ['coord-reg', 'coord-gen']:
                 self.model.safe_log(f'{team_prefix}_mse', metrics['mse'], on_epoch=True)
@@ -57,6 +61,9 @@ class TestAnalyzer:
                 if 'hamming_loss' in metrics:
                     self.model.safe_log(f'{team_prefix}_hamming_loss', 
                                  metrics['hamming_loss'], on_epoch=True)
+                if 'hamming_accuracy' in metrics:
+                    self.model.safe_log(f'{team_prefix}_hamming_accuracy',
+                                 metrics['hamming_accuracy'], on_epoch=True)
                 if 'subset_accuracy' in metrics:
                     self.model.safe_log(f'{team_prefix}_subset_accuracy',
                                  metrics['subset_accuracy'], on_epoch=True)
@@ -80,27 +87,31 @@ class TestAnalyzer:
     
     def log_overall_metrics(self, test_results):
         """Log overall test metrics to logger."""
+        # Get checkpoint-specific prefix (test/last or test/best)
+        checkpoint_name = getattr(self.model, 'checkpoint_name', 'last')
+        base_prefix = f'test/{checkpoint_name}'
+        
         if self.task_form in ['coord-reg', 'coord-gen']:
             if 'geometric_distances' in test_results:
                 geom = test_results['geometric_distances']
-                self.model.safe_log('test/chamfer_distance', 
+                self.model.safe_log(f'{base_prefix}/chamfer_distance', 
                              geom['chamfer_distance_mean'], on_epoch=True)
-                self.model.safe_log('test/wasserstein_distance',
+                self.model.safe_log(f'{base_prefix}/wasserstein_distance',
                              geom['wasserstein_distance_mean'], on_epoch=True)
         
         elif self.task_form in ['multi-label-cls', 'grid-cls']:
             # Multi-label classification metrics
-            metric_names = ['hamming_loss', 'subset_accuracy', 'micro_f1', 'macro_f1']
+            metric_names = ['hamming_loss', 'hamming_accuracy', 'subset_accuracy', 'micro_f1', 'macro_f1']
             for metric_name in metric_names:
                 if metric_name in test_results:
-                    self.model.safe_log(f'test/{metric_name}', 
+                    self.model.safe_log(f'{base_prefix}/{metric_name}', 
                                  test_results[metric_name], on_epoch=True)
         
         elif self.task_form in ['multi-output-reg', 'density-cls']:
             metric_names = ['exact_accuracy', 'l1_count_error', 'kl_divergence', 'multinomial_loss']
             for metric_name in metric_names:
                 if metric_name in test_results:
-                    self.model.safe_log(f'test/{metric_name}', 
+                    self.model.safe_log(f'{base_prefix}/{metric_name}', 
                                  test_results[metric_name], on_epoch=True)
     
     def add_coordinate_metadata(self, test_results):

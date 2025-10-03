@@ -10,9 +10,6 @@ data:
   num_workers: 9
   task_form: multi-label-cls # multi-label-cls, multi-output-reg, grid-cls, density-cls, coord-reg, coord-gen
 
-model:
-  class_weights: null  # Options: null, inverse, inverse_sqrt, effective_num, pos_weight
-
 wandb:
   group: '${meta.exp_name}'
   tags: ['${meta.exp_name}']

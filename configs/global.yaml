@@ -30,6 +30,7 @@ model:
   hidden_dim: 256
   num_hidden_layers: 3
   dropout: 0.1
+  class_weights: null  # Options: null, inverse, inverse_sqrt, effective_num, pos_weight
   agent_fusion:
     method: concat  # Options: "mean", "max", "attention", "concat"
     fused_agent_dim: 768
@@ -46,7 +47,7 @@ model:
     coord-reg: sinkhorn  # Options: mse, sinkhorn, hausdorff, energy
     coord-gen: sinkhorn  # Options: mse, sinkhorn, hausdorff, energy
   sinkhorn:
-    blur: 0.05  # Controls smoothing (0.01-0.1)
+    blur: 0.1  # Controls smoothing (0.01-0.1)
     scaling: 0.8  # Speeds convergence with ε-scaling (<1)
     p: 2  # Power parameter for Sinkhorn loss
   hausdorff:

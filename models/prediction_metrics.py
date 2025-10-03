@@ -89,6 +89,7 @@ class MetricsCalculator:
         
         # Multi-label classification metrics using sklearn
         hamming = hamming_loss(targets_int, pred_binary)
+        hamming_acc = 1.0 - hamming
         subset_accuracy = accuracy_score(targets_int, pred_binary)
         micro_f1 = f1_score(targets_int, pred_binary, average='micro', zero_division=0)
         macro_f1 = f1_score(targets_int, pred_binary, average='macro', zero_division=0)
@@ -104,6 +105,7 @@ class MetricsCalculator:
         
         return {
             'hamming_loss': float(hamming),
+            'hamming_accuracy': float(hamming_acc),
             'subset_accuracy': float(subset_accuracy),
             'micro_f1': float(micro_f1),
             'macro_f1': float(macro_f1),
@@ -327,12 +329,14 @@ class MetricsCalculator:
         
         # Multi-label classification metrics using sklearn
         hamming = hamming_loss(team_targets_int, team_pred_binary)
+        hamming_acc = 1.0 - hamming
         subset_accuracy = accuracy_score(team_targets_int, team_pred_binary)
         micro_f1 = f1_score(team_targets_int, team_pred_binary, average='micro', zero_division=0)
         macro_f1 = f1_score(team_targets_int, team_pred_binary, average='macro', zero_division=0)
         
         return {
             'hamming_loss': float(hamming),
+            'hamming_accuracy': float(hamming_acc),
             'subset_accuracy': float(subset_accuracy),
             'micro_f1': float(micro_f1),
             'macro_f1': float(macro_f1),

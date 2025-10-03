@@ -142,6 +142,7 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
         """Initialize train/val metric pairs for multilabel classification."""
         for split in ['train', 'val']:
             setattr(self, f'{split}_hamming', MultilabelHammingDistance(num_labels=num_labels))
+            setattr(self, f'{split}_hamming_accuracy', MultilabelHammingDistance(num_labels=num_labels))
             setattr(self, f'{split}_exact_match', MultilabelExactMatch(num_labels=num_labels))
             setattr(self, f'{split}_micro_f1', MultilabelF1Score(num_labels=num_labels, average='micro'))
             setattr(self, f'{split}_macro_f1', MultilabelF1Score(num_labels=num_labels, average='macro'))
@@ -399,12 +400,15 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
             
             # Update metrics
             self.train_hamming(pred_probs, targets_int)
+            self.train_hamming_accuracy(pred_probs, targets_int)
             self.train_exact_match(pred_probs, targets_int)
             self.train_micro_f1(pred_probs, targets_int)
             self.train_macro_f1(pred_probs, targets_int)
             
             # Log metrics
             self.safe_log('train/hamming_loss', self.train_hamming, batch_size=batch_size,
+                         on_step=False, on_epoch=True, prog_bar=True)
+            self.safe_log('train/hamming_accuracy', 1.0 - self.train_hamming_accuracy, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=True)
             self.safe_log('train/subset_accuracy', self.train_exact_match, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=True)
@@ -476,12 +480,15 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
             
             # Update metrics
             self.val_hamming(pred_probs, targets_int)
+            self.val_hamming_accuracy(pred_probs, targets_int)
             self.val_exact_match(pred_probs, targets_int)
             self.val_micro_f1(pred_probs, targets_int)
             self.val_macro_f1(pred_probs, targets_int)
             
             # Log metrics
             self.safe_log('val/hamming_loss', self.val_hamming, batch_size=batch_size,
+                         on_step=False, on_epoch=True, prog_bar=True)
+            self.safe_log('val/hamming_accuracy', 1.0 - self.val_hamming_accuracy, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=True)
             self.safe_log('val/subset_accuracy', self.val_exact_match, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=True)
@@ -491,6 +498,11 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
                          on_step=False, on_epoch=True, prog_bar=True)
         
         return loss
+    
+    def _get_test_metric_prefix(self):
+        """Get the metric prefix for test logging based on checkpoint type."""
+        checkpoint_name = getattr(self, 'checkpoint_name', 'last')
+        return f'test/{checkpoint_name}'
     
     def on_test_start(self):
         """Initialize test tracking variables."""
@@ -505,6 +517,7 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
         if self.task_form in ['multi-label-cls', 'grid-cls']:
             num_labels = self.output_dim
             self.test_hamming = MultilabelHammingDistance(num_labels=num_labels).to(self.device)
+            self.test_hamming_accuracy = MultilabelHammingDistance(num_labels=num_labels).to(self.device)
             self.test_exact_match = MultilabelExactMatch(num_labels=num_labels).to(self.device)
             self.test_micro_f1 = MultilabelF1Score(num_labels=num_labels, average='micro').to(self.device)
             self.test_macro_f1 = MultilabelF1Score(num_labels=num_labels, average='macro').to(self.device)
@@ -545,27 +558,30 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
         # Compute loss
         loss, loss_components = self.loss_computer.compute_loss(outputs, targets)
         
+        # Get test metric prefix (test/last or test/best)
+        metric_prefix = self._get_test_metric_prefix()
+        
         # Log main loss
-        self.safe_log('test/loss', loss, batch_size=batch_size,
+        self.safe_log(f'{metric_prefix}/loss', loss, batch_size=batch_size,
                      on_step=False, on_epoch=True, prog_bar=True)
         
         # Log contrastive metrics if enabled
         if outputs['contrastive_loss'] is not None:
             contrastive_loss = outputs['contrastive_loss']
-            self.safe_log('test/contrastive_loss', contrastive_loss, batch_size=batch_size,
+            self.safe_log(f'{metric_prefix}/contrastive_loss', contrastive_loss, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=False)
             
             # Log contrastive retrieval metrics
             if 'contrastive_metrics' in outputs:
                 metrics = outputs['contrastive_metrics']
                 for metric_name, metric_value in metrics.items():
-                    self.safe_log(f'test/contrastive_{metric_name}', metric_value,
+                    self.safe_log(f'{metric_prefix}/contrastive_{metric_name}', metric_value,
                                 batch_size=batch_size, on_step=False, on_epoch=True, prog_bar=False)
         
         # Log VAE components
         if loss_components:
             for name, value in loss_components.items():
-                self.safe_log(f'test/{name}', value, batch_size=batch_size,
+                self.safe_log(f'{metric_prefix}/{name}', value, batch_size=batch_size,
                             on_step=False, on_epoch=True, prog_bar=False)
         
         # Test coord-gen sampling for VAE
@@ -573,7 +589,7 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
             gen_outputs = self.forward(batch, mode='sampling')
             gen_predictions = gen_outputs['predictions']
             gen_loss = self.loss_computer._compute_regression_loss(gen_predictions, targets)
-            self.safe_log('test/gen_loss', gen_loss, batch_size=batch_size,
+            self.safe_log(f'{metric_prefix}/gen_loss', gen_loss, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=False)
         
         # Initialize and log coordinate-based metrics
@@ -584,9 +600,9 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
             
             self.test_mse(predictions.view(batch_size, -1), targets.view(batch_size, -1))
             self.test_mae(predictions.view(batch_size, -1), targets.view(batch_size, -1))
-            self.safe_log('test/mse', self.test_mse, batch_size=batch_size,
+            self.safe_log(f'{metric_prefix}/mse', self.test_mse, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=True)
-            self.safe_log('test/mae', self.test_mae, batch_size=batch_size,
+            self.safe_log(f'{metric_prefix}/mae', self.test_mae, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=True)
         
         # Log multi-label classification metrics
@@ -597,18 +613,21 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
             
             # Update metrics
             self.test_hamming(pred_probs, targets_int)
+            self.test_hamming_accuracy(pred_probs, targets_int)
             self.test_exact_match(pred_probs, targets_int)
             self.test_micro_f1(pred_probs, targets_int)
             self.test_macro_f1(pred_probs, targets_int)
             
             # Log metrics
-            self.safe_log('test/hamming_loss', self.test_hamming, batch_size=batch_size,
+            self.safe_log(f'{metric_prefix}/hamming_loss', self.test_hamming, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=True)
-            self.safe_log('test/subset_accuracy', self.test_exact_match, batch_size=batch_size,
+            self.safe_log(f'{metric_prefix}/hamming_accuracy', 1.0 - self.test_hamming_accuracy, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=True)
-            self.safe_log('test/micro_f1', self.test_micro_f1, batch_size=batch_size,
+            self.safe_log(f'{metric_prefix}/subset_accuracy', self.test_exact_match, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=True)
-            self.safe_log('test/macro_f1', self.test_macro_f1, batch_size=batch_size,
+            self.safe_log(f'{metric_prefix}/micro_f1', self.test_micro_f1, batch_size=batch_size,
+                         on_step=False, on_epoch=True, prog_bar=True)
+            self.safe_log(f'{metric_prefix}/macro_f1', self.test_macro_f1, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=True)
         
         # Store predictions and targets

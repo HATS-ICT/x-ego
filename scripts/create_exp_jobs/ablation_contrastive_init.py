@@ -15,8 +15,10 @@ MAIL_TYPE = "all"
 LOGS_SUBDIR = "logs"
 
 # Experiment configuration
-EXP_PREFIX = "baseline"
+EXP_PREFIX = "ablation_contrastive_init"
 MAX_EPOCHS = 10
+MODEL = "dinov2"  # Use single model for ablation
+TASK_FORM = "multi-label-cls"  # Use single task form for ablation
 
 # Tasks to sweep over
 TASKS = [
@@ -25,20 +27,43 @@ TASKS = [
     "enemy_location_nowcast",
 ]
 
-# Models to sweep over
-MODELS = [
-    "clip",
-    "dinov2",
-    "siglip",
-    "vivit",
-    "videomae",
-    "vjepa2",
-]
-
-# Task forms to sweep over
-TASK_FORMS = [
-    "multi-label-cls",
-    "coord-gen",
+# SigLIP ablation configurations (from paper)
+CONTRASTIVE_CONFIGS = [
+    {
+        "name": "setup1_bNA_tlog10",
+        "logit_scale_init": 10,
+        "logit_bias_init": 0,
+        "turn_off_bias": "true",
+        "description": "b: n/a, t: log(10)",
+    },
+    {
+        "name": "setup2_bN10_tlog10",
+        "logit_scale_init": 10,
+        "logit_bias_init": -10,
+        "turn_off_bias": "false",
+        "description": "b: -10, t: log(10)",
+    },
+    {
+        "name": "setup3_bN10_tlog1",
+        "logit_scale_init": 1,
+        "logit_bias_init": -10,
+        "turn_off_bias": "false",
+        "description": "b: -10, t: log(1)",
+    },
+    {
+        "name": "setup4_b0_tlog10",
+        "logit_scale_init": 10,
+        "logit_bias_init": 0,
+        "turn_off_bias": "false",
+        "description": "b: 0, t: log(10)",
+    },
+    {
+        "name": "setup5_b0_tlog1",
+        "logit_scale_init": 1,
+        "logit_bias_init": 0,
+        "turn_off_bias": "false",
+        "description": "b: 0, t: log(1)",
+    },
 ]
 
 # ===== Templates =====
@@ -63,10 +88,13 @@ JOB_BODY = """module restore
 cd {project_src}
 
 uv run python main.py --mode train --task {task} \\
-  data.num_pov_agents=1 \\
+  data.num_pov_agents=5 \\
   data.task_form={task_form} \\
   model.encoder.video.model_type={model} \\
-  model.contrastive.enable=false \\
+  model.contrastive.enable=true \\
+  model.contrastive.logit_scale_init={logit_scale_init} \\
+  model.contrastive.logit_bias_init={logit_bias_init} \\
+  model.contrastive.turn_off_bias={turn_off_bias} \\
   training.max_epochs={max_epochs} \\
   meta.exp_name={exp_name} \\
   meta.run_name={run_name}
@@ -114,14 +142,6 @@ def get_task_short_name(task: str) -> str:
     }
     return task_map.get(task, task)
 
-def get_task_form_short_name(task_form: str) -> str:
-    """Convert task form to short form for naming"""
-    task_form_map = {
-        "multi-label-cls": "mlcls",
-        "coord-gen": "cgen",
-    }
-    return task_form_map.get(task_form, task_form)
-
 # ===== Main =====
 def main():
     project_src = Path(PROJECT_SRC).resolve()
@@ -140,49 +160,52 @@ def main():
     for task in TASKS:
         task_short = get_task_short_name(task)
         
-        for task_form in TASK_FORMS:
-            task_form_short = get_task_form_short_name(task_form)
+        for config in CONTRASTIVE_CONFIGS:
+            run_name = f"{EXP_PREFIX}-{task_short}-{config['name']}"
             
-            for model in MODELS:
-                run_name = f"{EXP_PREFIX}-{task_short}-{task_form_short}-{model}"
-                
-                header = SCRIPT_HEADER.format(
-                    account=ACCOUNT, partition=PARTITION, cpus=CPUS,
-                    gpu_constraint=GPU_CONSTRAINT, gpu_count=GPU_COUNT,
-                    mem=MEM, time=TIME,
-                    job_name=run_name, log_dir=str(log_root),
-                    mail_block=mail_block,
-                ).rstrip()
-                
-                body = JOB_BODY.format(
-                    project_src=str(project_src),
-                    task=task,
-                    task_form=task_form,
-                    model=model,
-                    max_epochs=MAX_EPOCHS,
-                    exp_name=EXP_PREFIX,
-                    run_name=run_name,
-                ).rstrip()
+            header = SCRIPT_HEADER.format(
+                account=ACCOUNT, partition=PARTITION, cpus=CPUS,
+                gpu_constraint=GPU_CONSTRAINT, gpu_count=GPU_COUNT,
+                mem=MEM, time=TIME,
+                job_name=run_name, log_dir=str(log_root),
+                mail_block=mail_block,
+            ).rstrip()
+            
+            body = JOB_BODY.format(
+                project_src=str(project_src),
+                task=task,
+                task_form=TASK_FORM,
+                model=MODEL,
+                logit_scale_init=config['logit_scale_init'],
+                logit_bias_init=config['logit_bias_init'],
+                turn_off_bias=config['turn_off_bias'],
+                max_epochs=MAX_EPOCHS,
+                exp_name=EXP_PREFIX,
+                run_name=run_name,
+            ).rstrip()
 
-                content = header + "\n\n" + body + "\n"
-                job_path = jobs_root / f"{run_name}.job"
-                job_path.write_text(content, encoding="utf-8")
-                job_path.chmod(0o750)
-                all_jobs.append(job_path)
-                
-                # Extract the command for sequential run script
-                command = f"""uv run python main.py --mode train --task {task} \\
-  data.num_pov_agents=1 \\
-  data.task_form={task_form} \\
-  model.encoder.video.model_type={model} \\
-  model.contrastive.enable=false \\
+            content = header + "\n\n" + body + "\n"
+            job_path = jobs_root / f"{run_name}.job"
+            job_path.write_text(content, encoding="utf-8")
+            job_path.chmod(0o750)
+            all_jobs.append(job_path)
+            
+            # Extract the command for sequential run script
+            command = f"""uv run python main.py --mode train --task {task} \\
+  data.num_pov_agents=5 \\
+  data.task_form={TASK_FORM} \\
+  model.encoder.video.model_type={MODEL} \\
+  model.contrastive.enable=true \\
+  model.contrastive.logit_scale_init={config['logit_scale_init']} \\
+  model.contrastive.logit_bias_init={config['logit_bias_init']} \\
+  model.contrastive.turn_off_bias={config['turn_off_bias']} \\
   training.max_epochs={MAX_EPOCHS} \\
   meta.exp_name={EXP_PREFIX} \\
   meta.run_name={run_name}"""
-                all_commands.append((run_name, command))
+            all_commands.append((run_name, command))
 
     # Generate sbatch_all script
-    sbatch_all_path = jobs_root / "sbatch_all_baseline.sh"
+    sbatch_all_path = jobs_root / f"sbatch_all_{EXP_PREFIX}.sh"
     sbatch_all_path.write_text(SBATCH_ALL_HEADER, encoding="utf-8")
     sbatch_all_path.chmod(0o750)
     
@@ -200,13 +223,20 @@ def main():
     print(f"Logs will be written to {log_root}")
     print("\nBreakdown:")
     print(f"  - {len(TASKS)} tasks")
-    print(f"  - {len(TASK_FORMS)} task forms")
-    print(f"  - {len(MODELS)} models")
-    print(f"  - Total: {len(TASKS)} × {len(TASK_FORMS)} × {len(MODELS)} = {len(all_jobs)} jobs")
+    print(f"  - {len(CONTRASTIVE_CONFIGS)} contrastive initialization configurations")
+    print(f"  - Total: {len(TASKS)} × {len(CONTRASTIVE_CONFIGS)} = {len(all_jobs)} jobs")
     print("\nConfiguration:")
-    print(f"  - num_pov_agents: 1")
-    print(f"  - contrastive.enable: false")
+    print(f"  - model: {MODEL}")
+    print(f"  - task_form: {TASK_FORM}")
+    print(f"  - num_pov_agents: 5")
+    print(f"  - contrastive.enable: true")
     print(f"  - max_epochs: {MAX_EPOCHS}")
+    print("\nContrastive configurations:")
+    for i, config in enumerate(CONTRASTIVE_CONFIGS, 1):
+        print(f"  {i}. {config['name']}: {config['description']}")
+        print(f"     logit_scale_init={config['logit_scale_init']}, "
+              f"logit_bias_init={config['logit_bias_init']}, "
+              f"turn_off_bias={config['turn_off_bias']}")
     print("\nTo submit all jobs to SLURM, run:")
     print(f"  bash {sbatch_all_path}")
     print("\nTo run all jobs sequentially on a single machine, run:")

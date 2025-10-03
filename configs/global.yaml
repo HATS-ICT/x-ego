@@ -64,8 +64,15 @@ model:
     proj_dim: ${model.agent_fusion.fused_agent_dim}
   contrastive:
     enable: false
-    logit_scale_init: 1.0
-    logit_bias_init: 0.0
+    logit_scale_init: 1.0  # Temperature parameter (pass actual value, not log)
+    logit_bias_init: 0.0   # Bias parameter (pass actual value)
+    turn_off_bias: false   # If true, no bias is applied (for SigLIP ablation setup 1: b=n/a)
+    # SigLIP ablation configurations:
+    # Setup 1: logit_scale_init=10, logit_bias_init=0,   turn_off_bias=true  (b: n/a,  t: log10)
+    # Setup 2: logit_scale_init=10, logit_bias_init=-10, turn_off_bias=false (b: -10,  t: log10)
+    # Setup 3: logit_scale_init=1,  logit_bias_init=-10, turn_off_bias=false (b: -10,  t: log1)
+    # Setup 4: logit_scale_init=10, logit_bias_init=0,   turn_off_bias=false (b: 0,    t: log10)
+    # Setup 5: logit_scale_init=1,  logit_bias_init=0,   turn_off_bias=false (b: 0,    t: log1)
     loss_weight: 1.0
 
 training:

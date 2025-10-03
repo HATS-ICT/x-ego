@@ -37,7 +37,7 @@ class CrossEgoContrastive(nn.Module):
     """
     
     def __init__(self, embed_dim, init_logit_scale=1.0, init_logit_bias=0.0, 
-                 learnable_temp=True, mlp_hidden_dim=None, mlp_dropout=0.1, mlp_activation='gelu'):
+                 learnable_temp=True, turn_off_bias=False, mlp_hidden_dim=None, mlp_dropout=0.1, mlp_activation='gelu'):
         """
         Initialize the cross-ego contrastive module.
         
@@ -46,6 +46,7 @@ class CrossEgoContrastive(nn.Module):
             init_logit_scale: Initial value for logit scale (temperature parameter)
             init_logit_bias: Initial bias for logits
             learnable_temp: Whether logit_scale and logit_bias are learnable
+            turn_off_bias: If True, no bias is applied (for SigLIP ablation b=n/a case)
             mlp_hidden_dim: Hidden dimension for MLP projector (defaults to embed_dim)
             mlp_dropout: Dropout probability for MLP
             mlp_activation: Activation function for MLP
@@ -64,6 +65,9 @@ class CrossEgoContrastive(nn.Module):
             dropout=mlp_dropout,
             activation=mlp_activation
         )
+        
+        # Store bias configuration
+        self.turn_off_bias = turn_off_bias
         
         # Learnable temperature and bias parameters (following SigLIP)
         self.logit_scale = nn.Parameter(
@@ -202,9 +206,11 @@ class CrossEgoContrastive(nn.Module):
         # Compute cosine similarity matrix: [B*A, B*A]
         logits = torch.matmul(normalized_embeddings, normalized_embeddings.t())
         
-        # Apply learnable temperature and bias
+        # Apply learnable temperature and optionally bias
         logit_scale = self.logit_scale.exp()
-        logits = logits * logit_scale + self.logit_bias
+        logits = logits * logit_scale
+        if not self.turn_off_bias:
+            logits = logits + self.logit_bias
         
         # Create label matrix: 1 for same batch, 0 for different batch
         labels = self.create_label_matrix(B, A, device=agent_embeddings.device)
@@ -248,7 +254,8 @@ class CrossEgoContrastive(nn.Module):
             'loss': loss,
             'logits': logits,
             'retrieval_metrics': retrieval_metrics,
-            'temperature': logit_scale
+            'temperature': logit_scale,
+            'bias': self.logit_bias.item() if not self.turn_off_bias else None
         }
         
         return output
@@ -256,4 +263,8 @@ class CrossEgoContrastive(nn.Module):
     def get_temperature(self):
         """Get current temperature value."""
         return self.logit_scale.exp().item()
+    
+    def get_bias(self):
+        """Get current bias value (None if turned off)."""
+        return self.logit_bias.item() if not self.turn_off_bias else None
 

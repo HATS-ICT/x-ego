@@ -84,7 +84,8 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
                 embed_dim=cfg.model.encoder.proj_dim,
                 init_logit_scale=cfg.model.contrastive.logit_scale_init,
                 init_logit_bias=cfg.model.contrastive.logit_bias_init,
-                learnable_temp=True
+                learnable_temp=True,
+                turn_off_bias=cfg.model.contrastive.turn_off_bias
             )
         
         # Agent fusion module
@@ -275,8 +276,10 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
             agent_embeddings_contrastive = contrastive_out['embeddings']
             contrastive_loss = contrastive_out['loss']
             contrastive_metrics = contrastive_out['retrieval_metrics']
-            # Add temperature to metrics
+            # Add temperature and bias to metrics
             contrastive_metrics['temperature'] = contrastive_out['temperature']
+            if contrastive_out['bias'] is not None:
+                contrastive_metrics['bias'] = contrastive_out['bias']
             
             # When contrastive is enabled, randomly select num_agents from all A agents for inference
             # This happens after video embeddings are computed to avoid recomputation

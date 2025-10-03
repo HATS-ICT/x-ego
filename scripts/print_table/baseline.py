@@ -86,34 +86,30 @@ def parse_folder_name(folder_name):
     return None
 
 
-def find_test_results_file(exp_dir):
+def find_test_results_files(exp_dir):
     """
-    Find test_results.json file in the experiment directory.
-    Looks in test_analysis subdirectories, prioritizing 'best' over 'last'.
+    Find test_results.json files in the experiment directory.
+    Looks in test_analysis subdirectories for both 'best' and 'last' checkpoints.
     
     Returns:
-        Path to test_results.json or None if not found
+        dict with keys 'best' and 'last', values are Path objects or None
     """
     test_analysis_dir = exp_dir / "test_analysis"
-    if not test_analysis_dir.exists():
-        return None
+    results = {'best': None, 'last': None}
     
-    # Try to find 'best' checkpoint first, then 'last'
+    if not test_analysis_dir.exists():
+        return results
+    
+    # Try to find both 'best' and 'last' checkpoints
     for checkpoint_type in ['best', 'last']:
         for subdir in test_analysis_dir.iterdir():
             if subdir.is_dir() and checkpoint_type in subdir.name:
                 results_file = subdir / "test_results.json"
                 if results_file.exists():
-                    return results_file
+                    results[checkpoint_type] = results_file
+                    break
     
-    # If no 'best' or 'last' found, just find any test_results.json
-    for subdir in test_analysis_dir.iterdir():
-        if subdir.is_dir():
-            results_file = subdir / "test_results.json"
-            if results_file.exists():
-                return results_file
-    
-    return None
+    return results
 
 
 def load_test_results(results_file):
@@ -190,36 +186,44 @@ def collect_all_results():
             print(f"Skipping (couldn't parse): {exp_dir.name}")
             continue
         
-        # Find test results file
-        results_file = find_test_results_file(exp_dir)
-        if not results_file:
+        # Find test results files (both best and last)
+        results_files = find_test_results_files(exp_dir)
+        
+        if not results_files['best'] and not results_files['last']:
             print(f"Warning: No test_results.json found in {exp_dir.name}")
             continue
         
-        # Load results
-        results = load_test_results(results_file)
-        if not results:
-            continue
-        
-        # Extract metrics based on task form
-        task_form = results.get('task_form', parsed['task_form'])
-        if task_form in ['coord-gen', 'cgen']:
-            metrics = extract_cgen_metrics(results)
-            metrics['task_form'] = 'cgen'
-        elif task_form in ['multi-label-cls', 'mlcls']:
-            metrics = extract_mlcls_metrics(results)
-            metrics['task_form'] = 'mlcls'
-        else:
-            print(f"Unknown task form: {task_form} in {exp_dir.name}")
-            continue
-        
-        # Combine parsed info with metrics
-        result_entry = {
-            **parsed,
-            **metrics,
-            'results_file': str(results_file)
-        }
-        results_data.append(result_entry)
+        # Process both checkpoint types
+        for checkpoint_type in ['best', 'last']:
+            results_file = results_files[checkpoint_type]
+            if not results_file:
+                continue
+            
+            # Load results
+            results = load_test_results(results_file)
+            if not results:
+                continue
+            
+            # Extract metrics based on task form
+            task_form = results.get('task_form', parsed['task_form'])
+            if task_form in ['coord-gen', 'cgen']:
+                metrics = extract_cgen_metrics(results)
+                metrics['task_form'] = 'cgen'
+            elif task_form in ['multi-label-cls', 'mlcls']:
+                metrics = extract_mlcls_metrics(results)
+                metrics['task_form'] = 'mlcls'
+            else:
+                print(f"Unknown task form: {task_form} in {exp_dir.name}")
+                continue
+            
+            # Combine parsed info with metrics
+            result_entry = {
+                **parsed,
+                **metrics,
+                'checkpoint': checkpoint_type,
+                'results_file': str(results_file)
+            }
+            results_data.append(result_entry)
     
     return results_data
 
@@ -244,9 +248,9 @@ def create_cgen_table(results_data):
     models = sorted(set(r['model'] for r in cgen_results))
     
     lines = []
-    lines.append("=" * 120)
+    lines.append("=" * 135)
     lines.append("COORDINATE GENERATION (CGEN) RESULTS")
-    lines.append("=" * 120)
+    lines.append("=" * 135)
     lines.append("")
     
     for task in tasks:
@@ -255,27 +259,32 @@ def create_cgen_table(results_data):
             continue
         
         lines.append(f"Task: {task}")
-        lines.append("-" * 120)
-        lines.append(f"{'Model':<12} {'MAE':>8} {'MSE':>8} {'Chamfer':>10} {'Wasser':>10} {'CT-MAE':>8} {'T-MAE':>8} {'Samples':>8}")
-        lines.append("-" * 120)
+        lines.append("-" * 135)
+        lines.append(f"{'Model':<12} {'Ckpt':<6} {'MAE':>8} {'MSE':>8} {'Chamfer':>10} {'Wasser':>10} {'CT-MAE':>8} {'T-MAE':>8} {'Samples':>8}")
+        lines.append("-" * 135)
         
         for model in models:
             model_results = [r for r in task_results if r['model'] == model]
             if not model_results:
                 continue
             
-            # Take the first (should be only one)
-            r = model_results[0]
-            lines.append(
-                f"{model:<12} "
-                f"{format_value(r.get('overall_mae')):>8} "
-                f"{format_value(r.get('overall_mse')):>8} "
-                f"{format_value(r.get('chamfer_dist')):>10} "
-                f"{format_value(r.get('wasserstein_dist')):>10} "
-                f"{format_value(r.get('ct_mae')):>8} "
-                f"{format_value(r.get('t_mae')):>8} "
-                f"{r.get('num_samples', 'N/A'):>8}"
-            )
+            # Sort by checkpoint type (best first, then last)
+            model_results.sort(key=lambda x: (x.get('checkpoint', 'last') != 'best'))
+            
+            # Display both best and last if available
+            for r in model_results:
+                checkpoint = r.get('checkpoint', 'best')
+                lines.append(
+                    f"{model:<12} "
+                    f"{checkpoint:<6} "
+                    f"{format_value(r.get('overall_mae')):>8} "
+                    f"{format_value(r.get('overall_mse')):>8} "
+                    f"{format_value(r.get('chamfer_dist')):>10} "
+                    f"{format_value(r.get('wasserstein_dist')):>10} "
+                    f"{format_value(r.get('ct_mae')):>8} "
+                    f"{format_value(r.get('t_mae')):>8} "
+                    f"{r.get('num_samples', 'N/A'):>8}"
+                )
         
         lines.append("")
     
@@ -295,9 +304,9 @@ def create_mlcls_table(results_data):
     models = sorted(set(r['model'] for r in mlcls_results))
     
     lines = []
-    lines.append("=" * 120)
+    lines.append("=" * 135)
     lines.append("MULTI-LABEL CLASSIFICATION (MLCLS) RESULTS")
-    lines.append("=" * 120)
+    lines.append("=" * 135)
     lines.append("")
     
     for task in tasks:
@@ -306,27 +315,32 @@ def create_mlcls_table(results_data):
             continue
         
         lines.append(f"Task: {task}")
-        lines.append("-" * 120)
-        lines.append(f"{'Model':<12} {'H-Loss':>8} {'H-Acc':>8} {'Micro-F1':>10} {'Macro-F1':>10} {'CT-HAcc':>8} {'T-HAcc':>8} {'Samples':>8}")
-        lines.append("-" * 120)
+        lines.append("-" * 135)
+        lines.append(f"{'Model':<12} {'Ckpt':<6} {'H-Loss':>8} {'H-Acc':>8} {'Micro-F1':>10} {'Macro-F1':>10} {'CT-HAcc':>8} {'T-HAcc':>8} {'Samples':>8}")
+        lines.append("-" * 135)
         
         for model in models:
             model_results = [r for r in task_results if r['model'] == model]
             if not model_results:
                 continue
             
-            # Take the first (should be only one)
-            r = model_results[0]
-            lines.append(
-                f"{model:<12} "
-                f"{format_value(r.get('hamming_loss')):>8} "
-                f"{format_value(r.get('hamming_accuracy')):>8} "
-                f"{format_value(r.get('micro_f1')):>10} "
-                f"{format_value(r.get('macro_f1')):>10} "
-                f"{format_value(r.get('ct_hamming_acc')):>8} "
-                f"{format_value(r.get('t_hamming_acc')):>8} "
-                f"{r.get('num_samples', 'N/A'):>8}"
-            )
+            # Sort by checkpoint type (best first, then last)
+            model_results.sort(key=lambda x: (x.get('checkpoint', 'last') != 'best'))
+            
+            # Display both best and last if available
+            for r in model_results:
+                checkpoint = r.get('checkpoint', 'best')
+                lines.append(
+                    f"{model:<12} "
+                    f"{checkpoint:<6} "
+                    f"{format_value(r.get('hamming_loss')):>8} "
+                    f"{format_value(r.get('hamming_accuracy')):>8} "
+                    f"{format_value(r.get('micro_f1')):>10} "
+                    f"{format_value(r.get('macro_f1')):>10} "
+                    f"{format_value(r.get('ct_hamming_acc')):>8} "
+                    f"{format_value(r.get('t_hamming_acc')):>8} "
+                    f"{r.get('num_samples', 'N/A'):>8}"
+                )
         
         lines.append("")
     
@@ -374,10 +388,12 @@ Generated from: {OUTPUT_DIR}
 {mlcls_table}
 
 Notes:
+- Ckpt: Checkpoint type (best = validation best, last = final epoch)
 - MAE/MSE: Mean Absolute/Squared Error
 - Chamfer/Wasser: Chamfer/Wasserstein Distance
 - H-Loss/H-Acc: Hamming Loss/Accuracy
 - CT/T: Counter-Terrorist/Terrorist team metrics
+- Each model shows results for both 'best' and 'last' checkpoints when available
 """
     
     # Print to console

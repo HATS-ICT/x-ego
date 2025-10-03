@@ -191,7 +191,7 @@ class TeammateLocationForecastDataset(BaseVideoDataset, Dataset):
             video_features = self._transform_video(video_clip)
             agent_videos.append(video_features)
             agent_ids.append(agent['id'])
-            agent_places.append(agent['place'])
+            agent_places.append(agent['future_place'])
         
         # Stack agent videos: [A, T, C, H, W]
         multi_agent_video = torch.stack(agent_videos, dim=0)

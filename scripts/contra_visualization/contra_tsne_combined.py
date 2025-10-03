@@ -2,7 +2,7 @@
 t-SNE Combined Visualization
 
 This script creates a 2x3 subplot grid showing embeddings before and after contrastive learning.
-Top row: before contrastive, Bottom row: after contrastive
+Top row: after contrastive, Bottom row: before contrastive
 Columns: location, time, team
 
 Usage:
@@ -59,8 +59,8 @@ def plot_combined_tsne(embeddings_before, embeddings_after, team_sides, places, 
                        save_path, perplexity=30, random_state=42, num_time_bins=5):
     """
     Create a 2x3 subplot grid showing t-SNE visualizations.
-    Top row: before contrastive (location, time, team)
-    Bottom row: after contrastive (location, time, team)
+    Top row: after contrastive (location, time, team)
+    Bottom row: before contrastive (location, time, team)
     """
     print(f"\nRunning t-SNE on embeddings with perplexity={perplexity}...")
     
@@ -104,70 +104,24 @@ def plot_combined_tsne(embeddings_before, embeddings_after, team_sides, places, 
     # Prepare team colors
     team_colors = {'T': '#FF6B35', 'CT': '#004E89'}
     
-    # === TOP ROW: BEFORE CONTRASTIVE ===
+    # === TOP ROW: AFTER CONTRASTIVE ===
     
-    # Top-left: Location (before)
+    # Top-left: Location (after)
     ax = axes[0, 0]
-    if places is not None and places[0] is not None:
-        for place in unique_places:
-            mask = places == place
-            ax.scatter(embeddings_2d_before[mask, 0], embeddings_2d_before[mask, 1],
-                      c=[place_to_color[place]], s=20, alpha=0.6, edgecolors='none',
-                      label=place)
-    ax.set_xlabel('(a) Colored by Location (Before)', fontsize=14, fontweight='bold')
-    ax.set_xticks([])
-    ax.set_yticks([])
-    for spine in ax.spines.values():
-        spine.set_visible(False)
-    
-    # Top-middle: Time (before)
-    ax = axes[0, 1]
-    if times is not None and time_bins_categorical is not None:
-        colors_time = plt.cm.viridis(np.linspace(0, 1, num_time_bins))
-        for i in range(num_time_bins):
-            mask = time_bins_categorical == i
-            if mask.sum() > 0:
-                ax.scatter(embeddings_2d_before[mask, 0], embeddings_2d_before[mask, 1],
-                          c=[colors_time[i]], s=20, alpha=0.6, edgecolors='none',
-                          label=time_bin_labels[i])
-    ax.set_xlabel('(b) Colored by Time (Before)', fontsize=14, fontweight='bold')
-    ax.set_xticks([])
-    ax.set_yticks([])
-    for spine in ax.spines.values():
-        spine.set_visible(False)
-    
-    # Top-right: Team (before)
-    ax = axes[0, 2]
-    unique_teams = np.unique(team_sides)
-    for team in unique_teams:
-        mask = team_sides == team
-        color = team_colors.get(team, '#808080')
-        ax.scatter(embeddings_2d_before[mask, 0], embeddings_2d_before[mask, 1],
-                  c=color, s=20, alpha=0.6, edgecolors='none', label=team)
-    ax.set_xlabel('(c) Colored by Team (Before)', fontsize=14, fontweight='bold')
-    ax.set_xticks([])
-    ax.set_yticks([])
-    for spine in ax.spines.values():
-        spine.set_visible(False)
-    
-    # === BOTTOM ROW: AFTER CONTRASTIVE ===
-    
-    # Bottom-left: Location (after)
-    ax = axes[1, 0]
     if places is not None and places[0] is not None:
         for place in unique_places:
             mask = places == place
             ax.scatter(embeddings_2d_after[mask, 0], embeddings_2d_after[mask, 1],
                       c=[place_to_color[place]], s=20, alpha=0.6, edgecolors='none',
                       label=place)
-    ax.set_xlabel('(d) Colored by Location (After)', fontsize=14, fontweight='bold')
+    ax.set_xlabel('(a) Colored by Location (After)', fontsize=14, fontweight='bold')
     ax.set_xticks([])
     ax.set_yticks([])
     for spine in ax.spines.values():
         spine.set_visible(False)
     
-    # Bottom-middle: Time (after)
-    ax = axes[1, 1]
+    # Top-middle: Time (after)
+    ax = axes[0, 1]
     if times is not None and time_bins_categorical is not None:
         colors_time = plt.cm.viridis(np.linspace(0, 1, num_time_bins))
         for i in range(num_time_bins):
@@ -176,20 +130,66 @@ def plot_combined_tsne(embeddings_before, embeddings_after, team_sides, places, 
                 ax.scatter(embeddings_2d_after[mask, 0], embeddings_2d_after[mask, 1],
                           c=[colors_time[i]], s=20, alpha=0.6, edgecolors='none',
                           label=time_bin_labels[i])
-    ax.set_xlabel('(e) Colored by Time (After)', fontsize=14, fontweight='bold')
+    ax.set_xlabel('(b) Colored by Time (After)', fontsize=14, fontweight='bold')
     ax.set_xticks([])
     ax.set_yticks([])
     for spine in ax.spines.values():
         spine.set_visible(False)
     
-    # Bottom-right: Team (after)
-    ax = axes[1, 2]
+    # Top-right: Team (after)
+    ax = axes[0, 2]
+    unique_teams = np.unique(team_sides)
     for team in unique_teams:
         mask = team_sides == team
         color = team_colors.get(team, '#808080')
         ax.scatter(embeddings_2d_after[mask, 0], embeddings_2d_after[mask, 1],
                   c=color, s=20, alpha=0.6, edgecolors='none', label=team)
-    ax.set_xlabel('(f) Colored by Team (After)', fontsize=14, fontweight='bold')
+    ax.set_xlabel('(c) Colored by Team (After)', fontsize=14, fontweight='bold')
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    
+    # === BOTTOM ROW: BEFORE CONTRASTIVE ===
+    
+    # Bottom-left: Location (before)
+    ax = axes[1, 0]
+    if places is not None and places[0] is not None:
+        for place in unique_places:
+            mask = places == place
+            ax.scatter(embeddings_2d_before[mask, 0], embeddings_2d_before[mask, 1],
+                      c=[place_to_color[place]], s=20, alpha=0.6, edgecolors='none',
+                      label=place)
+    ax.set_xlabel('(d) Colored by Location (Before)', fontsize=14, fontweight='bold')
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    
+    # Bottom-middle: Time (before)
+    ax = axes[1, 1]
+    if times is not None and time_bins_categorical is not None:
+        colors_time = plt.cm.viridis(np.linspace(0, 1, num_time_bins))
+        for i in range(num_time_bins):
+            mask = time_bins_categorical == i
+            if mask.sum() > 0:
+                ax.scatter(embeddings_2d_before[mask, 0], embeddings_2d_before[mask, 1],
+                          c=[colors_time[i]], s=20, alpha=0.6, edgecolors='none',
+                          label=time_bin_labels[i])
+    ax.set_xlabel('(e) Colored by Time (Before)', fontsize=14, fontweight='bold')
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    
+    # Bottom-right: Team (before)
+    ax = axes[1, 2]
+    for team in unique_teams:
+        mask = team_sides == team
+        color = team_colors.get(team, '#808080')
+        ax.scatter(embeddings_2d_before[mask, 0], embeddings_2d_before[mask, 1],
+                  c=color, s=20, alpha=0.6, edgecolors='none', label=team)
+    ax.set_xlabel('(f) Colored by Team (Before)', fontsize=14, fontweight='bold')
     ax.set_xticks([])
     ax.set_yticks([])
     for spine in ax.spines.values():
@@ -206,6 +206,11 @@ def plot_combined_tsne(embeddings_before, embeddings_after, team_sides, places, 
     svg_path = save_path.with_suffix('.svg')
     plt.savefig(svg_path, format='svg', bbox_inches='tight')
     print(f"Saved SVG plot to: {svg_path}")
+    
+    # Save as PDF
+    pdf_path = save_path.with_suffix('.pdf')
+    plt.savefig(pdf_path, format='pdf', bbox_inches='tight')
+    print(f"Saved PDF plot to: {pdf_path}")
     
     plt.close()
 

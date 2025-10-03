@@ -114,7 +114,6 @@ def plot_combined_tsne(embeddings_before, embeddings_after, team_sides, places, 
             ax.scatter(embeddings_2d_before[mask, 0], embeddings_2d_before[mask, 1],
                       c=[place_to_color[place]], s=20, alpha=0.6, edgecolors='none',
                       label=place)
-        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', frameon=False, fontsize=10)
     ax.set_xlabel('(a) Colored by Location (Before)', fontsize=14, fontweight='bold')
     ax.set_xticks([])
     ax.set_yticks([])
@@ -131,7 +130,6 @@ def plot_combined_tsne(embeddings_before, embeddings_after, team_sides, places, 
                 ax.scatter(embeddings_2d_before[mask, 0], embeddings_2d_before[mask, 1],
                           c=[colors_time[i]], s=20, alpha=0.6, edgecolors='none',
                           label=time_bin_labels[i])
-        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', frameon=False, fontsize=10)
     ax.set_xlabel('(b) Colored by Time (Before)', fontsize=14, fontweight='bold')
     ax.set_xticks([])
     ax.set_yticks([])
@@ -146,7 +144,6 @@ def plot_combined_tsne(embeddings_before, embeddings_after, team_sides, places, 
         color = team_colors.get(team, '#808080')
         ax.scatter(embeddings_2d_before[mask, 0], embeddings_2d_before[mask, 1],
                   c=color, s=20, alpha=0.6, edgecolors='none', label=team)
-    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', frameon=False, fontsize=10)
     ax.set_xlabel('(c) Colored by Team (Before)', fontsize=14, fontweight='bold')
     ax.set_xticks([])
     ax.set_yticks([])
@@ -163,7 +160,6 @@ def plot_combined_tsne(embeddings_before, embeddings_after, team_sides, places, 
             ax.scatter(embeddings_2d_after[mask, 0], embeddings_2d_after[mask, 1],
                       c=[place_to_color[place]], s=20, alpha=0.6, edgecolors='none',
                       label=place)
-        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', frameon=False, fontsize=10)
     ax.set_xlabel('(d) Colored by Location (After)', fontsize=14, fontweight='bold')
     ax.set_xticks([])
     ax.set_yticks([])
@@ -180,7 +176,6 @@ def plot_combined_tsne(embeddings_before, embeddings_after, team_sides, places, 
                 ax.scatter(embeddings_2d_after[mask, 0], embeddings_2d_after[mask, 1],
                           c=[colors_time[i]], s=20, alpha=0.6, edgecolors='none',
                           label=time_bin_labels[i])
-        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', frameon=False, fontsize=10)
     ax.set_xlabel('(e) Colored by Time (After)', fontsize=14, fontweight='bold')
     ax.set_xticks([])
     ax.set_yticks([])
@@ -194,7 +189,6 @@ def plot_combined_tsne(embeddings_before, embeddings_after, team_sides, places, 
         color = team_colors.get(team, '#808080')
         ax.scatter(embeddings_2d_after[mask, 0], embeddings_2d_after[mask, 1],
                   c=color, s=20, alpha=0.6, edgecolors='none', label=team)
-    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', frameon=False, fontsize=10)
     ax.set_xlabel('(f) Colored by Team (After)', fontsize=14, fontweight='bold')
     ax.set_xticks([])
     ax.set_yticks([])

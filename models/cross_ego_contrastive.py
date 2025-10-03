@@ -71,11 +71,11 @@ class CrossEgoContrastive(nn.Module):
         
         # Learnable temperature and bias parameters (following SigLIP)
         self.logit_scale = nn.Parameter(
-            torch.tensor(init_logit_scale).log(),
+            torch.tensor(init_logit_scale, dtype=torch.float32).log(),
             requires_grad=learnable_temp
         )
         self.logit_bias = nn.Parameter(
-            torch.tensor(init_logit_bias),
+            torch.tensor(init_logit_bias, dtype=torch.float32),
             requires_grad=learnable_temp
         )
     

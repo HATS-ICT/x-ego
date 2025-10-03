@@ -23,7 +23,7 @@ training:
   limit_test_batches: 20
 
 wandb:
-  enabled: false
+  enabled: true
 
 checkpoint:
   step:

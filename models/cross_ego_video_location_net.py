@@ -142,7 +142,6 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
         """Initialize train/val metric pairs for multilabel classification."""
         for split in ['train', 'val']:
             setattr(self, f'{split}_hamming', MultilabelHammingDistance(num_labels=num_labels))
-            setattr(self, f'{split}_hamming_accuracy', MultilabelHammingDistance(num_labels=num_labels))
             setattr(self, f'{split}_exact_match', MultilabelExactMatch(num_labels=num_labels))
             setattr(self, f'{split}_micro_f1', MultilabelF1Score(num_labels=num_labels, average='micro'))
             setattr(self, f'{split}_macro_f1', MultilabelF1Score(num_labels=num_labels, average='macro'))
@@ -400,7 +399,6 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
             
             # Update metrics
             self.train_hamming(pred_probs, targets_int)
-            self.train_hamming_accuracy(pred_probs, targets_int)
             self.train_exact_match(pred_probs, targets_int)
             self.train_micro_f1(pred_probs, targets_int)
             self.train_macro_f1(pred_probs, targets_int)
@@ -408,7 +406,9 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
             # Log metrics
             self.safe_log('train/hamming_loss', self.train_hamming, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=True)
-            self.safe_log('train/hamming_accuracy', 1.0 - self.train_hamming_accuracy, batch_size=batch_size,
+            # Compute hamming accuracy from hamming loss
+            hamming_loss_value = self.train_hamming.compute()
+            self.safe_log('train/hamming_accuracy', 1.0 - hamming_loss_value, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=True)
             self.safe_log('train/subset_accuracy', self.train_exact_match, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=True)
@@ -480,7 +480,6 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
             
             # Update metrics
             self.val_hamming(pred_probs, targets_int)
-            self.val_hamming_accuracy(pred_probs, targets_int)
             self.val_exact_match(pred_probs, targets_int)
             self.val_micro_f1(pred_probs, targets_int)
             self.val_macro_f1(pred_probs, targets_int)
@@ -488,7 +487,9 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
             # Log metrics
             self.safe_log('val/hamming_loss', self.val_hamming, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=True)
-            self.safe_log('val/hamming_accuracy', 1.0 - self.val_hamming_accuracy, batch_size=batch_size,
+            # Compute hamming accuracy from hamming loss
+            hamming_loss_value = self.val_hamming.compute()
+            self.safe_log('val/hamming_accuracy', 1.0 - hamming_loss_value, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=True)
             self.safe_log('val/subset_accuracy', self.val_exact_match, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=True)
@@ -517,7 +518,6 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
         if self.task_form in ['multi-label-cls', 'grid-cls']:
             num_labels = self.output_dim
             self.test_hamming = MultilabelHammingDistance(num_labels=num_labels).to(self.device)
-            self.test_hamming_accuracy = MultilabelHammingDistance(num_labels=num_labels).to(self.device)
             self.test_exact_match = MultilabelExactMatch(num_labels=num_labels).to(self.device)
             self.test_micro_f1 = MultilabelF1Score(num_labels=num_labels, average='micro').to(self.device)
             self.test_macro_f1 = MultilabelF1Score(num_labels=num_labels, average='macro').to(self.device)
@@ -613,7 +613,6 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
             
             # Update metrics
             self.test_hamming(pred_probs, targets_int)
-            self.test_hamming_accuracy(pred_probs, targets_int)
             self.test_exact_match(pred_probs, targets_int)
             self.test_micro_f1(pred_probs, targets_int)
             self.test_macro_f1(pred_probs, targets_int)
@@ -621,7 +620,9 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
             # Log metrics
             self.safe_log(f'{metric_prefix}/hamming_loss', self.test_hamming, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=True)
-            self.safe_log(f'{metric_prefix}/hamming_accuracy', 1.0 - self.test_hamming_accuracy, batch_size=batch_size,
+            # Compute hamming accuracy from hamming loss
+            hamming_loss_value = self.test_hamming.compute()
+            self.safe_log(f'{metric_prefix}/hamming_accuracy', 1.0 - hamming_loss_value, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=True)
             self.safe_log(f'{metric_prefix}/subset_accuracy', self.test_exact_match, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=True)

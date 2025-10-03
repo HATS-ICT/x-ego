@@ -69,7 +69,7 @@ model:
     loss_weight: 1.0
 
 training:
-  max_epochs: 20
+  max_epochs: 10
   accelerator: gpu
   devices: 1
   strategy: auto
@@ -113,8 +113,8 @@ checkpoint:
     filename: ${meta.run_name}-s{step:06d}-e{epoch:02d}
     monitor: null  # No monitoring for step-based saves
     mode: min
-    save_top_k: -1  # Save all step checkpoints
+    save_top_k: 1  # Save all step checkpoints
     save_last: false  # Don't duplicate last checkpoint
     auto_insert_metric_name: false
     save_on_train_epoch_end: false
-    every_n_train_steps: 1000
+    every_n_train_steps: 10000000 # turn off step-based saving

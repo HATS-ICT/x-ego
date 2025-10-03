@@ -26,6 +26,7 @@ def enemy_location_nowcast_collate_fn(batch):
             - 'enemy_locations': Enemy location labels (regression or classification)
             - 'pov_team_side': String indicating team side
             - 'agent_ids': List of agent IDs used
+            - 'time': Normalized prediction seconds (optional)
     
     Returns:
         Dictionary with batched tensors and lists of string values
@@ -39,6 +40,9 @@ def enemy_location_nowcast_collate_fn(batch):
         if key in ['pov_team_side', 'agent_ids']:
             # Keep string/list values as lists
             collated[key] = values
+        elif key == 'time':
+            # For time, convert to tensor
+            collated[key] = torch.tensor(values, dtype=torch.float32)
         else:
             # For tensors (video, enemy_locations, pov_team_side_encoded), use default collate
             collated[key] = torch.utils.data.default_collate(values)
@@ -63,10 +67,14 @@ class EnemyLocationNowcastDataset(BaseVideoDataset, Dataset):
         """
         # Initialize base class - handles all common initialization
         super().__init__(cfg)
+        
+        # Check if we should return time information
+        self.return_time = cfg.data.get('return_time', False)
             
         logger.info(f"Dataset initialized with {len(self.df)} samples")
         logger.info(f"Number of agents: {self.num_agents}, Task form: {self.task_form}")
         logger.info(f"Minimap masking enabled: {self.mask_minimap}")
+        logger.info(f"Return time: {self.return_time}")
         if self.task_form in ['grid-cls', 'density-cls']:
             grid_res = self.cfg.data.grid_resolution
             logger.info(f"Grid resolution: {grid_res}x{grid_res} = {grid_res*grid_res} cells")
@@ -154,6 +162,7 @@ class EnemyLocationNowcastDataset(BaseVideoDataset, Dataset):
                 - 'pov_team_side': Team side used for input (string)
                 - 'pov_team_side_encoded': Team side encoded as boolean (0 for T, 1 for CT)
                 - 'agent_ids': List of agent IDs used
+                - 'time': Normalized prediction seconds (if return_time is enabled)
         """
         # Get sample information
         row = self.df.iloc[idx]
@@ -202,6 +211,10 @@ class EnemyLocationNowcastDataset(BaseVideoDataset, Dataset):
             'pov_team_side_encoded': torch.tensor(pov_team_side_encoded, dtype=torch.long),
             'agent_ids': agent_ids
         }
+        
+        # Optionally include time information
+        if self.return_time:
+            result['time'] = row['normalized_prediction_seconds']
         
         return result
 

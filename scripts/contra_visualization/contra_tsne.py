@@ -1,0 +1,549 @@
+"""
+t-SNE Visualization of Contrastive Learning Effect
+
+This script visualizes the effect of contrastive learning on agent embeddings
+using t-SNE dimensionality reduction. It extracts embeddings before and after
+the contrastive projection and visualizes how agents from the same batch cluster together.
+
+Embeddings are cached to disk and automatically reused on subsequent runs for faster visualization.
+
+Usage:
+    python scripts/contra_visualization/contra_tsne.py --exp_name contra_effect_check_2pov_contrastive-251002-094715-f6fs
+    python scripts/contra_visualization/contra_tsne.py --exp_name <exp_name> --checkpoint <checkpoint_name>
+    python scripts/contra_visualization/contra_tsne.py --exp_name <exp_name> --num_batches 10 --perplexity 30
+    python scripts/contra_visualization/contra_tsne.py --exp_name <exp_name> --recompute  # Force recomputation
+"""
+
+import argparse
+import torch
+import numpy as np
+import matplotlib.pyplot as plt
+from pathlib import Path
+from sklearn.manifold import TSNE
+import seaborn as sns
+from omegaconf import OmegaConf
+import sys
+import pathlib
+import platform
+from tqdm import tqdm
+
+# Fix for cross-platform checkpoint loading (PosixPath on Windows)
+# This is needed when loading checkpoints saved on Linux/Mac on Windows
+if platform.system() == 'Windows':
+    import pathlib._local
+    pathlib.PosixPath = pathlib.WindowsPath
+    # Also patch in the _local module for Python 3.13+
+    if hasattr(pathlib._local, 'PosixPath'):
+        pathlib._local.PosixPath = pathlib.WindowsPath
+
+# Add project root to path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+from models.cross_ego_video_location_net import CrossEgoVideoLocationNet
+from data_module.enemy_location_forecast import EnemyLocationForecastDataModule
+from data_module.enemy_location_nowcast import EnemyLocationNowcastDataModule
+from data_module.teammate_location_forecast import TeammateLocationForecastDataModule
+from utils.config_utils import load_cfg
+from utils.env_utils import get_output_base_path
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='Visualize contrastive learning effect using t-SNE')
+    parser.add_argument('--exp_name', type=str, required=True,
+                       help='Experiment name (e.g., contra_effect_check_2pov_contrastive-251002-094715-f6fs)')
+    parser.add_argument('--checkpoint', type=str, default=None,
+                       help='Specific checkpoint name (if None, uses best checkpoint)')
+    parser.add_argument('--num_batches', type=int, default=5,
+                       help='Number of batches to visualize (default: 5)')
+    parser.add_argument('--perplexity', type=int, default=30,
+                       help='t-SNE perplexity parameter (default: 30)')
+    parser.add_argument('--random_state', type=int, default=42,
+                       help='Random seed for t-SNE (default: 42)')
+    parser.add_argument('--recompute', action='store_true',
+                       help='Force recomputation of embeddings even if cached file exists')
+    return parser.parse_args()
+
+
+def load_experiment_config(exp_name):
+    """Load config from experiment directory."""
+    output_dir = Path(get_output_base_path())
+    exp_dir = output_dir / exp_name
+    
+    if not exp_dir.exists():
+        raise ValueError(f"Experiment directory not found: {exp_dir}")
+    
+    # Try different config file names
+    config_path = exp_dir / "hparam.yaml"
+    if not config_path.exists():
+        config_path = exp_dir / "config.yaml"
+    if not config_path.exists():
+        raise ValueError(f"Config file not found in {exp_dir} (looked for hparam.yaml and config.yaml)")
+    
+    print(f"Loading config from: {config_path}")
+    cfg = OmegaConf.load(config_path)
+    
+    # Update paths to point to the current system paths
+    from utils.env_utils import get_src_base_path, get_data_base_path
+    
+    cfg.path.src = str(get_src_base_path())
+    cfg.path.data = str(get_data_base_path())
+    cfg.path.output = str(output_dir)
+    cfg.path.exp = str(exp_dir)
+    cfg.path.ckpt = str(exp_dir / "checkpoint")
+    cfg.path.plots = str(exp_dir / "plots")
+    
+    return cfg
+
+
+def find_checkpoint(checkpoint_dir, checkpoint_name=None):
+    """Find checkpoint file in the directory."""
+    checkpoint_path = Path(checkpoint_dir)
+    
+    if not checkpoint_path.exists():
+        raise ValueError(f"Checkpoint directory not found: {checkpoint_dir}")
+    
+    if checkpoint_name:
+        # Use specified checkpoint
+        ckpt_path = checkpoint_path / checkpoint_name
+        if not ckpt_path.exists():
+            raise ValueError(f"Checkpoint not found: {ckpt_path}")
+        return ckpt_path
+    
+    # Find best checkpoint (lowest loss)
+    ckpt_files = list(checkpoint_path.glob("*.ckpt"))
+    ckpt_files = [f for f in ckpt_files if f.name != "last.ckpt"]
+    
+    if not ckpt_files:
+        raise ValueError(f"No checkpoints found in {checkpoint_dir}")
+    
+    best_ckpt = None
+    best_loss = float('inf')
+    
+    for ckpt_file in ckpt_files:
+        try:
+            # Extract loss from filename (format: *-l{loss}.ckpt)
+            if '-l' in ckpt_file.stem:
+                loss_part = ckpt_file.stem.split('-l')[-1]
+                loss_value = float(loss_part)
+                if loss_value < best_loss:
+                    best_loss = loss_value
+                    best_ckpt = ckpt_file
+        except (ValueError, IndexError):
+            continue
+    
+    if best_ckpt is None:
+        # If no loss-based checkpoint found, use the first one
+        best_ckpt = ckpt_files[0]
+        print(f"Warning: Could not find loss-based checkpoint, using: {best_ckpt.name}")
+    else:
+        print(f"Using best checkpoint: {best_ckpt.name} (val_loss: {best_loss})")
+    
+    return best_ckpt
+
+
+def create_datamodule(cfg):
+    """Create appropriate datamodule based on task or labels_filename."""
+    # Try to get task from config, otherwise infer from labels_filename
+    if hasattr(cfg.data, 'task'):
+        task = cfg.data.task
+    else:
+        # Infer task from labels_filename
+        labels_filename = cfg.data.labels_filename
+        if 'enemy_location_nowcast' in labels_filename:
+            task = 'enemy_location_nowcast'
+        elif 'enemy_location_forecast' in labels_filename:
+            task = 'enemy_location_forecast'
+        elif 'teammate_location_forecast' in labels_filename:
+            task = 'teammate_location_forecast'
+        else:
+            raise ValueError(f"Cannot infer task from labels_filename: {labels_filename}")
+        print(f"Inferred task from labels_filename: {task}")
+        # Add to config
+        cfg.data.task = task
+    
+    if task == 'enemy_location_nowcast':
+        return EnemyLocationNowcastDataModule(cfg)
+    elif task == 'enemy_location_forecast':
+        return EnemyLocationForecastDataModule(cfg)
+    elif task == 'teammate_location_forecast':
+        return TeammateLocationForecastDataModule(cfg)
+    else:
+        raise ValueError(f"Unknown task: {task}")
+
+
+def extract_embeddings(model, dataloader, num_batches, device):
+    """
+    Extract embeddings before and after contrastive projection.
+    
+    Returns:
+        embeddings_before: [N, embed_dim] embeddings before contrastive
+        embeddings_after: [N, embed_dim] embeddings after contrastive
+        team_sides: [N] team side for each agent ('T' or 'CT')
+        agent_ids: [N] agent ID within batch for each agent
+        times: [N] normalized prediction seconds for each agent (if available)
+    """
+    model.eval()
+    model.to(device)
+    
+    embeddings_before_list = []
+    embeddings_after_list = []
+    team_sides_list = []
+    agent_ids_list = []
+    times_list = []
+    
+    with torch.no_grad():
+        # Create progress bar
+        pbar = tqdm(enumerate(dataloader), total=num_batches, desc="Extracting embeddings")
+        
+        for batch_idx, batch in pbar:
+            if batch_idx >= num_batches:
+                break
+            
+            # Move batch to device
+            video = batch['video'].to(device)
+            pov_team_side_encoded = batch['pov_team_side_encoded'].to(device)
+            
+            # Get team side strings (T or CT)
+            pov_team_sides = batch['pov_team_side']  # List of 'T' or 'CT' strings
+            
+            # Get time information if available
+            times = batch.get('time', None)
+            
+            # Encode videos
+            B, A, T, C, H, W = video.shape
+            video_reshaped = video.view(B * A, T, C, H, W)
+            
+            # Get embeddings before contrastive (after video_projector)
+            agent_embeddings = model.video_encoder(video_reshaped)
+            agent_embeddings = model.video_projector(agent_embeddings)
+            agent_embeddings = agent_embeddings.view(B, A, -1)
+            
+            # Store embeddings before contrastive
+            embeddings_before_list.append(agent_embeddings.cpu())
+            
+            # Get embeddings after contrastive (if enabled)
+            if model.use_contrastive:
+                contrastive_out = model.contrastive(agent_embeddings)
+                agent_embeddings_after = contrastive_out['embeddings']
+                embeddings_after_list.append(agent_embeddings_after.cpu())
+            else:
+                # If contrastive not enabled, use same as before
+                embeddings_after_list.append(agent_embeddings.cpu())
+            
+            # Record team, agent IDs, and time
+            for b in range(B):
+                team_side = pov_team_sides[b]
+                time_val = times[b].item() if times is not None else None
+                for a in range(A):
+                    team_sides_list.append(team_side)
+                    agent_ids_list.append(a)
+                    times_list.append(time_val)
+            
+            # Update progress bar with current batch info
+            pbar.set_postfix({'batch': f'{batch_idx + 1}/{num_batches}', 'agents': len(team_sides_list)})
+    
+    # Concatenate all embeddings
+    embeddings_before = torch.cat(embeddings_before_list, dim=0)  # [num_batches*B, A, embed_dim]
+    embeddings_after = torch.cat(embeddings_after_list, dim=0)
+    
+    # Flatten to [N, embed_dim] where N = num_batches * B * A
+    embeddings_before = embeddings_before.view(-1, embeddings_before.shape[-1]).numpy()
+    embeddings_after = embeddings_after.view(-1, embeddings_after.shape[-1]).numpy()
+    
+    team_sides = np.array(team_sides_list)
+    agent_ids = np.array(agent_ids_list)
+    times = np.array(times_list) if times_list[0] is not None else None
+    
+    return embeddings_before, embeddings_after, team_sides, agent_ids, times
+
+
+def save_embeddings(embeddings_before, embeddings_after, team_sides, agent_ids, times, save_path):
+    """Save precomputed embeddings to disk."""
+    save_dict = {
+        'embeddings_before': embeddings_before,
+        'embeddings_after': embeddings_after,
+        'team_sides': team_sides,
+        'agent_ids': agent_ids,
+    }
+    if times is not None:
+        save_dict['times'] = times
+    
+    np.savez_compressed(save_path, **save_dict)
+    print(f"Saved embeddings to: {save_path}")
+
+
+def load_embeddings(load_path):
+    """Load precomputed embeddings from disk."""
+    print(f"Loading cached embeddings from: {load_path}")
+    data = np.load(load_path, allow_pickle=True)
+    
+    embeddings_before = data['embeddings_before']
+    embeddings_after = data['embeddings_after']
+    team_sides = data['team_sides']
+    agent_ids = data['agent_ids']
+    times = data['times'] if 'times' in data else None
+    
+    return embeddings_before, embeddings_after, team_sides, agent_ids, times
+
+
+def plot_tsne_embeddings(embeddings, team_sides, agent_ids, times, title, save_path, perplexity=30, random_state=42):
+    """Plot t-SNE visualization of embeddings colored by team, agent ID, and time."""
+    print(f"Running t-SNE on {len(embeddings)} embeddings with perplexity={perplexity}...")
+    
+    # Run t-SNE
+    tsne = TSNE(n_components=2, perplexity=perplexity, random_state=random_state, 
+                max_iter=1000, verbose=1)
+    embeddings_2d = tsne.fit_transform(embeddings)
+    
+    # Determine number of subplots based on available data
+    num_plots = 2  # Default: team and agent ID
+    if times is not None:
+        num_plots = 3  # Add time plot
+    
+    # Create figure with three subplots in a row
+    fig, axes = plt.subplots(1, num_plots, figsize=(8 * num_plots, 6))
+    if num_plots == 1:
+        axes = [axes]
+    
+    plot_idx = 0
+    
+    # Plot 1: Color by location (agent ID / position)
+    ax = axes[plot_idx]
+    unique_agents = np.unique(agent_ids)
+    colors_agents = plt.cm.Set3(np.linspace(0, 1, len(unique_agents)))
+    
+    for i, agent_id in enumerate(unique_agents):
+        mask = agent_ids == agent_id
+        ax.scatter(embeddings_2d[mask, 0], embeddings_2d[mask, 1],
+                  c=[colors_agents[i]], s=20, alpha=0.6, edgecolors='none')
+    
+    ax.axis('off')
+    plot_idx += 1
+    
+    # Plot 2: Color by time (if available)
+    if times is not None:
+        ax = axes[plot_idx]
+        scatter = ax.scatter(embeddings_2d[:, 0], embeddings_2d[:, 1],
+                            c=times, cmap='viridis', s=20, alpha=0.6, edgecolors='none')
+        ax.axis('off')
+        plot_idx += 1
+    
+    # Plot 3: Color by team
+    ax = axes[plot_idx]
+    unique_teams = np.unique(team_sides)
+    team_colors = {'T': '#FF6B35', 'CT': '#004E89'}
+    
+    for team in unique_teams:
+        mask = team_sides == team
+        color = team_colors.get(team, '#808080')
+        ax.scatter(embeddings_2d[mask, 0], embeddings_2d[mask, 1], 
+                  c=color, s=20, alpha=0.6, edgecolors='none')
+    
+    ax.axis('off')
+    
+    plt.tight_layout(pad=0)
+    plt.subplots_adjust(left=0, right=1, top=1, bottom=0, wspace=0.05)
+    
+    # Save as SVG
+    svg_path = save_path.with_suffix('.svg')
+    plt.savefig(svg_path, format='svg', bbox_inches='tight', pad_inches=0)
+    print(f"Saved SVG plot to: {svg_path}")
+    plt.close()
+
+
+def compute_clustering_metrics(embeddings, team_sides):
+    """Compute metrics to quantify how well same-team agents cluster together."""
+    from scipy.spatial.distance import cdist
+    
+    # Compute pairwise distances
+    distances = cdist(embeddings, embeddings, metric='euclidean')
+    
+    # For each agent, compute average distance to same-team agents vs different-team agents
+    same_team_dists = []
+    diff_team_dists = []
+    
+    unique_teams = np.unique(team_sides)
+    
+    for team in unique_teams:
+        team_mask = team_sides == team
+        team_indices = np.where(team_mask)[0]
+        
+        for i in team_indices:
+            # Same-team distances (excluding self)
+            same_team_indices = [j for j in team_indices if j != i]
+            if len(same_team_indices) > 0:
+                same_team_dists.append(np.mean(distances[i, same_team_indices]))
+            
+            # Different-team distances
+            diff_team_mask = ~team_mask
+            diff_team_indices = np.where(diff_team_mask)[0]
+            if len(diff_team_indices) > 0:
+                diff_team_dists.append(np.mean(distances[i, diff_team_indices]))
+    
+    avg_same_team_dist = np.mean(same_team_dists)
+    avg_diff_team_dist = np.mean(diff_team_dists)
+    
+    # Separation ratio: higher is better (means different-team agents are farther apart)
+    separation_ratio = avg_diff_team_dist / avg_same_team_dist if avg_same_team_dist > 0 else 0
+    
+    return {
+        'avg_same_team_dist': avg_same_team_dist,
+        'avg_diff_team_dist': avg_diff_team_dist,
+        'separation_ratio': separation_ratio
+    }
+
+
+def main():
+    args = parse_args()
+    
+    print("=" * 80)
+    print("t-SNE Visualization of Contrastive Learning Effect")
+    print("=" * 80)
+    print(f"Experiment: {args.exp_name}")
+    print(f"Number of batches: {args.num_batches}")
+    print(f"t-SNE perplexity: {args.perplexity}")
+    print()
+    
+    # Load config
+    cfg = load_experiment_config(args.exp_name)
+    cfg.data.num_workers = 10
+    cfg.data.return_time = True  # Enable time information in dataset
+    
+    # Check if contrastive learning is enabled
+    if not cfg.model.contrastive.enable:
+        print("WARNING: Contrastive learning is not enabled in this experiment!")
+        print("The visualization will show embeddings before and after video_projector (no change expected).")
+    
+    # Create datamodule first to populate config with dataset-specific info (like num_places)
+    print("\nSetting up test dataloader...")
+    datamodule = create_datamodule(cfg)
+    datamodule.prepare_data()
+    datamodule.setup("test")
+    
+    if datamodule.test_dataset is None:
+        raise ValueError("No test dataset available!")
+    
+    # Create test dataloader with shuffling enabled
+    test_dataloader = datamodule._create_dataloader(
+        datamodule.test_dataset,
+        shuffle=True,
+        drop_last=False,
+        collate_fn=datamodule._get_collate_fn()
+    )
+    print(f"Test dataset size: {len(datamodule.test_dataset)}")
+    
+    # Create output directory
+    output_dir = Path(cfg.path.exp) / "contrastive_tsne"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Define embeddings cache path
+    embeddings_cache_path = output_dir / f"embeddings_b{args.num_batches}.npz"
+    
+    # Check if cached embeddings exist and load them if not recomputing
+    if embeddings_cache_path.exists() and not args.recompute:
+        print(f"\nFound cached embeddings: {embeddings_cache_path}")
+        embeddings_before, embeddings_after, team_sides, agent_ids, times = load_embeddings(embeddings_cache_path)
+    else:
+        if args.recompute and embeddings_cache_path.exists():
+            print(f"\nRecomputing embeddings (--recompute flag set)")
+        else:
+            print(f"\nNo cached embeddings found, extracting from test set...")
+        
+        # Find checkpoint and load model
+        checkpoint_path = find_checkpoint(cfg.path.ckpt, args.checkpoint)
+        print(f"Loading checkpoint: {checkpoint_path}")
+        
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        print(f"Using device: {device}")
+        
+        model = CrossEgoVideoLocationNet.load_from_checkpoint(
+            str(checkpoint_path),
+            cfg=cfg,
+            strict=False,
+            map_location=device
+        )
+        
+        # Extract embeddings
+        print("\nExtracting embeddings from test set...")
+        embeddings_before, embeddings_after, team_sides, agent_ids, times = extract_embeddings(
+            model, test_dataloader, args.num_batches, device
+        )
+        
+        # Save embeddings for future use
+        save_embeddings(embeddings_before, embeddings_after, team_sides, agent_ids, times, embeddings_cache_path)
+    
+    print(f"\nExtracted {len(embeddings_before)} agent embeddings")
+    print(f"Embedding dimension: {embeddings_before.shape[1]}")
+    print(f"Number of teams: {len(np.unique(team_sides))} ({', '.join(np.unique(team_sides))})")
+    print(f"Number of agents per sample: {len(np.unique(agent_ids))}")
+    if times is not None:
+        print(f"Time range: {times.min():.2f}s - {times.max():.2f}s")
+    print(f"\nSaving results to: {output_dir}")
+    
+    # Compute clustering metrics
+    print("\nComputing clustering metrics...")
+    metrics_before = compute_clustering_metrics(embeddings_before, team_sides)
+    metrics_after = compute_clustering_metrics(embeddings_after, team_sides)
+    
+    print("\nClustering Metrics BEFORE Contrastive:")
+    print(f"  Average same-team distance: {metrics_before['avg_same_team_dist']:.4f}")
+    print(f"  Average diff-team distance: {metrics_before['avg_diff_team_dist']:.4f}")
+    print(f"  Separation ratio: {metrics_before['separation_ratio']:.4f}")
+    
+    print("\nClustering Metrics AFTER Contrastive:")
+    print(f"  Average same-team distance: {metrics_after['avg_same_team_dist']:.4f}")
+    print(f"  Average diff-team distance: {metrics_after['avg_diff_team_dist']:.4f}")
+    print(f"  Separation ratio: {metrics_after['separation_ratio']:.4f}")
+    
+    improvement = metrics_after['separation_ratio'] - metrics_before['separation_ratio']
+    print(f"\nImprovement in separation ratio: {improvement:.4f} ({improvement/metrics_before['separation_ratio']*100:.1f}%)")
+    
+    # Save metrics to file
+    metrics_path = output_dir / "clustering_metrics.txt"
+    with open(metrics_path, 'w') as f:
+        f.write("Clustering Metrics (Team-based)\n")
+        f.write("=" * 50 + "\n\n")
+        f.write("BEFORE Contrastive:\n")
+        f.write(f"  Average same-team distance: {metrics_before['avg_same_team_dist']:.6f}\n")
+        f.write(f"  Average diff-team distance: {metrics_before['avg_diff_team_dist']:.6f}\n")
+        f.write(f"  Separation ratio: {metrics_before['separation_ratio']:.6f}\n\n")
+        f.write("AFTER Contrastive:\n")
+        f.write(f"  Average same-team distance: {metrics_after['avg_same_team_dist']:.6f}\n")
+        f.write(f"  Average diff-team distance: {metrics_after['avg_diff_team_dist']:.6f}\n")
+        f.write(f"  Separation ratio: {metrics_after['separation_ratio']:.6f}\n\n")
+        f.write(f"Improvement: {improvement:.6f} ({improvement/metrics_before['separation_ratio']*100:.2f}%)\n")
+    print(f"Saved metrics to: {metrics_path}")
+    
+    # Plot t-SNE visualizations
+    print("\nGenerating t-SNE visualizations...")
+    
+    # Adjust perplexity if needed (must be less than n_samples)
+    perplexity = min(args.perplexity, len(embeddings_before) - 1)
+    if perplexity != args.perplexity:
+        print(f"Adjusted perplexity from {args.perplexity} to {perplexity} (max for n_samples={len(embeddings_before)})")
+    
+    plot_tsne_embeddings(
+        embeddings_before, team_sides, agent_ids, times,
+        "Embeddings BEFORE Contrastive",
+        output_dir / "tsne_before_contrastive",
+        perplexity=perplexity,
+        random_state=args.random_state
+    )
+    
+    plot_tsne_embeddings(
+        embeddings_after, team_sides, agent_ids, times,
+        "Embeddings AFTER Contrastive",
+        output_dir / "tsne_after_contrastive",
+        perplexity=perplexity,
+        random_state=args.random_state
+    )
+    
+    print("\n" + "=" * 80)
+    print("t-SNE Visualization Complete!")
+    print(f"Results saved to: {output_dir}")
+    print("=" * 80)
+
+
+if __name__ == "__main__":
+    main()
+

@@ -12,6 +12,8 @@ Usage:
     python scripts/contra_visualization/contra_tsne.py --exp_name <exp_name> --checkpoint <checkpoint_name>
     python scripts/contra_visualization/contra_tsne.py --exp_name <exp_name> --num_batches 10 --perplexity 30
     python scripts/contra_visualization/contra_tsne.py --exp_name <exp_name> --recompute  # Force recomputation
+    python scripts/contra_visualization/contra_tsne.py --exp_name <exp_name> --balance_data  # Balance location and time
+    python scripts/contra_visualization/contra_tsne.py --exp_name <exp_name> --balance_data --num_time_bins 10 --samples_per_bin 100
 """
 
 import argparse
@@ -61,6 +63,12 @@ def parse_args():
                        help='Random seed for t-SNE (default: 42)')
     parser.add_argument('--recompute', action='store_true',
                        help='Force recomputation of embeddings even if cached file exists')
+    parser.add_argument('--balance_data', action='store_true',
+                       help='Balance location and time labels by sampling a subset of test data')
+    parser.add_argument('--num_time_bins', type=int, default=5,
+                       help='Number of time bins for balancing (default: 5)')
+    parser.add_argument('--samples_per_bin', type=int, default=50,
+                       help='Target samples per location-time bin when balancing (default: 50)')
     return parser.parse_args()
 
 
@@ -290,6 +298,112 @@ def load_embeddings(load_path):
     return embeddings_before, embeddings_after, team_sides, places, times
 
 
+def balance_data(embeddings_before, embeddings_after, team_sides, places, times, 
+                 num_time_bins=5, samples_per_bin=50, random_state=42):
+    """
+    Balance dataset by location and time labels.
+    
+    Creates stratified bins based on location × time and samples uniformly from each bin.
+    
+    Args:
+        embeddings_before: [N, dim] embeddings before contrastive
+        embeddings_after: [N, dim] embeddings after contrastive
+        team_sides: [N] team side labels
+        places: [N] location labels
+        times: [N] time values
+        num_time_bins: Number of bins to discretize time into
+        samples_per_bin: Target number of samples per location-time bin
+        random_state: Random seed for reproducibility
+        
+    Returns:
+        Balanced subset of all inputs
+    """
+    np.random.seed(random_state)
+    
+    print("\n" + "=" * 80)
+    print("Balancing Data by Location and Time")
+    print("=" * 80)
+    
+    # Check if we have the necessary labels
+    if places is None or places[0] is None:
+        print("WARNING: No location labels available, skipping balancing")
+        return embeddings_before, embeddings_after, team_sides, places, times
+    
+    if times is None:
+        print("WARNING: No time labels available, skipping balancing")
+        return embeddings_before, embeddings_after, team_sides, places, times
+    
+    # Print original distribution
+    print(f"\nOriginal dataset: {len(embeddings_before)} samples")
+    unique_places = np.unique(places)
+    print(f"  Locations: {len(unique_places)} ({', '.join(sorted(unique_places))})")
+    print(f"  Time range: {times.min():.2f}s - {times.max():.2f}s")
+    
+    # Discretize time into bins
+    time_bins = np.linspace(times.min(), times.max(), num_time_bins + 1)
+    time_labels = np.digitize(times, time_bins[1:-1])  # Bin indices 0 to num_time_bins-1
+    
+    print(f"\nTime binning: {num_time_bins} bins")
+    for i in range(num_time_bins):
+        bin_mask = time_labels == i
+        if bin_mask.sum() > 0:
+            bin_min = times[bin_mask].min()
+            bin_max = times[bin_mask].max()
+            print(f"  Bin {i}: [{bin_min:.2f}s, {bin_max:.2f}s] - {bin_mask.sum()} samples")
+    
+    # Create stratified bins: location × time
+    print(f"\nCreating location × time stratification...")
+    strata = {}
+    for i in range(len(embeddings_before)):
+        key = (places[i], time_labels[i])
+        if key not in strata:
+            strata[key] = []
+        strata[key].append(i)
+    
+    print(f"  Total strata: {len(strata)}")
+    
+    # Print distribution of samples per stratum
+    stratum_sizes = [len(indices) for indices in strata.values()]
+    print(f"  Stratum size: min={min(stratum_sizes)}, max={max(stratum_sizes)}, mean={np.mean(stratum_sizes):.1f}")
+    
+    # Sample from each stratum
+    print(f"\nSampling {samples_per_bin} samples per stratum (or all if fewer)...")
+    balanced_indices = []
+    
+    for (place, time_bin), indices in sorted(strata.items()):
+        if len(indices) <= samples_per_bin:
+            # If stratum has fewer samples than target, take all
+            sampled = indices
+        else:
+            # Otherwise, randomly sample
+            sampled = np.random.choice(indices, size=samples_per_bin, replace=False).tolist()
+        balanced_indices.extend(sampled)
+    
+    balanced_indices = np.array(balanced_indices)
+    
+    # Create balanced dataset
+    embeddings_before_balanced = embeddings_before[balanced_indices]
+    embeddings_after_balanced = embeddings_after[balanced_indices]
+    team_sides_balanced = team_sides[balanced_indices]
+    places_balanced = places[balanced_indices]
+    times_balanced = times[balanced_indices]
+    
+    print(f"\nBalanced dataset: {len(balanced_indices)} samples")
+    print(f"  Reduction: {len(embeddings_before) - len(balanced_indices)} samples ({(1 - len(balanced_indices)/len(embeddings_before))*100:.1f}%)")
+    
+    # Print balanced distribution
+    print(f"\nBalanced distribution:")
+    for place in sorted(unique_places):
+        place_mask = places_balanced == place
+        if place_mask.sum() > 0:
+            place_times = times_balanced[place_mask]
+            print(f"  {place}: {place_mask.sum()} samples (time: {place_times.min():.2f}s - {place_times.max():.2f}s)")
+    
+    print("=" * 80 + "\n")
+    
+    return embeddings_before_balanced, embeddings_after_balanced, team_sides_balanced, places_balanced, times_balanced
+
+
 def plot_tsne_embeddings(embeddings, team_sides, places, times, title, save_path, perplexity=30, random_state=42):
     """Plot t-SNE visualization of embeddings colored by team, location, and time."""
     print(f"Running t-SNE on {len(embeddings)} embeddings with perplexity={perplexity}...")
@@ -410,6 +524,12 @@ def main():
     print(f"Experiment: {args.exp_name}")
     print(f"Number of batches: {args.num_batches}")
     print(f"t-SNE perplexity: {args.perplexity}")
+    if args.balance_data:
+        print(f"Data balancing: ENABLED")
+        print(f"  Time bins: {args.num_time_bins}")
+        print(f"  Samples per bin: {args.samples_per_bin}")
+    else:
+        print(f"Data balancing: DISABLED")
     print()
     
     # Load config
@@ -445,7 +565,10 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # Define embeddings cache path
-    embeddings_cache_path = output_dir / f"embeddings_b{args.num_batches}.npz"
+    if args.balance_data:
+        embeddings_cache_path = output_dir / f"embeddings_b{args.num_batches}_balanced_tb{args.num_time_bins}_sp{args.samples_per_bin}.npz"
+    else:
+        embeddings_cache_path = output_dir / f"embeddings_b{args.num_batches}.npz"
     
     # Check if cached embeddings exist and load them if not recomputing
     if embeddings_cache_path.exists() and not args.recompute:
@@ -456,6 +579,9 @@ def main():
             print(f"\nRecomputing embeddings (--recompute flag set)")
         else:
             print(f"\nNo cached embeddings found, extracting from test set...")
+        
+        # If balancing is enabled, we need to extract from all test data
+        num_batches_to_extract = len(test_dataloader) if args.balance_data else args.num_batches
         
         # Find checkpoint and load model
         checkpoint_path = find_checkpoint(cfg.path.ckpt, args.checkpoint)
@@ -472,10 +598,23 @@ def main():
         )
         
         # Extract embeddings
-        print("\nExtracting embeddings from test set...")
+        if args.balance_data:
+            print(f"\nExtracting embeddings from ALL test set batches for balancing ({num_batches_to_extract} batches)...")
+        else:
+            print("\nExtracting embeddings from test set...")
+        
         embeddings_before, embeddings_after, team_sides, places, times = extract_embeddings(
-            model, test_dataloader, args.num_batches, device
+            model, test_dataloader, num_batches_to_extract, device
         )
+        
+        # Apply balancing if requested
+        if args.balance_data:
+            embeddings_before, embeddings_after, team_sides, places, times = balance_data(
+                embeddings_before, embeddings_after, team_sides, places, times,
+                num_time_bins=args.num_time_bins,
+                samples_per_bin=args.samples_per_bin,
+                random_state=args.random_state
+            )
         
         # Save embeddings for future use
         save_embeddings(embeddings_before, embeddings_after, team_sides, places, times, embeddings_cache_path)
@@ -531,10 +670,13 @@ def main():
     if perplexity != args.perplexity:
         print(f"Adjusted perplexity from {args.perplexity} to {perplexity} (max for n_samples={len(embeddings_before)})")
     
+    # Add suffix to filenames if using balanced data
+    suffix = "_balanced" if args.balance_data else ""
+    
     plot_tsne_embeddings(
         embeddings_before, team_sides, places, times,
         "Embeddings BEFORE Contrastive",
-        output_dir / "tsne_before_contrastive",
+        output_dir / f"tsne_before_contrastive{suffix}",
         perplexity=perplexity,
         random_state=args.random_state
     )
@@ -542,7 +684,7 @@ def main():
     plot_tsne_embeddings(
         embeddings_after, team_sides, places, times,
         "Embeddings AFTER Contrastive",
-        output_dir / "tsne_after_contrastive",
+        output_dir / f"tsne_after_contrastive{suffix}",
         perplexity=perplexity,
         random_state=args.random_state
     )

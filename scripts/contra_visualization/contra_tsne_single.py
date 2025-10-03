@@ -42,7 +42,7 @@ def adjust_lightness(color, amount):
     c = mcolors.to_rgb(color)
     c_hls = mcolors.rgb_to_hsv(c)
     # Adjust value (brightness) in HSV space
-    c_hls[2] = 0.3 + amount * 0.7  # Range from 30% to 100% brightness
+    c_hls[2] = 0.6 + amount * 0.4  # Range from 60% to 100% brightness
     return mcolors.hsv_to_rgb(c_hls)
 
 

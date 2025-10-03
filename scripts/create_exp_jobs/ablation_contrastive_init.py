@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 from pathlib import Path
+from dotenv import load_dotenv
+import os
+
+# Load environment variables from .env file
+load_dotenv()
 
 # ===== Configuration =====
-PROJECT_SRC = "/home1/yunzhewa/projects/x-ego"
+PROJECT_SRC = os.getenv("SRC_BASE_PATH")
 ACCOUNT = "ustun_1726"
 PARTITION = "gpu"
 GPU_CONSTRAINT = "a40|a100"  # Use constraint to get either A40 or A100

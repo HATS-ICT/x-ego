@@ -28,6 +28,8 @@ def parse_args():
                        help='Random seed for t-SNE (default: 42)')
     parser.add_argument('--output_path', type=str, default=None,
                        help='Output path for the plot (default: same directory as embeddings)')
+    parser.add_argument('--num_time_bins', type=int, default=5,
+                       help='Number of time bins for categorical display (default: 5)')
     return parser.parse_args()
 
 
@@ -54,7 +56,7 @@ def load_embeddings(load_path):
 
 
 def plot_combined_tsne(embeddings_before, embeddings_after, team_sides, places, times,
-                       save_path, perplexity=30, random_state=42):
+                       save_path, perplexity=30, random_state=42, num_time_bins=5):
     """
     Create a 2x3 subplot grid showing t-SNE visualizations.
     Top row: before contrastive (location, time, team)
@@ -76,8 +78,22 @@ def plot_combined_tsne(embeddings_before, embeddings_after, team_sides, places, 
                 max_iter=1000, verbose=1)
     embeddings_2d_after = tsne.fit_transform(embeddings_after)
     
-    # Create 2x3 subplot figure
-    fig, axes = plt.subplots(2, 3, figsize=(24, 16))
+    # Discretize time into categorical bins
+    time_bins_categorical = None
+    time_bin_labels = None
+    if times is not None:
+        time_edges = np.linspace(times.min(), times.max(), num_time_bins + 1)
+        time_bins_categorical = np.digitize(times, time_edges[1:-1])
+        # Create labels for each bin
+        time_bin_labels = []
+        for i in range(num_time_bins):
+            bin_start = time_edges[i]
+            bin_end = time_edges[i + 1]
+            time_bin_labels.append(f'{bin_start:.1f}-{bin_end:.1f}s')
+        print(f"  Discretized time into {num_time_bins} bins: {time_bin_labels}")
+    
+    # Create 2x3 subplot figure with reduced height
+    fig, axes = plt.subplots(2, 3, figsize=(24, 10))
     
     # Prepare location colors
     if places is not None and places[0] is not None:
@@ -99,18 +115,28 @@ def plot_combined_tsne(embeddings_before, embeddings_after, team_sides, places, 
                       c=[place_to_color[place]], s=20, alpha=0.6, edgecolors='none',
                       label=place)
         ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', frameon=False, fontsize=10)
-    ax.set_title('Colored by Location (Before)', fontsize=16, fontweight='bold')
-    ax.axis('off')
+    ax.set_xlabel('(a) Colored by Location (Before)', fontsize=14, fontweight='bold')
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
     
     # Top-middle: Time (before)
     ax = axes[0, 1]
-    if times is not None:
-        scatter = ax.scatter(embeddings_2d_before[:, 0], embeddings_2d_before[:, 1],
-                            c=times, cmap='viridis', s=20, alpha=0.6, edgecolors='none')
-        cbar = plt.colorbar(scatter, ax=ax)
-        cbar.set_label('Time (seconds)', fontsize=12)
-    ax.set_title('Colored by Time (Before)', fontsize=16, fontweight='bold')
-    ax.axis('off')
+    if times is not None and time_bins_categorical is not None:
+        colors_time = plt.cm.viridis(np.linspace(0, 1, num_time_bins))
+        for i in range(num_time_bins):
+            mask = time_bins_categorical == i
+            if mask.sum() > 0:
+                ax.scatter(embeddings_2d_before[mask, 0], embeddings_2d_before[mask, 1],
+                          c=[colors_time[i]], s=20, alpha=0.6, edgecolors='none',
+                          label=time_bin_labels[i])
+        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', frameon=False, fontsize=10)
+    ax.set_xlabel('(b) Colored by Time (Before)', fontsize=14, fontweight='bold')
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
     
     # Top-right: Team (before)
     ax = axes[0, 2]
@@ -121,8 +147,11 @@ def plot_combined_tsne(embeddings_before, embeddings_after, team_sides, places, 
         ax.scatter(embeddings_2d_before[mask, 0], embeddings_2d_before[mask, 1],
                   c=color, s=20, alpha=0.6, edgecolors='none', label=team)
     ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', frameon=False, fontsize=10)
-    ax.set_title('Colored by Team (Before)', fontsize=16, fontweight='bold')
-    ax.axis('off')
+    ax.set_xlabel('(c) Colored by Team (Before)', fontsize=14, fontweight='bold')
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
     
     # === BOTTOM ROW: AFTER CONTRASTIVE ===
     
@@ -135,18 +164,28 @@ def plot_combined_tsne(embeddings_before, embeddings_after, team_sides, places, 
                       c=[place_to_color[place]], s=20, alpha=0.6, edgecolors='none',
                       label=place)
         ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', frameon=False, fontsize=10)
-    ax.set_title('Colored by Location (After)', fontsize=16, fontweight='bold')
-    ax.axis('off')
+    ax.set_xlabel('(d) Colored by Location (After)', fontsize=14, fontweight='bold')
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
     
     # Bottom-middle: Time (after)
     ax = axes[1, 1]
-    if times is not None:
-        scatter = ax.scatter(embeddings_2d_after[:, 0], embeddings_2d_after[:, 1],
-                            c=times, cmap='viridis', s=20, alpha=0.6, edgecolors='none')
-        cbar = plt.colorbar(scatter, ax=ax)
-        cbar.set_label('Time (seconds)', fontsize=12)
-    ax.set_title('Colored by Time (After)', fontsize=16, fontweight='bold')
-    ax.axis('off')
+    if times is not None and time_bins_categorical is not None:
+        colors_time = plt.cm.viridis(np.linspace(0, 1, num_time_bins))
+        for i in range(num_time_bins):
+            mask = time_bins_categorical == i
+            if mask.sum() > 0:
+                ax.scatter(embeddings_2d_after[mask, 0], embeddings_2d_after[mask, 1],
+                          c=[colors_time[i]], s=20, alpha=0.6, edgecolors='none',
+                          label=time_bin_labels[i])
+        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', frameon=False, fontsize=10)
+    ax.set_xlabel('(e) Colored by Time (After)', fontsize=14, fontweight='bold')
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
     
     # Bottom-right: Team (after)
     ax = axes[1, 2]
@@ -156,8 +195,11 @@ def plot_combined_tsne(embeddings_before, embeddings_after, team_sides, places, 
         ax.scatter(embeddings_2d_after[mask, 0], embeddings_2d_after[mask, 1],
                   c=color, s=20, alpha=0.6, edgecolors='none', label=team)
     ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', frameon=False, fontsize=10)
-    ax.set_title('Colored by Team (After)', fontsize=16, fontweight='bold')
-    ax.axis('off')
+    ax.set_xlabel('(f) Colored by Team (After)', fontsize=14, fontweight='bold')
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
     
     plt.tight_layout()
     
@@ -202,7 +244,8 @@ def main():
         embeddings_before, embeddings_after, team_sides, places, times,
         output_path,
         perplexity=args.perplexity,
-        random_state=args.random_state
+        random_state=args.random_state,
+        num_time_bins=args.num_time_bins
     )
     
     print("\n" + "=" * 80)

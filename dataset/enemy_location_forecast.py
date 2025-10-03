@@ -26,6 +26,7 @@ def enemy_location_forecast_collate_fn(batch):
             - 'enemy_locations': Enemy future location labels (regression or classification)
             - 'pov_team_side': String indicating team side
             - 'agent_ids': List of agent IDs used
+            - 'agent_places': List of agent places (locations)
     
     Returns:
         Dictionary with batched tensors and lists of string values
@@ -36,7 +37,7 @@ def enemy_location_forecast_collate_fn(batch):
     for key in batch[0].keys():
         values = [item[key] for item in batch]
         
-        if key in ['pov_team_side', 'agent_ids']:
+        if key in ['pov_team_side', 'agent_ids', 'agent_places']:
             # Keep string/list values as lists
             collated[key] = values
         else:
@@ -187,6 +188,7 @@ class EnemyLocationForecastDataset(BaseVideoDataset, Dataset):
         # Load videos for selected agents
         agent_videos = []
         agent_ids = []
+        agent_places = []
         
         for agent in selected_agents:
             # Construct video path dynamically
@@ -195,6 +197,7 @@ class EnemyLocationForecastDataset(BaseVideoDataset, Dataset):
             video_features = self._transform_video(video_clip)
             agent_videos.append(video_features)
             agent_ids.append(agent['id'])
+            agent_places.append(agent['place'])
         
         # Stack agent videos: [A, T, C, H, W]
         multi_agent_video = torch.stack(agent_videos, dim=0)
@@ -211,7 +214,8 @@ class EnemyLocationForecastDataset(BaseVideoDataset, Dataset):
             'enemy_locations': enemy_future_location_labels,
             'pov_team_side': selected_pov_team_side,
             'pov_team_side_encoded': torch.tensor(pov_team_side_encoded, dtype=torch.long),
-            'agent_ids': agent_ids
+            'agent_ids': agent_ids,
+            'agent_places': agent_places
         }
         
         return result

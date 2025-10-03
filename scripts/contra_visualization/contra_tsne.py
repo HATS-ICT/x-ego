@@ -179,7 +179,7 @@ def extract_embeddings(model, dataloader, num_batches, device):
         embeddings_before: [N, embed_dim] embeddings before contrastive
         embeddings_after: [N, embed_dim] embeddings after contrastive
         team_sides: [N] team side for each agent ('T' or 'CT')
-        agent_ids: [N] agent ID within batch for each agent
+        places: [N] location/place for each agent
         times: [N] normalized prediction seconds for each agent (if available)
     """
     model.eval()
@@ -188,7 +188,7 @@ def extract_embeddings(model, dataloader, num_batches, device):
     embeddings_before_list = []
     embeddings_after_list = []
     team_sides_list = []
-    agent_ids_list = []
+    places_list = []
     times_list = []
     
     with torch.no_grad():
@@ -205,6 +205,9 @@ def extract_embeddings(model, dataloader, num_batches, device):
             
             # Get team side strings (T or CT)
             pov_team_sides = batch['pov_team_side']  # List of 'T' or 'CT' strings
+            
+            # Get place information (locations)
+            agent_places = batch.get('agent_places', None)  # List of lists of place strings
             
             # Get time information if available
             times = batch.get('time', None)
@@ -230,13 +233,14 @@ def extract_embeddings(model, dataloader, num_batches, device):
                 # If contrastive not enabled, use same as before
                 embeddings_after_list.append(agent_embeddings.cpu())
             
-            # Record team, agent IDs, and time
+            # Record team, places, and time
             for b in range(B):
                 team_side = pov_team_sides[b]
                 time_val = times[b].item() if times is not None else None
+                batch_agent_places = agent_places[b] if agent_places is not None else [None] * A
                 for a in range(A):
                     team_sides_list.append(team_side)
-                    agent_ids_list.append(a)
+                    places_list.append(batch_agent_places[a])
                     times_list.append(time_val)
             
             # Update progress bar with current batch info
@@ -251,19 +255,19 @@ def extract_embeddings(model, dataloader, num_batches, device):
     embeddings_after = embeddings_after.view(-1, embeddings_after.shape[-1]).numpy()
     
     team_sides = np.array(team_sides_list)
-    agent_ids = np.array(agent_ids_list)
+    places = np.array(places_list)
     times = np.array(times_list) if times_list[0] is not None else None
     
-    return embeddings_before, embeddings_after, team_sides, agent_ids, times
+    return embeddings_before, embeddings_after, team_sides, places, times
 
 
-def save_embeddings(embeddings_before, embeddings_after, team_sides, agent_ids, times, save_path):
+def save_embeddings(embeddings_before, embeddings_after, team_sides, places, times, save_path):
     """Save precomputed embeddings to disk."""
     save_dict = {
         'embeddings_before': embeddings_before,
         'embeddings_after': embeddings_after,
         'team_sides': team_sides,
-        'agent_ids': agent_ids,
+        'places': places,
     }
     if times is not None:
         save_dict['times'] = times
@@ -280,14 +284,14 @@ def load_embeddings(load_path):
     embeddings_before = data['embeddings_before']
     embeddings_after = data['embeddings_after']
     team_sides = data['team_sides']
-    agent_ids = data['agent_ids']
+    places = data['places']
     times = data['times'] if 'times' in data else None
     
-    return embeddings_before, embeddings_after, team_sides, agent_ids, times
+    return embeddings_before, embeddings_after, team_sides, places, times
 
 
-def plot_tsne_embeddings(embeddings, team_sides, agent_ids, times, title, save_path, perplexity=30, random_state=42):
-    """Plot t-SNE visualization of embeddings colored by team, agent ID, and time."""
+def plot_tsne_embeddings(embeddings, team_sides, places, times, title, save_path, perplexity=30, random_state=42):
+    """Plot t-SNE visualization of embeddings colored by team, location, and time."""
     print(f"Running t-SNE on {len(embeddings)} embeddings with perplexity={perplexity}...")
     
     # Run t-SNE
@@ -296,29 +300,33 @@ def plot_tsne_embeddings(embeddings, team_sides, agent_ids, times, title, save_p
     embeddings_2d = tsne.fit_transform(embeddings)
     
     # Determine number of subplots based on available data
-    num_plots = 2  # Default: team and agent ID
+    num_plots = 1  # Default: team only
+    if places is not None and places[0] is not None:
+        num_plots += 1  # Add place plot
     if times is not None:
-        num_plots = 3  # Add time plot
+        num_plots += 1  # Add time plot
     
-    # Create figure with three subplots in a row
+    # Create figure with subplots in a row
     fig, axes = plt.subplots(1, num_plots, figsize=(8 * num_plots, 6))
     if num_plots == 1:
         axes = [axes]
     
     plot_idx = 0
     
-    # Plot 1: Color by location (agent ID / position)
-    ax = axes[plot_idx]
-    unique_agents = np.unique(agent_ids)
-    colors_agents = plt.cm.Set3(np.linspace(0, 1, len(unique_agents)))
-    
-    for i, agent_id in enumerate(unique_agents):
-        mask = agent_ids == agent_id
-        ax.scatter(embeddings_2d[mask, 0], embeddings_2d[mask, 1],
-                  c=[colors_agents[i]], s=20, alpha=0.6, edgecolors='none')
-    
-    ax.axis('off')
-    plot_idx += 1
+    # Plot 1: Color by location (place)
+    if places is not None and places[0] is not None:
+        ax = axes[plot_idx]
+        unique_places = np.unique(places)
+        # Use a colormap with enough distinct colors
+        colors_places = plt.cm.tab20(np.linspace(0, 1, len(unique_places)))
+        
+        for i, place in enumerate(unique_places):
+            mask = places == place
+            ax.scatter(embeddings_2d[mask, 0], embeddings_2d[mask, 1],
+                      c=[colors_places[i]], s=20, alpha=0.6, edgecolors='none')
+        
+        ax.axis('off')
+        plot_idx += 1
     
     # Plot 2: Color by time (if available)
     if times is not None:
@@ -442,7 +450,7 @@ def main():
     # Check if cached embeddings exist and load them if not recomputing
     if embeddings_cache_path.exists() and not args.recompute:
         print(f"\nFound cached embeddings: {embeddings_cache_path}")
-        embeddings_before, embeddings_after, team_sides, agent_ids, times = load_embeddings(embeddings_cache_path)
+        embeddings_before, embeddings_after, team_sides, places, times = load_embeddings(embeddings_cache_path)
     else:
         if args.recompute and embeddings_cache_path.exists():
             print(f"\nRecomputing embeddings (--recompute flag set)")
@@ -465,17 +473,18 @@ def main():
         
         # Extract embeddings
         print("\nExtracting embeddings from test set...")
-        embeddings_before, embeddings_after, team_sides, agent_ids, times = extract_embeddings(
+        embeddings_before, embeddings_after, team_sides, places, times = extract_embeddings(
             model, test_dataloader, args.num_batches, device
         )
         
         # Save embeddings for future use
-        save_embeddings(embeddings_before, embeddings_after, team_sides, agent_ids, times, embeddings_cache_path)
+        save_embeddings(embeddings_before, embeddings_after, team_sides, places, times, embeddings_cache_path)
     
     print(f"\nExtracted {len(embeddings_before)} agent embeddings")
     print(f"Embedding dimension: {embeddings_before.shape[1]}")
     print(f"Number of teams: {len(np.unique(team_sides))} ({', '.join(np.unique(team_sides))})")
-    print(f"Number of agents per sample: {len(np.unique(agent_ids))}")
+    if places is not None and places[0] is not None:
+        print(f"Number of unique places: {len(np.unique(places))} ({', '.join(sorted(np.unique(places)))})")
     if times is not None:
         print(f"Time range: {times.min():.2f}s - {times.max():.2f}s")
     print(f"\nSaving results to: {output_dir}")
@@ -523,7 +532,7 @@ def main():
         print(f"Adjusted perplexity from {args.perplexity} to {perplexity} (max for n_samples={len(embeddings_before)})")
     
     plot_tsne_embeddings(
-        embeddings_before, team_sides, agent_ids, times,
+        embeddings_before, team_sides, places, times,
         "Embeddings BEFORE Contrastive",
         output_dir / "tsne_before_contrastive",
         perplexity=perplexity,
@@ -531,7 +540,7 @@ def main():
     )
     
     plot_tsne_embeddings(
-        embeddings_after, team_sides, agent_ids, times,
+        embeddings_after, team_sides, places, times,
         "Embeddings AFTER Contrastive",
         output_dir / "tsne_after_contrastive",
         perplexity=perplexity,

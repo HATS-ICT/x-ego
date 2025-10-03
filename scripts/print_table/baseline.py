@@ -304,9 +304,9 @@ def create_mlcls_table(results_data):
     models = sorted(set(r['model'] for r in mlcls_results))
     
     lines = []
-    lines.append("=" * 135)
+    lines.append("=" * 145)
     lines.append("MULTI-LABEL CLASSIFICATION (MLCLS) RESULTS")
-    lines.append("=" * 135)
+    lines.append("=" * 145)
     lines.append("")
     
     for task in tasks:
@@ -315,9 +315,9 @@ def create_mlcls_table(results_data):
             continue
         
         lines.append(f"Task: {task}")
-        lines.append("-" * 135)
-        lines.append(f"{'Model':<12} {'Ckpt':<6} {'H-Loss':>8} {'H-Acc':>8} {'Micro-F1':>10} {'Macro-F1':>10} {'CT-HAcc':>8} {'T-HAcc':>8} {'Samples':>8}")
-        lines.append("-" * 135)
+        lines.append("-" * 145)
+        lines.append(f"{'Model':<12} {'Ckpt':<6} {'H-Loss':>8} {'H-Acc':>8} {'Subset-Acc':>10} {'Micro-F1':>10} {'Macro-F1':>10} {'CT-HAcc':>8} {'T-HAcc':>8} {'Samples':>8}")
+        lines.append("-" * 145)
         
         for model in models:
             model_results = [r for r in task_results if r['model'] == model]
@@ -335,6 +335,7 @@ def create_mlcls_table(results_data):
                     f"{checkpoint:<6} "
                     f"{format_value(r.get('hamming_loss')):>8} "
                     f"{format_value(r.get('hamming_accuracy')):>8} "
+                    f"{format_value(r.get('subset_accuracy')):>10} "
                     f"{format_value(r.get('micro_f1')):>10} "
                     f"{format_value(r.get('macro_f1')):>10} "
                     f"{format_value(r.get('ct_hamming_acc')):>8} "
@@ -392,6 +393,7 @@ Notes:
 - MAE/MSE: Mean Absolute/Squared Error
 - Chamfer/Wasser: Chamfer/Wasserstein Distance
 - H-Loss/H-Acc: Hamming Loss/Accuracy
+- Subset-Acc: Subset Accuracy (exact match of all labels)
 - CT/T: Counter-Terrorist/Terrorist team metrics
 - Each model shows results for both 'best' and 'last' checkpoints when available
 """

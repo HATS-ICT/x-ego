@@ -74,6 +74,16 @@ model:
     # Setup 4: logit_scale_init=10, logit_bias_init=0,   turn_off_bias=false (b: 0,    t: log10)
     # Setup 5: logit_scale_init=1,  logit_bias_init=0,   turn_off_bias=false (b: 0,    t: log1)
     loss_weight: 1.0
+  traj_decoder:
+    enable: false  # Enable trajectory decoder instead of standard MLP predictor
+    num_target_agents: 5  # Number of agents to predict trajectories for
+    hidden_dim: 256  # Hidden dimension for transformer
+    num_layers: 3  # Number of transformer decoder layers
+    num_heads: 8  # Number of attention heads
+    dropout: 0.1  # Dropout rate
+    dim_feedforward: 1024  # Feedforward dimension in transformer
+    use_learned_queries: true  # Use learned agent query embeddings (recommended for permutation invariance)
+    output_mode: coord  # Options: coord (x,y,z), grid (heatmap), density (distribution)
 
 training:
   max_epochs: 10

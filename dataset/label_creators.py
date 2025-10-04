@@ -14,7 +14,6 @@ import torch
 import numpy as np
 from typing import List, Dict
 from scipy.ndimage import gaussian_filter
-from sklearn.preprocessing import MinMaxScaler
 
 
 class LabelCreatorBase:
@@ -47,45 +46,27 @@ class CoordRegLabelCreator(LabelCreatorBase):
     """
     Coordinate regression label creator.
     
-    Directly regresses the (x, y, z) coordinates of each agent.
-    Output shape: [5, 3] for 5 agents with X, Y, Z coordinates
+    Directly regresses the (x, y, z) normalized coordinates of each agent.
+    Output shape: [5, 3] for 5 agents with X_norm, Y_norm, Z_norm coordinates
     """
     
-    def __init__(self, cfg: Dict, coordinate_scaler: MinMaxScaler = None):
+    def __init__(self, cfg: Dict):
         super().__init__(cfg)
-        self.coordinate_scaler = coordinate_scaler
         self.num_target_agents = cfg.model.num_target_agents
     
     def create_labels(self, enemy_players: List[Dict]) -> torch.Tensor:
-        """Create coordinate regression labels."""
+        """Create coordinate regression labels using normalized coordinates."""
         coords = []
         for i in range(self.num_target_agents):
             if i < len(enemy_players):
                 player = enemy_players[i]
-                coords.append([float(player['X']), float(player['Y']), float(player['Z'])])
+                coords.append([float(player['X_norm']), float(player['Y_norm']), float(player['Z_norm'])])
             else:
                 # Pad with zeros if not enough enemy players
                 coords.append([0.0, 0.0, 0.0])
         
         coords = np.array(coords)
-        
-        # Scale coordinates if scaler is available
-        if self.coordinate_scaler is not None:
-            coords = self._scale_coordinates(coords)
-        
         return torch.tensor(coords, dtype=torch.float32)
-    
-    def _scale_coordinates(self, coords: np.ndarray) -> np.ndarray:
-        """Scale coordinates using the fitted scaler."""
-        original_shape = coords.shape
-        coords_flat = coords.reshape(-1, 3)
-        
-        # Only scale non-zero coordinates (padding coordinates remain [0, 0, 0])
-        mask = np.any(coords_flat != 0, axis=1)
-        if np.any(mask):
-            coords_flat[mask] = self.coordinate_scaler.transform(coords_flat[mask])
-        
-        return coords_flat.reshape(original_shape)
 
 
 class MultiLabelClsLabelCreator(LabelCreatorBase):
@@ -154,30 +135,20 @@ class GridClsLabelCreator(LabelCreatorBase):
     Output shape: [grid_resolution * grid_resolution]
     """
     
-    def __init__(self, cfg: Dict, coordinate_scaler: MinMaxScaler = None):
+    def __init__(self, cfg: Dict):
         super().__init__(cfg)
         self.grid_resolution = cfg.data.grid_resolution
-        self.coordinate_scaler = coordinate_scaler
         self.output_dim = self.grid_resolution * self.grid_resolution
     
     def create_labels(self, enemy_players: List[Dict]) -> torch.Tensor:
-        """Create grid classification labels."""
+        """Create grid classification labels using normalized coordinates."""
         grid = np.zeros((self.grid_resolution, self.grid_resolution), dtype=np.float32)
         
         for player in enemy_players:
             try:
-                x, y = float(player['X']), float(player['Y'])
-                
-                # Normalize coordinates to [0, 1] range using scaler if available
-                if self.coordinate_scaler is not None:
-                    coords = np.array([[x, y, 0.0]])  # Z doesn't matter for 2D grid
-                    scaled_coords = self.coordinate_scaler.transform(coords)
-                    x_norm, y_norm = scaled_coords[0, 0], scaled_coords[0, 1]
-                else:
-                    # Fall back to simple normalization if no scaler
-                    # Assuming CS:GO map bounds approximately [-3000, 3000]
-                    x_norm = (x + 3000) / 6000
-                    y_norm = (y + 3000) / 6000
+                # Use pre-normalized coordinates directly (already in [0, 1] range)
+                x_norm = float(player['X_norm'])
+                y_norm = float(player['Y_norm'])
                 
                 # Convert to grid indices
                 x_idx = int(np.clip(x_norm * self.grid_resolution, 0, self.grid_resolution - 1))
@@ -203,30 +174,21 @@ class DensityClsLabelCreator(LabelCreatorBase):
     Output shape: [grid_resolution * grid_resolution]
     """
     
-    def __init__(self, cfg: Dict, coordinate_scaler: MinMaxScaler = None):
+    def __init__(self, cfg: Dict):
         super().__init__(cfg)
         self.grid_resolution = cfg.data.grid_resolution
         self.gaussian_sigma = cfg.data.gaussian_sigma
-        self.coordinate_scaler = coordinate_scaler
         self.output_dim = self.grid_resolution * self.grid_resolution
     
     def create_labels(self, enemy_players: List[Dict]) -> torch.Tensor:
-        """Create density classification labels with Gaussian smoothing."""
+        """Create density classification labels with Gaussian smoothing using normalized coordinates."""
         grid = np.zeros((self.grid_resolution, self.grid_resolution), dtype=np.float32)
         
         for player in enemy_players:
             try:
-                x, y = float(player['X']), float(player['Y'])
-                
-                # Normalize coordinates to [0, 1] range using scaler if available
-                if self.coordinate_scaler is not None:
-                    coords = np.array([[x, y, 0.0]])  # Z doesn't matter for 2D grid
-                    scaled_coords = self.coordinate_scaler.transform(coords)
-                    x_norm, y_norm = scaled_coords[0, 0], scaled_coords[0, 1]
-                else:
-                    # Fall back to simple normalization if no scaler
-                    x_norm = (x + 3000) / 6000
-                    y_norm = (y + 3000) / 6000
+                # Use pre-normalized coordinates directly (already in [0, 1] range)
+                x_norm = float(player['X_norm'])
+                y_norm = float(player['Y_norm'])
                 
                 # Convert to grid indices
                 x_idx = int(np.clip(x_norm * self.grid_resolution, 0, self.grid_resolution - 1))
@@ -254,7 +216,7 @@ def create_label_creator(cfg: Dict, **kwargs) -> LabelCreatorBase:
     
     Args:
         cfg: Configuration dictionary
-        **kwargs: Additional arguments like coordinate_scaler, place_to_idx, num_places
+        **kwargs: Additional arguments like place_to_idx, num_places
         
     Returns:
         Label creator instance
@@ -262,16 +224,10 @@ def create_label_creator(cfg: Dict, **kwargs) -> LabelCreatorBase:
     task_form = cfg.data.task_form
     
     if task_form == 'coord-reg':
-        return CoordRegLabelCreator(
-            cfg, 
-            coordinate_scaler=kwargs.get('coordinate_scaler')
-        )
+        return CoordRegLabelCreator(cfg)
     elif task_form == 'coord-gen':
         # coord-gen uses same labels as coord-reg
-        return CoordRegLabelCreator(
-            cfg, 
-            coordinate_scaler=kwargs.get('coordinate_scaler')
-        )
+        return CoordRegLabelCreator(cfg)
     elif task_form == 'multi-label-cls':
         return MultiLabelClsLabelCreator(
             cfg,
@@ -285,14 +241,8 @@ def create_label_creator(cfg: Dict, **kwargs) -> LabelCreatorBase:
             num_places=kwargs.get('num_places')
         )
     elif task_form == 'grid-cls':
-        return GridClsLabelCreator(
-            cfg,
-            coordinate_scaler=kwargs.get('coordinate_scaler')
-        )
+        return GridClsLabelCreator(cfg)
     elif task_form == 'density-cls':
-        return DensityClsLabelCreator(
-            cfg,
-            coordinate_scaler=kwargs.get('coordinate_scaler')
-        )
+        return DensityClsLabelCreator(cfg)
     else:
         raise ValueError(f"Unknown task_form: {task_form}")

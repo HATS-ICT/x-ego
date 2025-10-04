@@ -90,30 +90,15 @@ class EnemyLocationForecastDataset(BaseVideoDataset, Dataset):
         
         return sorted(list(places))
     
-    def _get_scaler_path(self) -> Path:
-        """Get the path for saving/loading the coordinate scaler."""
-        return self.output_dir / "enemy_future_coordinate_minmax_scaler.pkl"
-    
-    def _get_coordinate_columns_for_scaler(self) -> List[Tuple[str, str, str]]:
-        """Get list of (X, Y, Z) column name tuples for fitting the coordinate scaler."""
-        coord_columns = []
-        # For future locations, consider all players
-        for i in range(10):  # 10 players total
-            x_col = f'player_{i}_future_X'
-            y_col = f'player_{i}_future_Y'
-            z_col = f'player_{i}_future_Z'
-            coord_columns.append((x_col, y_col, z_col))
-        return coord_columns
-    
     def _get_player_data(self, row: pd.Series, player_idx: int) -> Dict:
         """Extract player data from a row."""
         return {
             'id': row[f'player_{player_idx}_id'],
             'name': row[f'player_{player_idx}_name'],
             'side': row[f'player_{player_idx}_side'],
-            'future_X': row[f'player_{player_idx}_future_X'],
-            'future_Y': row[f'player_{player_idx}_future_Y'],
-            'future_Z': row[f'player_{player_idx}_future_Z'],
+            'future_X_norm': row[f'player_{player_idx}_future_X_norm'],
+            'future_Y_norm': row[f'player_{player_idx}_future_Y_norm'],
+            'future_Z_norm': row[f'player_{player_idx}_future_Z_norm'],
             'future_place': row[f'player_{player_idx}_future_place']
         }
     
@@ -143,13 +128,13 @@ class EnemyLocationForecastDataset(BaseVideoDataset, Dataset):
             labels: Tensor containing enemy future location labels
         """
         # Convert enemy_players to format expected by label_creator
-        # The label creator expects player dicts with X, Y, Z, place keys
+        # The label creator expects player dicts with X_norm, Y_norm, Z_norm, place keys
         players_for_label = []
         for player in enemy_players:
             players_for_label.append({
-                'X': player['future_X'],
-                'Y': player['future_Y'],
-                'Z': player['future_Z'],
+                'X_norm': player['future_X_norm'],
+                'Y_norm': player['future_Y_norm'],
+                'Z_norm': player['future_Z_norm'],
                 'place': player['future_place']
             })
         

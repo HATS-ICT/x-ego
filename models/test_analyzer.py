@@ -116,13 +116,21 @@ class TestAnalyzer:
     
     def add_coordinate_metadata(self, test_results):
         """Add coordinate-specific metadata to test results."""
-        test_results['loss_function'] = self.model.loss_computer.loss_fn
-        test_results['coordinate_scaling'] = self.model.coordinate_scaler is not None
+        import pickle
+        from pathlib import Path
         
-        if self.model.coordinate_scaler is not None:
-            test_results['scaler_data_min'] = self.model.coordinate_scaler.data_min_.tolist()
-            test_results['scaler_data_max'] = self.model.coordinate_scaler.data_max_.tolist()
-            test_results['scaler_scale'] = self.model.coordinate_scaler.scale_.tolist()
+        test_results['loss_function'] = self.model.loss_computer.loss_fn
+        
+        # Check if scaler file exists
+        scaler_path = Path(self.model.scaler_path)
+        test_results['coordinate_scaling'] = scaler_path.exists()
+        
+        if scaler_path.exists():
+            with open(scaler_path, 'rb') as f:
+                scaler = pickle.load(f)
+            test_results['scaler_data_min'] = scaler.data_min_.tolist()
+            test_results['scaler_data_max'] = scaler.data_max_.tolist()
+            test_results['scaler_scale'] = scaler.scale_.tolist()
         
         if self.model.loss_computer.loss_fn == 'sinkhorn':
             test_results['sinkhorn_blur'] = self.model.loss_computer.sinkhorn_blur
@@ -159,19 +167,15 @@ class TestAnalyzer:
             )
             
             # Get scaled version for Chamfer distance calculation
-            first_pred_unscaled = torch.tensor(multi_predictions[0:1], dtype=torch.float32)
-            
-            if self.model.coordinate_scaler is not None:
-                first_pred_flat = first_pred_unscaled.view(-1, 3).numpy()
-                first_pred_scaled = self.model.coordinate_scaler.transform(first_pred_flat)
-                scaled_pred = torch.tensor(first_pred_scaled.reshape(1, 5, 3), 
-                                         dtype=torch.float32)
-            else:
-                scaled_pred = first_pred_unscaled
+            # Note: multi_predictions are unscaled, so we need to scale them
+            # However, since our data is now normalized, predictions are already normalized
+            # So we just convert to tensor
+            first_pred_normalized = torch.tensor(multi_predictions[0:1], dtype=torch.float32)
+            scaled_pred = first_pred_normalized
             
             # Get target key dynamically (supports both enemy_locations and future_locations)
             target_key = 'enemy_locations' if 'enemy_locations' in sample else 'future_locations'
-            scaled_target = sample[target_key]  # Already scaled
+            scaled_target = sample[target_key]  # Already normalized
             
             # Move to device
             device = next(self.model.parameters()).device

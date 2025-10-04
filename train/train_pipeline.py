@@ -79,12 +79,8 @@ def run_training_pipeline(cfg, model_class, datamodule_class, task_name, print_h
 
 def setup_model_with_dataset_info(cfg, datamodule, model):
     """Setup model with dataset-specific information"""
-    if cfg.data.task_form in ['coord-reg', 'coord-gen']:
-        # Set coordinate scaler from dataset for location prediction tasks
-        if hasattr(datamodule, 'train_dataset') and hasattr(datamodule.train_dataset, 'get_coordinate_scaler'):
-            scaler = datamodule.train_dataset.get_coordinate_scaler()
-            if hasattr(model, 'set_coordinate_scaler'):
-                model.set_coordinate_scaler(scaler)
+    # Model setup logic can be added here if needed in the future
+    pass
 
 
 def create_trainer(cfg, callbacks, logger):

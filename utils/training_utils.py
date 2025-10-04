@@ -412,12 +412,8 @@ def _plot_labels(labels_tensor, ax, task_form, cfg, label_type='enemy'):
     
 def setup_test_model_with_dataset_info(cfg, datamodule, test_model):
     """Setup test model with dataset-specific information"""
-    if cfg.data.task_form in ['coord-reg', 'coord-gen']:
-        # Set coordinate scaler from dataset
-        if hasattr(datamodule, 'test_dataset') and hasattr(datamodule.test_dataset, 'get_coordinate_scaler'):
-            scaler = datamodule.test_dataset.get_coordinate_scaler()
-            if hasattr(test_model, 'set_coordinate_scaler'):
-                test_model.set_coordinate_scaler(scaler)
+    # Model setup logic can be added here if needed in the future
+    pass
     
     
 def print_task_info(cfg, datamodule, task_name):

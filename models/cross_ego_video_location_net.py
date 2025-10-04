@@ -31,7 +31,7 @@ from torchmetrics.classification import (
 # Import refactored components
 from models.prediction_losses import LossComputer
 from models.prediction_metrics import MetricsCalculator
-from models.coordinate_scaler import CoordinateScaler
+from models.coordinate_scaler import unscale_coordinates
 from models.vae import ConditionalVariationalAutoencoder
 from models.architecture_utils import ACT2CLS, build_mlp
 from models.test_analyzer import TestAnalyzer
@@ -46,7 +46,7 @@ except ImportError:
     from .cross_ego_contrastive import CrossEgoContrastive
 
 
-class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
+class CrossEgoVideoLocationNet(L.LightningModule):
     """
     Multi-agent enemy location prediction model supporting multiple task formulations.
     
@@ -122,8 +122,8 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
         )
         self.metrics_calculator = MetricsCalculator(self.task_form)
         
-        # Coordinate scaler for coordinate-based tasks
-        self.coordinate_scaler = None
+        # Scaler path for coordinate-based tasks
+        self.scaler_path = cfg.path.data / "trajectory_minmax_scaler.pkl"
         
         # Test tracking
         self.test_predictions = []
@@ -639,8 +639,8 @@ class CrossEgoVideoLocationNet(L.LightningModule, CoordinateScaler):
         
         if self.task_form in ['coord-reg', 'coord-gen']:
             # Store both scaled and unscaled versions
-            predictions_unscaled = self.unscale_coordinates(predictions)
-            targets_unscaled = self.unscale_coordinates(targets)
+            predictions_unscaled = unscale_coordinates(predictions, self.scaler_path)
+            targets_unscaled = unscale_coordinates(targets, self.scaler_path)
             
             self.test_predictions.append(predictions.cpu().float())
             self.test_targets.append(targets.cpu().float())

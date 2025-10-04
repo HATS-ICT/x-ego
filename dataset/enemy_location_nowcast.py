@@ -98,28 +98,13 @@ class EnemyLocationNowcastDataset(BaseVideoDataset, Dataset):
         
         return sorted(list(places))
     
-    def _get_scaler_path(self) -> Path:
-        """Get the path for saving/loading the coordinate scaler."""
-        return self.output_dir / "coordinate_minmax_scaler.pkl"
-    
-    def _get_coordinate_columns_for_scaler(self) -> List[Tuple[str, str, str]]:
-        """Get list of (X, Y, Z) column name tuples for fitting the coordinate scaler."""
-        coord_columns = []
-        # For scaler fitting, we need to consider both teams as potential enemies
-        for i in range(10):  # 10 players total
-            x_col = f'player_{i}_X'
-            y_col = f'player_{i}_Y'
-            z_col = f'player_{i}_Z'
-            coord_columns.append((x_col, y_col, z_col))
-        return coord_columns
-    
     def _get_player_data(self, row: pd.Series, player_idx: int) -> Dict:
         """Extract player data from a row."""
         return {
             'id': row[f'player_{player_idx}_id'],
-            'X': row[f'player_{player_idx}_X'],
-            'Y': row[f'player_{player_idx}_Y'],
-            'Z': row[f'player_{player_idx}_Z'],
+            'X_norm': row[f'player_{player_idx}_X_norm'],
+            'Y_norm': row[f'player_{player_idx}_Y_norm'],
+            'Z_norm': row[f'player_{player_idx}_Z_norm'],
             'side': row[f'player_{player_idx}_side'],
             'place': row[f'player_{player_idx}_place'],
             'name': row[f'player_{player_idx}_name']

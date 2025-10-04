@@ -5,11 +5,9 @@ from typing import Dict, Tuple, Optional, List
 import torch
 import numpy as np
 import pandas as pd
-import pickle
 from abc import ABC, abstractmethod
 from transformers import AutoVideoProcessor
 from decord import VideoReader, cpu
-from sklearn.preprocessing import MinMaxScaler
 
 try:
     from utils.dataset_utils import get_random_segment, apply_minimap_mask
@@ -114,12 +112,6 @@ class BaseVideoDataset(ABC):
             
         # Output directory for saving/loading artifacts
         self.output_dir = Path(cfg.path.exp)
-        
-        # Initialize coordinate scaler for coordinate-based tasks
-        self.coordinate_scaler = None
-        self.scaler_fitted = False
-        if self.task_form in ['coord-reg', 'coord-gen', 'grid-cls', 'density-cls']:
-            self._init_coordinate_scaler()
             
         # Initialize label creator
         self._init_label_creator()
@@ -286,115 +278,6 @@ class BaseVideoDataset(ABC):
         """Extract unique place names from the dataset. Must be implemented by subclasses."""
         pass
     
-    @abstractmethod
-    def _get_scaler_path(self) -> Path:
-        """Get the path for saving/loading the coordinate scaler. Must be implemented by subclasses."""
-        pass
-    
-    @abstractmethod
-    def _get_coordinate_columns_for_scaler(self) -> List[Tuple[str, str, str]]:
-        """
-        Get list of (X, Y, Z) column name tuples for fitting the coordinate scaler.
-        Must be implemented by subclasses.
-        
-        Returns:
-            List of tuples, each containing (x_col_name, y_col_name, z_col_name)
-        """
-        pass
-    
-    def _init_coordinate_scaler(self):
-        """Initialize coordinate scaler for regression mode."""
-        self.coordinate_scaler = MinMaxScaler()
-        self.scaler_path = self._get_scaler_path()
-        
-        # Try to load existing scaler first
-        if self.scaler_path.exists():
-            try:
-                with open(self.scaler_path, 'rb') as f:
-                    self.coordinate_scaler = pickle.load(f)
-                self.scaler_fitted = True
-                logger.info(f"Loaded existing coordinate scaler from {self.scaler_path}")
-                logger.info(f"Scaler data_min_: {self.coordinate_scaler.data_min_}")
-                logger.info(f"Scaler data_max_: {self.coordinate_scaler.data_max_}")
-                logger.info(f"Scaler scale_: {self.coordinate_scaler.scale_}")
-                return
-            except Exception as e:
-                logger.warning(f"Failed to load existing scaler: {e}")
-                self.coordinate_scaler = MinMaxScaler()
-        
-        # Fit scaler on all coordinate data
-        logger.info("Fitting coordinate scaler on all data...")
-        all_coords = []
-        
-        # Get coordinate columns from subclass
-        coord_columns = self._get_coordinate_columns_for_scaler()
-        
-        for idx in range(len(self.df)):
-            row = self.df.iloc[idx]
-            
-            for x_col, y_col, z_col in coord_columns:
-                try:
-                    if all(col in row.index for col in [x_col, y_col, z_col]):
-                        coords = [float(row[x_col]), float(row[y_col]), float(row[z_col])]
-                        all_coords.append(coords)
-                except (ValueError, KeyError):
-                    # Skip invalid coordinates
-                    continue
-        
-        if all_coords:
-            all_coords = np.array(all_coords)
-            self.coordinate_scaler.fit(all_coords)
-            self.scaler_fitted = True
-            
-            # Save the fitted scaler
-            self.output_dir.mkdir(parents=True, exist_ok=True)
-            with open(self.scaler_path, 'wb') as f:
-                pickle.dump(self.coordinate_scaler, f)
-            
-            logger.info(f"Fitted and saved coordinate scaler to {self.scaler_path}")
-            logger.info(f"Scaler data_min_: {self.coordinate_scaler.data_min_}")
-            logger.info(f"Scaler data_max_: {self.coordinate_scaler.data_max_}")
-            logger.info(f"Scaler scale_: {self.coordinate_scaler.scale_}")
-            logger.info(f"Fitted on {len(all_coords)} coordinate samples")
-        else:
-            logger.warning("No valid coordinates found for fitting scaler!")
-    
-    def _scale_coordinates(self, coords: np.ndarray) -> np.ndarray:
-        """Scale coordinates using the fitted scaler."""
-        if self.coordinate_scaler is None or not self.scaler_fitted:
-            return coords
-        
-        # coords shape: [5, 3] or [N, 3]
-        original_shape = coords.shape
-        coords_flat = coords.reshape(-1, 3)
-        
-        # Only scale non-zero coordinates (padding coordinates remain [0, 0, 0])
-        mask = np.any(coords_flat != 0, axis=1)
-        if np.any(mask):
-            coords_flat[mask] = self.coordinate_scaler.transform(coords_flat[mask])
-        
-        return coords_flat.reshape(original_shape)
-    
-    def _unscale_coordinates(self, scaled_coords: np.ndarray) -> np.ndarray:
-        """Unscale coordinates using the fitted scaler."""
-        if self.coordinate_scaler is None or not self.scaler_fitted:
-            return scaled_coords
-        
-        # scaled_coords shape: [5, 3] or [N, 3]
-        original_shape = scaled_coords.shape
-        coords_flat = scaled_coords.reshape(-1, 3)
-        
-        # Only unscale non-zero coordinates (padding coordinates remain [0, 0, 0])
-        mask = np.any(coords_flat != 0, axis=1)
-        if np.any(mask):
-            coords_flat[mask] = self.coordinate_scaler.inverse_transform(coords_flat[mask])
-        
-        return coords_flat.reshape(original_shape)
-    
-    def get_coordinate_scaler(self):
-        """Get the fitted coordinate scaler for external use."""
-        return self.coordinate_scaler if self.scaler_fitted else None
-    
     def _select_agents(self, team_players: List[Dict]) -> List[Dict]:
         """Select a subset of agents from team players."""
         if len(team_players) < self.num_agents_to_sample:
@@ -419,9 +302,6 @@ class BaseVideoDataset(ABC):
     def _init_label_creator(self):
         """Initialize label creator based on task form."""
         kwargs = {}
-        
-        if self.task_form in ['coord-reg', 'coord-gen', 'grid-cls', 'density-cls']:
-            kwargs['coordinate_scaler'] = self.coordinate_scaler if self.scaler_fitted else None
         
         if self.task_form in ['multi-label-cls', 'multi-output-reg']:
             kwargs['place_to_idx'] = self.place_to_idx

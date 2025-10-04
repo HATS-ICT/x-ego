@@ -170,9 +170,9 @@ def debug_batch_plot(batch, model, max_examples=4):
     if 'enemy_locations' in batch:
         labels = batch['enemy_locations'][:num_examples]
         label_type = 'enemy'
-    elif 'future_locations' in batch:
-        labels = batch['future_locations'][:num_examples]
-        label_type = 'future'
+    elif 'teammate_locations' in batch:
+        labels = batch['teammate_locations'][:num_examples]
+        label_type = 'teammate'
     else:
         print("Warning: No labels found in batch")
         return

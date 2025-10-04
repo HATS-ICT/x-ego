@@ -350,8 +350,13 @@ class CrossEgoVideoLocationNet(L.LightningModule):
         """Training step."""
         batch_size = batch["video"].shape[0]
         
-        # Debug visualization for first batch of first epoch only
-        # TODO: Remove
+        # TODO: Debug: to be removed
+        # print(batch.keys())
+        # for k, v in batch.items():
+        #     if torch.is_tensor(v):
+        #         print(k, v.shape)
+        #     else:
+        #         print(k, v)
         # from utils.training_utils import debug_batch_plot
         # debug_batch_plot(batch, self)
         

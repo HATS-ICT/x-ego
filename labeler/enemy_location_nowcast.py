@@ -140,9 +140,9 @@ class EnemyLocationNowcastCreator(LocationPredictionBase):
                 row[f'player_{i}_id'] = player['steamid']
                 row[f'player_{i}_name'] = player['name']
                 row[f'player_{i}_side'] = player['side']
-                row[f'player_{i}_X'] = player['X']
-                row[f'player_{i}_Y'] = player['Y']
-                row[f'player_{i}_Z'] = player['Z']
+                row[f'player_{i}_X'] = player['X_norm']
+                row[f'player_{i}_Y'] = player['Y_norm']
+                row[f'player_{i}_Z'] = player['Z_norm']
                 row[f'player_{i}_place'] = player['place']
             
             output_rows.append(row)

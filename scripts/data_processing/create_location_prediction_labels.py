@@ -80,7 +80,7 @@ def main():
         enemy_forecast.process_segments({
             'output_file_name': 'enemy_location_forecast_s1s_l5s_f10s.csv',
             'segment_length_sec': 5,
-            'forecast_interval_sec': 5,
+            'forecast_interval_sec': 10,
             'partition': ['train', 'val', 'test']
         })
         
@@ -105,7 +105,7 @@ def main():
         teammate_forecast.process_segments({
             'output_file_name': 'teammate_location_forecast_s1s_l5s_f10s.csv',
             'segment_length_sec': 5,
-            'forecast_interval_sec': 5,
+            'forecast_interval_sec': 10,
             'partition': ['train', 'val', 'test']
         })
         

@@ -34,8 +34,8 @@ class TeammateLocationForecastCreator(LocationPredictionBase):
         Returns:
             List of segment dictionaries with all players' data by side
         """
-        segment_length_sec = cfg.segment_length_sec
-        forecast_interval_sec = cfg.forecast_interval_sec
+        segment_length_sec = cfg['segment_length_sec']
+        forecast_interval_sec = cfg['forecast_interval_sec']
         
         # Load all player trajectories for this round
         player_trajectories = self._load_player_trajectories(match_id, round_num)
@@ -184,9 +184,9 @@ class TeammateLocationForecastCreator(LocationPredictionBase):
                 row[f'teammate_{i}_id'] = teammate['steamid']
                 row[f'teammate_{i}_name'] = teammate['name']
                 row[f'teammate_{i}_side'] = teammate['side']
-                row[f'teammate_{i}_future_X'] = teammate['X']
-                row[f'teammate_{i}_future_Y'] = teammate['Y']
-                row[f'teammate_{i}_future_Z'] = teammate['Z']
+                row[f'teammate_{i}_future_X'] = teammate['X_norm']
+                row[f'teammate_{i}_future_Y'] = teammate['Y_norm']
+                row[f'teammate_{i}_future_Z'] = teammate['Z_norm']
                 row[f'teammate_{i}_future_place'] = teammate['place']
             
             output_rows.append(row)

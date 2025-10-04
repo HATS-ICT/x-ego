@@ -34,8 +34,8 @@ class EnemyLocationForecastCreator(LocationPredictionBase):
         Returns:
             List of segment dictionaries with all players' data
         """
-        segment_length_sec = cfg.segment_length_sec
-        forecast_interval_sec = cfg.forecast_interval_sec
+        segment_length_sec = cfg['segment_length_sec']
+        forecast_interval_sec = cfg['forecast_interval_sec']
         
         # Load all player trajectories for this round
         player_trajectories = self._load_player_trajectories(match_id, round_num)
@@ -146,9 +146,9 @@ class EnemyLocationForecastCreator(LocationPredictionBase):
                 row[f'player_{i}_id'] = player['steamid']
                 row[f'player_{i}_name'] = player['name']
                 row[f'player_{i}_side'] = player['side']
-                row[f'player_{i}_future_X'] = player['X']
-                row[f'player_{i}_future_Y'] = player['Y']
-                row[f'player_{i}_future_Z'] = player['Z']
+                row[f'player_{i}_future_X'] = player['X_norm']
+                row[f'player_{i}_future_Y'] = player['Y_norm']
+                row[f'player_{i}_future_Z'] = player['Z_norm']
                 row[f'player_{i}_future_place'] = player['place']
             
             output_rows.append(row)

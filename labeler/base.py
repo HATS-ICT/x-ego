@@ -231,9 +231,9 @@ class LocationPredictionBase(ABC):
                 'steamid': row.get('steamid'),
                 'name': row.get('name'),
                 'side': row.get('side'),
-                'X': row.get('X'),
-                'Y': row.get('Y'), 
-                'Z': row.get('Z'),
+                'X_norm': row.get('X_norm'),
+                'Y_norm': row.get('Y_norm'), 
+                'Z_norm': row.get('Z_norm'),
                 'place': row.get('place'),
                 'health': row.get('health')
             }
@@ -250,9 +250,9 @@ class LocationPredictionBase(ABC):
                 'steamid': row.get('steamid'),
                 'name': row.get('name'),
                 'side': row.get('side'),
-                'X': row.get('X'),
-                'Y': row.get('Y'), 
-                'Z': row.get('Z'),
+                'X_norm': row.get('X_norm'),
+                'Y_norm': row.get('Y_norm'), 
+                'Z_norm': row.get('Z_norm'),
                 'place': row.get('place'),
                 'health': row.get('health')
             }
@@ -311,12 +311,12 @@ class LocationPredictionBase(ABC):
                 raise ValueError(f"Missing required configuration key: {key}")
         
         print("Processing segments with configuration:")
-        print(f"  Segment length: {cfg.segment_length_sec} seconds")
-        print(f"  Partitions: {cfg.partition}")
+        print(f"  Segment length: {cfg['segment_length_sec']} seconds")
+        print(f"  Partitions: {cfg['partition']}")
         
         # Filter partition data for desired partitions
         filtered_partition_df = self.partition_df[
-            self.partition_df['split'].isin(cfg.partition)
+            self.partition_df['split'].isin(cfg['partition'])
         ]
         
         print(f"Found {len(filtered_partition_df)} match-round combinations in desired partitions")
@@ -364,7 +364,7 @@ class LocationPredictionBase(ABC):
         print("\nCreating output CSV...")
         df = self._create_output_csv(all_segments, cfg)
         
-        output_path = self.output_dir / cfg.output_file_name
+        output_path = self.output_dir / cfg['output_file_name']
         df.to_csv(output_path, index=False)
         
         print(f"Saved {len(df)} segments to {output_path}")

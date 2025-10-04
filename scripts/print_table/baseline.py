@@ -228,11 +228,14 @@ def collect_all_results():
     return results_data
 
 
-def format_value(value, precision=4):
+def format_value(value, precision=4, is_best=False):
     """Format a numeric value for display."""
     if value is None:
         return "N/A"
-    return f"{value:.{precision}f}"
+    formatted = f"{value:.{precision}f}"
+    if is_best:
+        formatted = f"*{formatted}*"
+    return formatted
 
 
 def create_cgen_table(results_data, checkpoint_type):
@@ -248,9 +251,9 @@ def create_cgen_table(results_data, checkpoint_type):
     models = sorted(set(r['model'] for r in cgen_results))
     
     lines = []
-    lines.append("=" * 127)
+    lines.append("=" * 137)
     lines.append(f"COORDINATE GENERATION (CGEN) RESULTS - {checkpoint_type.upper()} CHECKPOINT")
-    lines.append("=" * 127)
+    lines.append("=" * 137)
     lines.append("")
     
     for task in tasks:
@@ -258,10 +261,18 @@ def create_cgen_table(results_data, checkpoint_type):
         if not task_results:
             continue
         
+        # Find best values for each metric (lower is better for all cgen metrics)
+        metrics = ['overall_mae', 'overall_mse', 'chamfer_dist', 'wasserstein_dist', 'ct_mae', 't_mae']
+        best_values = {}
+        for metric in metrics:
+            valid_values = [r.get(metric) for r in task_results if r.get(metric) is not None]
+            if valid_values:
+                best_values[metric] = min(valid_values)
+        
         lines.append(f"Task: {task}")
-        lines.append("-" * 127)
-        lines.append(f"{'Model':<12} {'MAE':>8} {'MSE':>8} {'Chamfer':>10} {'Wasser':>10} {'CT-MAE':>8} {'T-MAE':>8} {'Samples':>8}")
-        lines.append("-" * 127)
+        lines.append("-" * 137)
+        lines.append(f"{'Model':<12} {'MAE':>10} {'MSE':>10} {'Chamfer':>12} {'Wasser':>12} {'CT-MAE':>10} {'T-MAE':>10} {'Samples':>8}")
+        lines.append("-" * 137)
         
         for model in models:
             model_results = [r for r in task_results if r['model'] == model]
@@ -272,12 +283,12 @@ def create_cgen_table(results_data, checkpoint_type):
             for r in model_results:
                 lines.append(
                     f"{model:<12} "
-                    f"{format_value(r.get('overall_mae')):>8} "
-                    f"{format_value(r.get('overall_mse')):>8} "
-                    f"{format_value(r.get('chamfer_dist')):>10} "
-                    f"{format_value(r.get('wasserstein_dist')):>10} "
-                    f"{format_value(r.get('ct_mae')):>8} "
-                    f"{format_value(r.get('t_mae')):>8} "
+                    f"{format_value(r.get('overall_mae'), is_best=r.get('overall_mae')==best_values.get('overall_mae')):>10} "
+                    f"{format_value(r.get('overall_mse'), is_best=r.get('overall_mse')==best_values.get('overall_mse')):>10} "
+                    f"{format_value(r.get('chamfer_dist'), is_best=r.get('chamfer_dist')==best_values.get('chamfer_dist')):>12} "
+                    f"{format_value(r.get('wasserstein_dist'), is_best=r.get('wasserstein_dist')==best_values.get('wasserstein_dist')):>12} "
+                    f"{format_value(r.get('ct_mae'), is_best=r.get('ct_mae')==best_values.get('ct_mae')):>10} "
+                    f"{format_value(r.get('t_mae'), is_best=r.get('t_mae')==best_values.get('t_mae')):>10} "
                     f"{r.get('num_samples', 'N/A'):>8}"
                 )
         
@@ -299,9 +310,9 @@ def create_mlcls_table(results_data, checkpoint_type):
     models = sorted(set(r['model'] for r in mlcls_results))
     
     lines = []
-    lines.append("=" * 137)
+    lines.append("=" * 147)
     lines.append(f"MULTI-LABEL CLASSIFICATION (MLCLS) RESULTS - {checkpoint_type.upper()} CHECKPOINT")
-    lines.append("=" * 137)
+    lines.append("=" * 147)
     lines.append("")
     
     for task in tasks:
@@ -309,10 +320,26 @@ def create_mlcls_table(results_data, checkpoint_type):
         if not task_results:
             continue
         
+        # Find best values for each metric
+        # Lower is better: hamming_loss
+        # Higher is better: all others
+        best_values = {}
+        
+        # Hamming loss - lower is better
+        valid_values = [r.get('hamming_loss') for r in task_results if r.get('hamming_loss') is not None]
+        if valid_values:
+            best_values['hamming_loss'] = min(valid_values)
+        
+        # All other metrics - higher is better
+        for metric in ['hamming_accuracy', 'subset_accuracy', 'micro_f1', 'macro_f1', 'ct_hamming_acc', 't_hamming_acc']:
+            valid_values = [r.get(metric) for r in task_results if r.get(metric) is not None]
+            if valid_values:
+                best_values[metric] = max(valid_values)
+        
         lines.append(f"Task: {task}")
-        lines.append("-" * 137)
-        lines.append(f"{'Model':<12} {'H-Loss':>8} {'H-Acc':>8} {'Subset-Acc':>10} {'Micro-F1':>10} {'Macro-F1':>10} {'CT-HAcc':>8} {'T-HAcc':>8} {'Samples':>8}")
-        lines.append("-" * 137)
+        lines.append("-" * 147)
+        lines.append(f"{'Model':<12} {'H-Loss':>10} {'H-Acc':>10} {'Subset-Acc':>12} {'Micro-F1':>12} {'Macro-F1':>12} {'CT-HAcc':>10} {'T-HAcc':>10} {'Samples':>8}")
+        lines.append("-" * 147)
         
         for model in models:
             model_results = [r for r in task_results if r['model'] == model]
@@ -323,13 +350,13 @@ def create_mlcls_table(results_data, checkpoint_type):
             for r in model_results:
                 lines.append(
                     f"{model:<12} "
-                    f"{format_value(r.get('hamming_loss')):>8} "
-                    f"{format_value(r.get('hamming_accuracy')):>8} "
-                    f"{format_value(r.get('subset_accuracy')):>10} "
-                    f"{format_value(r.get('micro_f1')):>10} "
-                    f"{format_value(r.get('macro_f1')):>10} "
-                    f"{format_value(r.get('ct_hamming_acc')):>8} "
-                    f"{format_value(r.get('t_hamming_acc')):>8} "
+                    f"{format_value(r.get('hamming_loss'), is_best=r.get('hamming_loss')==best_values.get('hamming_loss')):>10} "
+                    f"{format_value(r.get('hamming_accuracy'), is_best=r.get('hamming_accuracy')==best_values.get('hamming_accuracy')):>10} "
+                    f"{format_value(r.get('subset_accuracy'), is_best=r.get('subset_accuracy')==best_values.get('subset_accuracy')):>12} "
+                    f"{format_value(r.get('micro_f1'), is_best=r.get('micro_f1')==best_values.get('micro_f1')):>12} "
+                    f"{format_value(r.get('macro_f1'), is_best=r.get('macro_f1')==best_values.get('macro_f1')):>12} "
+                    f"{format_value(r.get('ct_hamming_acc'), is_best=r.get('ct_hamming_acc')==best_values.get('ct_hamming_acc')):>10} "
+                    f"{format_value(r.get('t_hamming_acc'), is_best=r.get('t_hamming_acc')==best_values.get('t_hamming_acc')):>10} "
                     f"{r.get('num_samples', 'N/A'):>8}"
                 )
         
@@ -393,6 +420,7 @@ Notes:
 - CT/T: Counter-Terrorist/Terrorist team metrics
 - Best checkpoint: Model with best validation performance
 - Last checkpoint: Model from final training epoch
+- *value*: Best performing value for that metric in the task (lowest for errors/distances, highest for accuracies/F1)
 """
     
     # Print to console

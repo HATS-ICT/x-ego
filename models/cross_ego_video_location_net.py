@@ -35,6 +35,7 @@ from models.coordinate_scaler import unscale_coordinates
 from models.vae import ConditionalVariationalAutoencoder
 from models.architecture_utils import ACT2CLS, build_mlp
 from models.test_analyzer import TestAnalyzer
+from pathlib import Path
 
 try:
     from video_encoder import VideoEncoder
@@ -123,7 +124,7 @@ class CrossEgoVideoLocationNet(L.LightningModule):
         self.metrics_calculator = MetricsCalculator(self.task_form)
         
         # Scaler path for coordinate-based tasks
-        self.scaler_path = cfg.path.data / "trajectory_minmax_scaler.pkl"
+        self.scaler_path = Path(cfg.path.data) / "trajectory_minmax_scaler.pkl"
         
         # Test tracking
         self.test_predictions = []

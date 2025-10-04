@@ -1,4 +1,5 @@
 meta:
+  task: enemy_location_forecast
   fast_dev_run: false
   resume_exp: null
   exp_name: enemy-forecast

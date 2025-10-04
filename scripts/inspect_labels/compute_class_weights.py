@@ -1,8 +1,14 @@
 """
-Compute class weights for enemy location nowcast task.
+Compute class weights for location prediction tasks.
 
 This script calculates class weights to handle class imbalance in multi-label classification.
 The weights can be saved and loaded during training to balance the loss function.
+
+Supports multiple tasks:
+- enemy_location_nowcast
+- enemy_location_forecast
+- teammate_location_nowcast
+- teammate_location_forecast
 """
 
 import pandas as pd
@@ -11,6 +17,7 @@ import json
 from pathlib import Path
 from collections import Counter
 import sys
+import argparse
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent.parent))
@@ -19,6 +26,8 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 def extract_locations_per_partition(df: pd.DataFrame, partition: str) -> list:
     """
     Extract all location labels from a specific partition.
+    
+    Auto-detects column pattern (player_X_place or teammate_X_place).
     
     Args:
         df: DataFrame containing the label data
@@ -29,13 +38,19 @@ def extract_locations_per_partition(df: pd.DataFrame, partition: str) -> list:
     """
     partition_df = df[df['partition'] == partition] if partition != 'all' else df
     
+    # Auto-detect column pattern and count
+    place_columns = [col for col in partition_df.columns if col.endswith('_place')]
+    
+    if not place_columns:
+        print("Warning: No place columns found in dataframe")
+        return []
+    
+    # Extract location labels from all place columns
     all_locations = []
-    for i in range(10):
-        place_col = f'player_{i}_place'
-        if place_col in partition_df.columns:
-            locations = partition_df[place_col].tolist()
-            locations = [loc for loc in locations if loc and str(loc).strip() and str(loc) != 'nan']
-            all_locations.extend(locations)
+    for place_col in place_columns:
+        locations = partition_df[place_col].tolist()
+        locations = [loc for loc in locations if loc and str(loc).strip() and str(loc) != 'nan']
+        all_locations.extend(locations)
     
     return all_locations
 
@@ -81,7 +96,7 @@ def compute_class_weights(location_counts: Counter, method: str = 'inverse') -> 
     return weight_dict
 
 
-def compute_pos_weight(location_counts: Counter, total_samples: int) -> dict:
+def compute_pos_weight(location_counts: Counter, total_samples: int, num_place_columns: int) -> dict:
     """
     Compute pos_weight for BCEWithLogitsLoss.
     
@@ -93,6 +108,7 @@ def compute_pos_weight(location_counts: Counter, total_samples: int) -> dict:
     Args:
         location_counts: Counter with location frequencies (positive samples)
         total_samples: Total number of samples in dataset
+        num_place_columns: Number of player/teammate columns per sample
         
     Returns:
         Dictionary mapping location to pos_weight
@@ -102,7 +118,7 @@ def compute_pos_weight(location_counts: Counter, total_samples: int) -> dict:
     pos_weights = {}
     for loc in locations:
         pos_count = location_counts[loc]
-        neg_count = total_samples * 10 - pos_count  # 10 players per sample
+        neg_count = total_samples * num_place_columns - pos_count
         pos_weights[loc] = float(neg_count / pos_count) if pos_count > 0 else 1.0
     
     return pos_weights
@@ -164,21 +180,55 @@ def save_weights(weights: dict, output_path: Path, metadata: dict = None):
     print(f"\nSaved weights to: {output_path}")
 
 
-def main():
-    """Main function to compute and save class weights."""
-    # Set up paths
-    project_root = Path(__file__).parent.parent.parent
-    label_path = project_root / "data" / "labels" / "enemy_location_nowcast_s1s_l5s.csv"
-    output_dir = project_root / "data" / "class_weights"
+def get_label_file_path(project_root: Path, task_name: str) -> Path:
+    """
+    Get the label file path for a given task.
+    
+    Args:
+        project_root: Project root directory
+        task_name: Task name (e.g., 'enemy_location_nowcast')
+        
+    Returns:
+        Path to the label file
+    """
+    label_dir = project_root / "data" / "labels"
+    
+    # Find label file matching the task name
+    label_files = list(label_dir.glob(f"{task_name}*.csv"))
+    
+    if not label_files:
+        raise FileNotFoundError(f"No label file found for task: {task_name}")
+    
+    if len(label_files) > 1:
+        # If multiple files found, prefer the one with exact match or shortest name
+        label_files.sort(key=lambda p: len(p.name))
+        print(f"Warning: Multiple label files found for {task_name}, using: {label_files[0].name}")
+    
+    return label_files[0]
+
+
+def process_task(task_name: str, project_root: Path):
+    """
+    Process a single task to compute and save class weights.
+    
+    Args:
+        task_name: Task name (e.g., 'enemy_location_nowcast')
+        project_root: Project root directory
+    """
+    # Get label file path for this task
+    try:
+        label_path = get_label_file_path(project_root, task_name)
+    except FileNotFoundError as e:
+        print(f"ERROR: {e}")
+        return
+    
+    # Set up output directory for this task
+    output_dir = project_root / "data" / "class_weights" / task_name
     
     print("="*80)
-    print("COMPUTING CLASS WEIGHTS FOR ENEMY LOCATION NOWCAST")
+    print(f"COMPUTING CLASS WEIGHTS FOR {task_name.upper().replace('_', ' ')}")
     print("="*80)
     print(f"\nReading label file: {label_path}")
-    
-    if not label_path.exists():
-        print(f"ERROR: Label file not found at {label_path}")
-        return
     
     # Load data
     df = pd.read_csv(label_path, keep_default_na=False)
@@ -197,12 +247,21 @@ def main():
     print(f"Processing partition: {partition_name.upper()} ({num_samples} samples)")
     print(f"{'='*80}")
     
+    # Detect number of place columns
+    place_columns = [col for col in df.columns if col.endswith('_place')]
+    num_place_columns = len(place_columns)
+    print(f"Detected {num_place_columns} place columns: {place_columns}")
+    
     # Extract locations and count
     all_locations = extract_locations_per_partition(df, partition_name)
     location_counts = Counter(all_locations)
     
     print(f"Total location labels: {len(all_locations)}")
     print(f"Unique locations: {len(location_counts)}")
+    
+    if len(location_counts) == 0:
+        print(f"\nERROR: No location labels found. Check column names in the CSV file.")
+        return
     
     # Compute weights using different methods
     methods = ['inverse', 'inverse_sqrt', 'effective_num']
@@ -217,6 +276,7 @@ def main():
         
         # Save weights
         metadata = {
+            'task': task_name,
             'partition': partition_name,
             'num_samples': num_samples,
             'num_labels': len(all_locations),
@@ -233,7 +293,7 @@ def main():
     print("BCEWithLogitsLoss pos_weight")
     print(f"{'-'*80}")
     
-    pos_weights = compute_pos_weight(location_counts, num_samples)
+    pos_weights = compute_pos_weight(location_counts, num_samples, num_place_columns)
     
     # Print top/bottom pos_weights
     sorted_pos = sorted(pos_weights.items(), key=lambda x: x[1], reverse=True)
@@ -244,20 +304,77 @@ def main():
         count = location_counts[loc]
         print(f"{loc:<30} {count:>10} {pw:>12.4f}")
     
-    metadata['method'] = 'pos_weight'
+    metadata = {
+        'task': task_name,
+        'partition': partition_name,
+        'num_samples': num_samples,
+        'num_labels': len(all_locations),
+        'num_classes': len(location_counts),
+        'method': 'pos_weight',
+        'location_counts': dict(location_counts)
+    }
     output_path = output_dir / "pos_weight.json"
     save_weights(pos_weights, output_path, metadata)
     
     print(f"\n{'='*80}")
+    print(f"Class weights saved to: {output_dir}")
+    print(f"{'='*80}\n")
+
+
+def main():
+    """Main function to compute and save class weights."""
+    parser = argparse.ArgumentParser(
+        description='Compute class weights for location prediction tasks',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Process all tasks
+  python compute_class_weights.py
+  
+  # Process specific task
+  python compute_class_weights.py --tasks enemy_location_nowcast
+  
+  # Process multiple tasks
+  python compute_class_weights.py --tasks enemy_location_nowcast teammate_location_nowcast
+
+Available tasks:
+  - enemy_location_nowcast
+  - enemy_location_forecast
+  - teammate_location_nowcast
+  - teammate_location_forecast
+        """
+    )
+    parser.add_argument(
+        '--tasks',
+        nargs='+',
+        default=['enemy_location_nowcast', 'enemy_location_forecast', 
+                 'teammate_location_nowcast', 'teammate_location_forecast'],
+        help='Task names to process (default: all tasks)'
+    )
+    
+    args = parser.parse_args()
+    
+    project_root = Path(__file__).parent.parent.parent
+    
+    print("\n" + "="*80)
+    print("CLASS WEIGHT COMPUTATION")
+    print("="*80)
+    print(f"Processing {len(args.tasks)} task(s): {', '.join(args.tasks)}\n")
+    
+    for task_name in args.tasks:
+        process_task(task_name, project_root)
+        print()  # Add spacing between tasks
+    
+    print("="*80)
     print("USAGE INSTRUCTIONS")
-    print(f"{'='*80}")
+    print("="*80)
     print("""
 To use these weights in your training pipeline:
 
 1. Load the weights file:
    
    import json
-   with open('data/class_weights/inverse.json', 'r') as f:
+   with open('data/class_weights/enemy_location_nowcast/inverse.json', 'r') as f:
        data = json.load(f)
        weights_dict = data['weights']
 
@@ -285,10 +402,6 @@ To use these weights in your training pipeline:
 Recommendation: Start with 'inverse_sqrt' or 'effective_num' as they provide
 a good balance between addressing imbalance and not over-emphasizing rare classes.
 """)
-    
-    print(f"\n{'='*80}")
-    print(f"Class weights saved to: {output_dir}")
-    print(f"{'='*80}\n")
 
 
 if __name__ == "__main__":

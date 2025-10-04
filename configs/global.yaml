@@ -30,7 +30,7 @@ model:
   hidden_dim: 256
   num_hidden_layers: 3
   dropout: 0.1
-  class_weights: null  # Options: null, inverse, inverse_sqrt, effective_num, pos_weight
+  class_weights: pos_weight  # Options: null, inverse, inverse_sqrt, effective_num, pos_weight
   agent_fusion:
     method: concat  # Options: "mean", "max", "attention", "concat"
     fused_agent_dim: 768
@@ -87,14 +87,14 @@ model:
 
 training:
   max_epochs: -1  # Disabled when using max_steps
-  max_steps: 100000  # Total training steps
+  max_steps: 10000  # Total training steps
   accelerator: gpu
   devices: 1
   strategy: auto
   precision: bf16-mixed
   gradient_clip_val: 1.0
   accumulate_grad_batches: 1
-  val_check_interval: 10000  # Validate every N steps
+  val_check_interval: 1000  # Validate every N steps
   check_val_every_n_epoch: null  # Disabled when using val_check_interval
   log_every_n_steps: 10
   enable_checkpointing: true
@@ -120,16 +120,16 @@ wandb:
 checkpoint:
   epoch:
     filename: ${meta.run_name}-e{epoch:02d}-s{step:06d}-l{val/loss:.4f}
-    monitor: 'val/loss'
+    monitor: null
     mode: min
-    save_top_k: 1  # Save the best checkpoint
+    save_top_k: 0  # Save the best checkpoint
     save_last: true
     auto_insert_metric_name: false
     save_on_train_epoch_end: true
     every_n_epochs: 1
   step:
     filename: ${meta.run_name}-s{step:06d}-e{epoch:02d}
-    monitor: null  # No monitoring for step-based saves
+    monitor: 'val/loss'
     mode: min
     save_top_k: 1  # Save all step checkpoints
     save_last: false  # Don't duplicate last checkpoint

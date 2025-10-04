@@ -98,6 +98,9 @@ class LossComputer:
         - "inverse_sqrt": Square root of inverse frequency
         - "effective_num": Effective number of samples method
         - "pos_weight": BCEWithLogitsLoss pos_weight format
+        
+        Class weights are loaded from: data/class_weights/{task_name}/{method}.json
+        where task_name is from cfg.meta.task (e.g., enemy_location_nowcast)
         """
         # Only load class weights for classification tasks with BCE loss
         if self.task_form not in ['multi-label-cls', 'grid-cls'] or self.loss_fn != 'bce':
@@ -114,8 +117,16 @@ class LossComputer:
             return
         
         # Load class weights from JSON file
+        # Path format: data/class_weights/{task_name}/{method}.json
         data_base_path = Path(os.getenv('DATA_BASE_PATH'))
-        weights_path = data_base_path / "class_weights" / f"{class_weights_method}.json"
+        task_name = self.cfg.meta.task
+        weights_path = data_base_path / "class_weights" / task_name / f"{class_weights_method}.json"
+        
+        if not weights_path.exists():
+            raise FileNotFoundError(
+                f"Class weights file not found: {weights_path}\n"
+                f"Run 'python scripts/inspect_labels/compute_class_weights.py --tasks {task_name}' to generate it."
+            )
         
         with open(weights_path, 'r') as f:
             data = json.load(f)
@@ -129,7 +140,7 @@ class LossComputer:
         self.class_weights = torch.tensor(weights_list, dtype=torch.float32)
         self.class_weights_method = class_weights_method
         
-        print(f"Loaded class weights: {class_weights_method} ({len(weights_list)} classes)")
+        print(f"Loaded class weights for '{task_name}': {class_weights_method} ({len(weights_list)} classes)")
         print(f"  Weight range: [{self.class_weights.min():.4f}, {self.class_weights.max():.4f}]")
         if class_weights_method == 'pos_weight':
             print("  Using pos_weight parameter (weights positive samples only)")

@@ -127,11 +127,12 @@ def main():
     all_commands = []  # Store commands for sequential run script
 
     # Generate jobs for each combination
-    for task in TASKS:
-        task_short = get_task_short_name(task)
-        
-        for model in MODELS:
-            for num_pov in NUM_POV_AGENTS:
+    # Outer loop on num_pov to ensure pov1 finishes first, then pov2, etc.
+    for num_pov in NUM_POV_AGENTS:
+        for task in TASKS:
+            task_short = get_task_short_name(task)
+            
+            for model in MODELS:
                 run_name = f"{EXP_PREFIX}-{task_short}-{model}-pov{num_pov}"
                 
                 header = SCRIPT_HEADER.format(
@@ -179,6 +180,7 @@ def main():
     for i, (run_name, command) in enumerate(all_commands, 1):
         sequential_content += f"\n# Job {i}/{len(all_commands)}: {run_name}\n"
         sequential_content += f"echo '=== Running {run_name} ({i}/{len(all_commands)}) ==='\n"
+        sequential_content += f"noti -m '=== Running {run_name} ({i}/{len(all_commands)}) ==='\n"
         sequential_content += command + "\n"
     sequential_run_path.write_text(sequential_content, encoding="utf-8")
     sequential_run_path.chmod(0o750)

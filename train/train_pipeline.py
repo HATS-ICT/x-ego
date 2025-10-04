@@ -93,6 +93,7 @@ def create_trainer(cfg, callbacks, logger):
     
     trainer = L.Trainer(
         max_epochs=training_cfg.max_epochs,
+        max_steps=training_cfg.max_steps,
         accelerator=training_cfg.accelerator,
         devices=training_cfg.devices,
         strategy=training_cfg.strategy,

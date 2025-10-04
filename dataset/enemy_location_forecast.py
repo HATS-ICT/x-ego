@@ -96,9 +96,9 @@ class EnemyLocationForecastDataset(BaseVideoDataset, Dataset):
             'id': row[f'player_{player_idx}_id'],
             'name': row[f'player_{player_idx}_name'],
             'side': row[f'player_{player_idx}_side'],
-            'future_X_norm': row[f'player_{player_idx}_future_X_norm'],
-            'future_Y_norm': row[f'player_{player_idx}_future_Y_norm'],
-            'future_Z_norm': row[f'player_{player_idx}_future_Z_norm'],
+            'future_X_norm': row[f'player_{player_idx}_future_X'],
+            'future_Y_norm': row[f'player_{player_idx}_future_Y'],
+            'future_Z_norm': row[f'player_{player_idx}_future_Z'],
             'future_place': row[f'player_{player_idx}_future_place']
         }
     
@@ -132,9 +132,9 @@ class EnemyLocationForecastDataset(BaseVideoDataset, Dataset):
         players_for_label = []
         for player in enemy_players:
             players_for_label.append({
-                'X_norm': player['future_X_norm'],
-                'Y_norm': player['future_Y_norm'],
-                'Z_norm': player['future_Z_norm'],
+                'X_norm': player['future_X'],
+                'Y_norm': player['future_Y'],
+                'Z_norm': player['future_Z'],
                 'place': player['future_place']
             })
         

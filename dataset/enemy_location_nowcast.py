@@ -102,9 +102,9 @@ class EnemyLocationNowcastDataset(BaseVideoDataset, Dataset):
         """Extract player data from a row."""
         return {
             'id': row[f'player_{player_idx}_id'],
-            'X_norm': row[f'player_{player_idx}_X_norm'],
-            'Y_norm': row[f'player_{player_idx}_Y_norm'],
-            'Z_norm': row[f'player_{player_idx}_Z_norm'],
+            'X_norm': row[f'player_{player_idx}_X'],
+            'Y_norm': row[f'player_{player_idx}_Y'],
+            'Z_norm': row[f'player_{player_idx}_Z'],
             'side': row[f'player_{player_idx}_side'],
             'place': row[f'player_{player_idx}_place'],
             'name': row[f'player_{player_idx}_name']

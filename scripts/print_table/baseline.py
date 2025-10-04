@@ -235,22 +235,22 @@ def format_value(value, precision=4):
     return f"{value:.{precision}f}"
 
 
-def create_cgen_table(results_data):
-    """Create formatted table for coord-gen results."""
-    # Filter for coord-gen results
-    cgen_results = [r for r in results_data if r['task_form'] == 'cgen']
+def create_cgen_table(results_data, checkpoint_type):
+    """Create formatted table for coord-gen results filtered by checkpoint type."""
+    # Filter for coord-gen results with specific checkpoint type
+    cgen_results = [r for r in results_data if r['task_form'] == 'cgen' and r.get('checkpoint') == checkpoint_type]
     
     if not cgen_results:
-        return "No coord-gen results found.\n"
+        return f"No coord-gen results found for checkpoint: {checkpoint_type}.\n"
     
     # Group by task
     tasks = sorted(set(r['task'] for r in cgen_results))
     models = sorted(set(r['model'] for r in cgen_results))
     
     lines = []
-    lines.append("=" * 135)
-    lines.append("COORDINATE GENERATION (CGEN) RESULTS")
-    lines.append("=" * 135)
+    lines.append("=" * 127)
+    lines.append(f"COORDINATE GENERATION (CGEN) RESULTS - {checkpoint_type.upper()} CHECKPOINT")
+    lines.append("=" * 127)
     lines.append("")
     
     for task in tasks:
@@ -259,24 +259,19 @@ def create_cgen_table(results_data):
             continue
         
         lines.append(f"Task: {task}")
-        lines.append("-" * 135)
-        lines.append(f"{'Model':<12} {'Ckpt':<6} {'MAE':>8} {'MSE':>8} {'Chamfer':>10} {'Wasser':>10} {'CT-MAE':>8} {'T-MAE':>8} {'Samples':>8}")
-        lines.append("-" * 135)
+        lines.append("-" * 127)
+        lines.append(f"{'Model':<12} {'MAE':>8} {'MSE':>8} {'Chamfer':>10} {'Wasser':>10} {'CT-MAE':>8} {'T-MAE':>8} {'Samples':>8}")
+        lines.append("-" * 127)
         
         for model in models:
             model_results = [r for r in task_results if r['model'] == model]
             if not model_results:
                 continue
             
-            # Sort by checkpoint type (best first, then last)
-            model_results.sort(key=lambda x: (x.get('checkpoint', 'last') != 'best'))
-            
-            # Display both best and last if available
+            # Should only be one result per model now
             for r in model_results:
-                checkpoint = r.get('checkpoint', 'best')
                 lines.append(
                     f"{model:<12} "
-                    f"{checkpoint:<6} "
                     f"{format_value(r.get('overall_mae')):>8} "
                     f"{format_value(r.get('overall_mse')):>8} "
                     f"{format_value(r.get('chamfer_dist')):>10} "
@@ -291,22 +286,22 @@ def create_cgen_table(results_data):
     return "\n".join(lines)
 
 
-def create_mlcls_table(results_data):
-    """Create formatted table for multi-label-cls results."""
-    # Filter for multi-label-cls results
-    mlcls_results = [r for r in results_data if r['task_form'] == 'mlcls']
+def create_mlcls_table(results_data, checkpoint_type):
+    """Create formatted table for multi-label-cls results filtered by checkpoint type."""
+    # Filter for multi-label-cls results with specific checkpoint type
+    mlcls_results = [r for r in results_data if r['task_form'] == 'mlcls' and r.get('checkpoint') == checkpoint_type]
     
     if not mlcls_results:
-        return "No multi-label-cls results found.\n"
+        return f"No multi-label-cls results found for checkpoint: {checkpoint_type}.\n"
     
     # Group by task
     tasks = sorted(set(r['task'] for r in mlcls_results))
     models = sorted(set(r['model'] for r in mlcls_results))
     
     lines = []
-    lines.append("=" * 145)
-    lines.append("MULTI-LABEL CLASSIFICATION (MLCLS) RESULTS")
-    lines.append("=" * 145)
+    lines.append("=" * 137)
+    lines.append(f"MULTI-LABEL CLASSIFICATION (MLCLS) RESULTS - {checkpoint_type.upper()} CHECKPOINT")
+    lines.append("=" * 137)
     lines.append("")
     
     for task in tasks:
@@ -315,24 +310,19 @@ def create_mlcls_table(results_data):
             continue
         
         lines.append(f"Task: {task}")
-        lines.append("-" * 145)
-        lines.append(f"{'Model':<12} {'Ckpt':<6} {'H-Loss':>8} {'H-Acc':>8} {'Subset-Acc':>10} {'Micro-F1':>10} {'Macro-F1':>10} {'CT-HAcc':>8} {'T-HAcc':>8} {'Samples':>8}")
-        lines.append("-" * 145)
+        lines.append("-" * 137)
+        lines.append(f"{'Model':<12} {'H-Loss':>8} {'H-Acc':>8} {'Subset-Acc':>10} {'Micro-F1':>10} {'Macro-F1':>10} {'CT-HAcc':>8} {'T-HAcc':>8} {'Samples':>8}")
+        lines.append("-" * 137)
         
         for model in models:
             model_results = [r for r in task_results if r['model'] == model]
             if not model_results:
                 continue
             
-            # Sort by checkpoint type (best first, then last)
-            model_results.sort(key=lambda x: (x.get('checkpoint', 'last') != 'best'))
-            
-            # Display both best and last if available
+            # Should only be one result per model now
             for r in model_results:
-                checkpoint = r.get('checkpoint', 'best')
                 lines.append(
                     f"{model:<12} "
-                    f"{checkpoint:<6} "
                     f"{format_value(r.get('hamming_loss')):>8} "
                     f"{format_value(r.get('hamming_accuracy')):>8} "
                     f"{format_value(r.get('subset_accuracy')):>10} "
@@ -375,27 +365,34 @@ def main():
     
     print(f"Found {len(results_data)} experiments with results.")
     
-    # Create tables
-    cgen_table = create_cgen_table(results_data)
-    mlcls_table = create_mlcls_table(results_data)
+    # Create tables for both best and last checkpoints
+    cgen_table_best = create_cgen_table(results_data, 'best')
+    mlcls_table_best = create_mlcls_table(results_data, 'best')
+    
+    cgen_table_last = create_cgen_table(results_data, 'last')
+    mlcls_table_last = create_mlcls_table(results_data, 'last')
     
     # Combine and save
     full_output = f"""
 BASELINE EXPERIMENT RESULTS SUMMARY
 Generated from: {OUTPUT_DIR}
 
-{cgen_table}
+{cgen_table_best}
 
-{mlcls_table}
+{mlcls_table_best}
+
+{cgen_table_last}
+
+{mlcls_table_last}
 
 Notes:
-- Ckpt: Checkpoint type (best = validation best, last = final epoch)
 - MAE/MSE: Mean Absolute/Squared Error
 - Chamfer/Wasser: Chamfer/Wasserstein Distance
 - H-Loss/H-Acc: Hamming Loss/Accuracy
 - Subset-Acc: Subset Accuracy (exact match of all labels)
 - CT/T: Counter-Terrorist/Terrorist team metrics
-- Each model shows results for both 'best' and 'last' checkpoints when available
+- Best checkpoint: Model with best validation performance
+- Last checkpoint: Model from final training epoch
 """
     
     # Print to console

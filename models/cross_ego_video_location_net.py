@@ -412,10 +412,6 @@ class CrossEgoVideoLocationNet(L.LightningModule):
             # Log metrics
             self.safe_log('train/hamming_loss', self.train_hamming, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=True)
-            # Compute hamming accuracy from hamming loss
-            hamming_loss_value = self.train_hamming.compute()
-            self.safe_log('train/hamming_accuracy', 1.0 - hamming_loss_value, batch_size=batch_size,
-                         on_step=False, on_epoch=True, prog_bar=True)
             self.safe_log('train/subset_accuracy', self.train_exact_match, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=True)
             self.safe_log('train/micro_f1', self.train_micro_f1, batch_size=batch_size,
@@ -492,10 +488,6 @@ class CrossEgoVideoLocationNet(L.LightningModule):
             
             # Log metrics
             self.safe_log('val/hamming_loss', self.val_hamming, batch_size=batch_size,
-                         on_step=False, on_epoch=True, prog_bar=True)
-            # Compute hamming accuracy from hamming loss
-            hamming_loss_value = self.val_hamming.compute()
-            self.safe_log('val/hamming_accuracy', 1.0 - hamming_loss_value, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=True)
             self.safe_log('val/subset_accuracy', self.val_exact_match, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=True)
@@ -630,10 +622,6 @@ class CrossEgoVideoLocationNet(L.LightningModule):
             
             # Log metrics
             self.safe_log(f'{metric_prefix}/hamming_loss', self.test_hamming, batch_size=batch_size,
-                         on_step=False, on_epoch=True, prog_bar=True)
-            # Compute hamming accuracy from hamming loss
-            hamming_loss_value = self.test_hamming.compute()
-            self.safe_log(f'{metric_prefix}/hamming_accuracy', 1.0 - hamming_loss_value, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=True)
             self.safe_log(f'{metric_prefix}/subset_accuracy', self.test_exact_match, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=True)

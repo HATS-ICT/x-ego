@@ -1,11 +1,11 @@
 meta:
   fast_dev_run: false
   resume_exp: null
-  exp_name: teammate-location-forecast
-  run_name: teammate-location-forecast-clip
+  exp_name: teammate-location-nowcast
+  run_name: teammate-location-nowcast-clip
 
 data:
-  labels_filename: teammate_location_forecast_s1s_l5s_f10s.csv  # CSV with future location predictions
+  labels_filename: teammate_location_nowcast_s1s_l5s.csv  # CSV with future location predictions
   batch_size: 8
   num_workers: 9
   task_form: multi-label-cls # multi-label-cls, multi-output-reg, grid-cls, density-cls, coord-reg, coord-gen
@@ -13,4 +13,4 @@ data:
 wandb:
   group: '${meta.exp_name}'
   tags: ['${meta.exp_name}']
-  notes: 'teammate location forecast'
+  notes: 'teammate location nowcast'

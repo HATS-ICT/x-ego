@@ -12,9 +12,11 @@ from train.run_tasks import (
     train_enemy_location_nowcast,
     train_enemy_location_forecast,
     train_teammate_location_forecast,
+    train_teammate_location_nowcast,
     test_enemy_location_nowcast,
     test_enemy_location_forecast,
-    test_teammate_location_forecast
+    test_teammate_location_forecast,
+    test_teammate_location_nowcast
 )
 from utils.env_utils import get_src_base_path, get_data_base_path, get_output_base_path
 
@@ -58,9 +60,10 @@ Every settings in config file can be overridden. Examples:
     parser.add_argument('--task',
                        choices=['enemy_location_nowcast', 
                                 'enemy_location_forecast', 
-                                'teammate_location_forecast'],
+                                'teammate_location_forecast',
+                                'teammate_location_nowcast'],
                        default='enemy_location_nowcast',
-                       help='Task to run: enemy_location_nowcast, enemy_location_forecast, or teammate_location_forecast')
+                       help='Task to run: enemy_location_nowcast, enemy_location_forecast, teammate_location_forecast, or teammate_location_nowcast')
     
     
     parser.add_argument('--config', 
@@ -187,6 +190,8 @@ def main():
             test_enemy_location_forecast(cfg)
         elif args.task == 'teammate_location_forecast':
             test_teammate_location_forecast(cfg)
+        elif args.task == 'teammate_location_nowcast':
+            test_teammate_location_nowcast(cfg)
         else:
             raise ValueError(f"Unknown task: {args.task}")
     else:
@@ -197,6 +202,8 @@ def main():
             train_enemy_location_forecast(cfg)
         elif args.task == 'teammate_location_forecast':
             train_teammate_location_forecast(cfg)
+        elif args.task == 'teammate_location_nowcast':
+            train_teammate_location_nowcast(cfg)
         else:
             raise ValueError(f"Unknown task: {args.task}")
 

@@ -137,8 +137,10 @@ class CrossEgoVideoLocationNet(L.LightningModule):
             return batch['enemy_locations']
         elif 'future_locations' in batch:
             return batch['future_locations']
+        elif 'teammate_locations' in batch:
+            return batch['teammate_locations']
         else:
-            raise KeyError("Batch must contain either 'enemy_locations' or 'future_locations'")
+            raise KeyError("Batch must contain either 'enemy_locations', 'future_locations', or 'teammate_locations'")
     
     def _init_multilabel_metrics(self, num_labels):
         """Initialize train/val metric pairs for multilabel classification."""
@@ -243,7 +245,7 @@ class CrossEgoVideoLocationNet(L.LightningModule):
                   When contrastive is enabled: A=5 (all agents), then num_pov_agents randomly selected for inference
                   When contrastive is disabled: A=num_pov_agents
                 - pov_team_side_encoded: [B] - team encoding (0=T, 1=CT)
-                - enemy_locations or future_locations: [B, 5, 3] - targets (for training/full mode)
+                - enemy_locations, future_locations, or teammate_locations: [B, 5, 3] - targets (for training/full mode)
             mode: 'full' for full VAE forward pass, 'sampling' for sampling from prior
             
         Returns:
@@ -536,7 +538,12 @@ class CrossEgoVideoLocationNet(L.LightningModule):
             pov_team_side = pov_team_sides[i]
             if len(self.test_raw_samples_by_team[pov_team_side]) < samples_per_team:
                 # Get target locations key dynamically
-                target_key = 'enemy_locations' if 'enemy_locations' in batch else 'future_locations'
+                if 'enemy_locations' in batch:
+                    target_key = 'enemy_locations'
+                elif 'future_locations' in batch:
+                    target_key = 'future_locations'
+                else:
+                    target_key = 'teammate_locations'
                 sample = {
                     'video': batch['video'][i:i+1].clone(),
                     'pov_team_side_encoded': batch['pov_team_side_encoded'][i:i+1].clone(),

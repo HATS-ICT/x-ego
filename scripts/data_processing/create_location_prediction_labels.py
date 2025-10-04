@@ -17,6 +17,7 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 from labeler.enemy_location_nowcast import EnemyLocationNowcastCreator
 from labeler.enemy_location_forecast import EnemyLocationForecastCreator
 from labeler.teammate_location_forecast import TeammateLocationForecastCreator
+from labeler.teammate_location_nowcast import TeammateLocationNowcastCreator
 
 
 load_dotenv()
@@ -115,12 +116,37 @@ def main():
         print(f"✗ Teammate Location Forecast failed: {e}")
         return
     
+    # Task 4: Teammate Location Nowcast
+    print("\n4. Creating Teammate Location Nowcast Labels...")
+    print("-" * 40)
+    try:
+        teammate_nowcast = TeammateLocationNowcastCreator(
+            DATA_DIR,
+            OUTPUT_DIR,
+            PARTITION_CSV_PATH,
+            cpu_usage=0.9,  # High CPU usage for production
+            stride_sec=1.0  # 1 second stride
+        )
+        
+        teammate_nowcast.process_segments({
+            'output_file_name': 'teammate_location_nowcast_s1s_l5s.csv',
+            'segment_length_sec': 5,
+            'partition': ['train', 'val', 'test']
+        })
+        
+        print("✓ Teammate Location Nowcast labels created successfully!")
+        
+    except Exception as e:
+        print(f"✗ Teammate Location Nowcast failed: {e}")
+        return
+    
     print("\n" + "=" * 50)
     print("All location prediction labels created successfully!")
     print("Output files saved in:", OUTPUT_DIR)
     print("- enemy_location_nowcast_s1s_l5s.csv")
     print("- enemy_location_forecast_s1s_l5s_f10s.csv") 
     print("- teammate_location_forecast_s1s_l5s_f10s.csv")
+    print("- teammate_location_nowcast_s1s_l5s.csv")
 
 
 if __name__ == "__main__":

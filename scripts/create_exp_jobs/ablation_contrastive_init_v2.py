@@ -68,6 +68,20 @@ CONTRASTIVE_CONFIGS = [
         "turn_off_bias": "false",
         "description": "b: 0, t: log(1)",
     },
+    {
+        "name": "setup6_bN3_tlog10",
+        "logit_scale_init": 10,
+        "logit_bias_init": -3,
+        "turn_off_bias": "false",
+        "description": "b: -3, t: log(10)",
+    },
+    {
+        "name": "setup7_bN3_tlog1",
+        "logit_scale_init": 1,
+        "logit_bias_init": -3,
+        "turn_off_bias": "false",
+        "description": "b: -3, t: log(1)",
+    },
 ]
 
 # ===== Templates =====

@@ -2,6 +2,7 @@
 Metrics Calculation for Multi-Agent Location Prediction
 
 This module provides comprehensive metrics calculation for different task formulations:
+- Trajectory prediction: ADE, FDE, MSE, MAE, temporal metrics (early/mid/late ADE)
 - Coordinate regression: MSE, MAE, Chamfer distance, Wasserstein distance
 - Multi-label classification: Hamming loss, subset accuracy, micro/macro F1
 - Count regression: Exact match, L1 error, KL divergence
@@ -42,7 +43,9 @@ class MetricsCalculator:
         Returns:
             Dictionary of calculated metrics
         """
-        if self.task_form in ['coord-reg', 'coord-gen', 'traj-gen']:
+        if self.task_form == 'traj-gen':
+            return self._calculate_trajectory_metrics(predictions, targets)
+        elif self.task_form in ['coord-reg', 'coord-gen']:
             return self._calculate_coordinate_metrics(predictions, targets)
         elif self.task_form in ['multi-label-cls', 'grid-cls']:
             return self._calculate_classification_metrics(predictions, targets)
@@ -52,6 +55,64 @@ class MetricsCalculator:
             return self._calculate_density_metrics(predictions, targets)
         else:
             raise ValueError(f"Unknown task_form: {self.task_form}")
+    
+    def _calculate_trajectory_metrics(self, predictions, targets):
+        """
+        Calculate metrics for trajectory prediction tasks.
+        
+        Expected shape: [batch_size, num_players, num_timesteps, num_coords]
+        e.g., [batch_size, 5, 60, 2] for 5 players, 60 timesteps, (x, y) coords
+        """
+        mse = np.mean((predictions - targets) ** 2)
+        mae = np.mean(np.abs(predictions - targets))
+        
+        # Calculate ADE (Average Displacement Error) - average L2 distance across all timesteps
+        # Shape: [batch_size, num_players, num_timesteps]
+        squared_diff = (predictions - targets) ** 2
+        l2_distances = np.sqrt(np.sum(squared_diff, axis=-1))  # Sum over coordinate dimensions
+        ade = np.mean(l2_distances)  # Average over all samples, players, and timesteps
+        
+        # Calculate FDE (Final Displacement Error) - L2 distance at final timestep
+        final_squared_diff = (predictions[:, :, -1, :] - targets[:, :, -1, :]) ** 2
+        final_l2_distances = np.sqrt(np.sum(final_squared_diff, axis=-1))
+        fde = np.mean(final_l2_distances)
+        
+        # Per-timestep ADE
+        per_timestep_ade = np.mean(l2_distances, axis=(0, 1))  # Average over batch and players
+        
+        num_timesteps = predictions.shape[2]
+        num_players = predictions.shape[1]
+        
+        # Calculate ADE and FDE at specific time horizons
+        # Assuming 4Hz sampling rate for 15s trajectory (60 timesteps)
+        hz = 4  # sampling rate
+        horizons_sec = [1, 3, 5, 10, 15]  # time horizons in seconds
+        horizon_metrics = {}
+        
+        for horizon_sec in horizons_sec:
+            horizon_idx = int(horizon_sec * hz)
+            if horizon_idx <= num_timesteps:
+                # ADE up to this horizon (average across timesteps 0 to horizon_idx)
+                horizon_ade = np.mean(l2_distances[:, :, :horizon_idx])
+                horizon_metrics[f'ade@{horizon_sec}s'] = float(horizon_ade)
+                
+                # FDE at this horizon (error at the specific timestep)
+                horizon_fde = np.mean(l2_distances[:, :, horizon_idx-1])
+                horizon_metrics[f'fde@{horizon_sec}s'] = float(horizon_fde)
+        
+        return {
+            'overall_mse': float(mse),
+            'overall_mae': float(mae),
+            'ade': float(ade),  # Average Displacement Error (full trajectory)
+            'fde': float(fde),  # Final Displacement Error (at end)
+            **horizon_metrics,  # ADE and FDE at specific time horizons
+            'per_timestep_ade': per_timestep_ade.tolist(),
+            'num_samples': len(targets),
+            'num_players': num_players,
+            'num_timesteps': num_timesteps,
+            'predictions_shape': list(predictions.shape),
+            'targets_shape': list(targets.shape)
+        }
     
     def _calculate_coordinate_metrics(self, predictions, targets):
         """Calculate metrics for coordinate regression tasks."""
@@ -235,7 +296,11 @@ class MetricsCalculator:
                 continue
             
             # Calculate task-specific metrics
-            if self.task_form in ['coord-reg', 'coord-gen', 'traj-gen']:
+            if self.task_form == 'traj-gen':
+                team_metrics[team] = self._calculate_team_trajectory_metrics(
+                    team_predictions, team_targets, team_mask, pred_tensors, target_tensors
+                )
+            elif self.task_form in ['coord-reg', 'coord-gen']:
                 team_metrics[team] = self._calculate_team_coordinate_metrics(
                     team_predictions, team_targets, team_mask, pred_tensors, target_tensors
                 )
@@ -317,6 +382,49 @@ class MetricsCalculator:
                 'wasserstein_distance_std': float(np.std(wasserstein_distances)),
                 'num_valid_samples': len(chamfer_distances)
             }
+        
+        return metrics
+    
+    def _calculate_team_trajectory_metrics(self, team_predictions, team_targets,
+                                          team_mask, pred_tensors, target_tensors):
+        """Calculate trajectory metrics for a specific team."""
+        mse = np.mean((team_predictions - team_targets) ** 2)
+        mae = np.mean(np.abs(team_predictions - team_targets))
+        
+        # Calculate ADE and FDE for this team
+        squared_diff = (team_predictions - team_targets) ** 2
+        l2_distances = np.sqrt(np.sum(squared_diff, axis=-1))
+        ade = np.mean(l2_distances)
+        
+        final_squared_diff = (team_predictions[:, :, -1, :] - team_targets[:, :, -1, :]) ** 2
+        final_l2_distances = np.sqrt(np.sum(final_squared_diff, axis=-1))
+        fde = np.mean(final_l2_distances)
+        
+        # Calculate ADE and FDE at specific time horizons
+        num_timesteps = team_predictions.shape[2]
+        hz = 4  # sampling rate
+        horizons_sec = [1, 3, 5, 10, 15]  # time horizons in seconds
+        horizon_metrics = {}
+        
+        for horizon_sec in horizons_sec:
+            horizon_idx = int(horizon_sec * hz)
+            if horizon_idx <= num_timesteps:
+                # ADE up to this horizon
+                horizon_ade = np.mean(l2_distances[:, :, :horizon_idx])
+                horizon_metrics[f'ade@{horizon_sec}s'] = float(horizon_ade)
+                
+                # FDE at this horizon
+                horizon_fde = np.mean(l2_distances[:, :, horizon_idx-1])
+                horizon_metrics[f'fde@{horizon_sec}s'] = float(horizon_fde)
+        
+        metrics = {
+            'mse': float(mse),
+            'mae': float(mae),
+            'ade': float(ade),
+            'fde': float(fde),
+            **horizon_metrics,
+            'num_samples': len(team_predictions)
+        }
         
         return metrics
     

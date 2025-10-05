@@ -45,7 +45,21 @@ class TestAnalyzer:
             metrics = team_specific_metrics[team]
             team_prefix = f'{base_prefix}/{team.lower()}'
             
-            if self.task_form in ['coord-reg', 'coord-gen', 'traj-gen']:
+            if self.task_form == 'traj-gen':
+                self.model.safe_log(f'{team_prefix}_mse', metrics['mse'], on_epoch=True)
+                self.model.safe_log(f'{team_prefix}_mae', metrics['mae'], on_epoch=True)
+                self.model.safe_log(f'{team_prefix}_ade', metrics['ade'], on_epoch=True)
+                self.model.safe_log(f'{team_prefix}_fde', metrics['fde'], on_epoch=True)
+                
+                # Log horizon-specific metrics
+                horizons = [1, 3, 5, 10, 15]
+                for h in horizons:
+                    if f'ade@{h}s' in metrics:
+                        self.model.safe_log(f'{team_prefix}_ade@{h}s', metrics[f'ade@{h}s'], on_epoch=True)
+                    if f'fde@{h}s' in metrics:
+                        self.model.safe_log(f'{team_prefix}_fde@{h}s', metrics[f'fde@{h}s'], on_epoch=True)
+            
+            elif self.task_form in ['coord-reg', 'coord-gen']:
                 self.model.safe_log(f'{team_prefix}_mse', metrics['mse'], on_epoch=True)
                 self.model.safe_log(f'{team_prefix}_mae', metrics['mae'], on_epoch=True)
                 
@@ -91,7 +105,22 @@ class TestAnalyzer:
         checkpoint_name = getattr(self.model, 'checkpoint_name', 'last')
         base_prefix = f'test/{checkpoint_name}'
         
-        if self.task_form in ['coord-reg', 'coord-gen', 'traj-gen']:
+        if self.task_form == 'traj-gen':
+            # Log trajectory-specific metrics
+            if 'ade' in test_results:
+                self.model.safe_log(f'{base_prefix}/ade', test_results['ade'], on_epoch=True)
+            if 'fde' in test_results:
+                self.model.safe_log(f'{base_prefix}/fde', test_results['fde'], on_epoch=True)
+            
+            # Log horizon-specific metrics
+            horizons = [1, 3, 5, 10, 15]
+            for h in horizons:
+                if f'ade@{h}s' in test_results:
+                    self.model.safe_log(f'{base_prefix}/ade@{h}s', test_results[f'ade@{h}s'], on_epoch=True)
+                if f'fde@{h}s' in test_results:
+                    self.model.safe_log(f'{base_prefix}/fde@{h}s', test_results[f'fde@{h}s'], on_epoch=True)
+        
+        elif self.task_form in ['coord-reg', 'coord-gen']:
             if 'geometric_distances' in test_results:
                 geom = test_results['geometric_distances']
                 self.model.safe_log(f'{base_prefix}/chamfer_distance', 

@@ -1,0 +1,20 @@
+meta:
+  task: teammate_opponent_traj_prediction
+  fast_dev_run: false
+  resume_exp: null
+  exp_name: teammate-opponent-traj-prediction
+  run_name: teammate-opponent-traj-prediction-clip
+
+# Data Configuration
+data:
+  labels_filename: teammate_opponent_traj_prediction_5s_15s_4hz.csv
+  video_length_sec: 5  # Video observation window
+  total_trajectory_sec: 15  # Total trajectory duration (5s obs + 10s future)
+  trajectory_sample_rate: 4  # 4 Hz sampling (60 timepoints total)
+  task_form: traj-gen
+  num_pov_agents: 5
+
+wandb:
+  group: '${meta.exp_name}'
+  tags: ['${meta.exp_name}']
+  notes: 'teammate opponent traj prediction'

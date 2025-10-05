@@ -41,10 +41,12 @@ try:
     from video_encoder import VideoEncoder
     from agent_fuser import AgentFuser
     from cross_ego_contrastive import CrossEgoContrastive
+    from team_trajectory_decoder import TeamTrajectoryDecoder
 except ImportError:
     from .video_encoder import VideoEncoder
     from .agent_fuser import AgentFuser
     from .cross_ego_contrastive import CrossEgoContrastive
+    from .team_trajectory_decoder import TeamTrajectoryDecoder
 
 
 class CrossEgoVideoLocationNet(L.LightningModule):
@@ -114,6 +116,10 @@ class CrossEgoVideoLocationNet(L.LightningModule):
         # Initialize task-specific components
         self._init_task_specific_components(cfg, hidden_dim, dropout, num_hidden_layers)
         
+        # Initialize trajectory decoder for traj-gen
+        if self.task_form == 'traj-gen':
+            self.trajectory_decoder = TeamTrajectoryDecoder(cfg)
+        
         # Initialize loss and metrics calculators
         # Extract task-specific loss function
         loss_fn = cfg.model.loss_fn[self.task_form]
@@ -139,8 +145,10 @@ class CrossEgoVideoLocationNet(L.LightningModule):
             return batch['future_locations']
         elif 'teammate_locations' in batch:
             return batch['teammate_locations']
+        elif 'trajectories' in batch:
+            return batch['trajectories']
         else:
-            raise KeyError("Batch must contain either 'enemy_locations', 'future_locations', or 'teammate_locations'")
+            raise KeyError("Batch must contain either 'enemy_locations', 'future_locations', 'teammate_locations', or 'trajectories'")
     
     def _init_multilabel_metrics(self, num_labels):
         """Initialize train/val metric pairs for multilabel classification."""
@@ -177,6 +185,11 @@ class CrossEgoVideoLocationNet(L.LightningModule):
                     num_hidden_layers, hidden_dim, dropout,
                     activation=cfg.model.activation
                 )
+        
+        elif self.task_form == 'traj-gen':
+            # Trajectory generation: output [5, 60, 2]
+            self.train_mse, self.val_mse = MeanSquaredError(), MeanSquaredError()
+            self.train_mae, self.val_mae = MeanAbsoluteError(), MeanAbsoluteError()
         
         elif self.task_form in ['multi-label-cls', 'multi-output-reg']:
             # Place-based tasks: output [num_places]
@@ -292,43 +305,59 @@ class CrossEgoVideoLocationNet(L.LightningModule):
         else:
             agent_embeddings_for_inference = agent_embeddings
         
-        # Fuse agent embeddings (using selected subset if contrastive enabled)
-        fused_embeddings = self.agent_fuser(agent_embeddings_for_inference)  # [B, proj_dim]
-        
-        # Encode team information
-        team_embeddings = self.team_encoder(pov_team_side_encoded)  # [B, team_embed_dim]
-        combined_features = torch.cat([fused_embeddings, team_embeddings], dim=1)
-        
         # Task-specific forward pass
-        outputs = {
-            'fused_embeddings': fused_embeddings,
-            'team_embeddings': team_embeddings,
-            'combined_features': combined_features,
-            'agent_embeddings': agent_embeddings_for_inference,
-            'contrastive_loss': contrastive_loss,
-            'contrastive_metrics': contrastive_metrics
-        }
-        
-        if self.task_form == 'coord-gen':
-            # coord-gen (VAE) mode
-            if mode == 'sampling':
-                vae_outputs = self.vae(None, combined_features, mode='sampling')
-            else:
-                target_locations = self._get_target_locations(batch)
-                vae_outputs = self.vae(target_locations, combined_features, mode='full')
+        if self.task_form == 'traj-gen':
+            # Trajectory generation: bypass agent fuser, use per-agent embeddings directly
+            target_team_encoded = batch['target_team_side_encoded']  # [B]
+            predictions = self.trajectory_decoder(
+                agent_embeddings_for_inference, 
+                pov_team_side_encoded,
+                target_team_encoded
+            )  # [B, 5, 60, 2]
             
-            outputs.update({
-                'predictions': vae_outputs['predictions'],
-                'mu': vae_outputs['mu'],
-                'logvar': vae_outputs['logvar'],
-                'z': vae_outputs['z']
-            })
+            outputs = {
+                'agent_embeddings': agent_embeddings_for_inference,
+                'predictions': predictions,
+                'contrastive_loss': contrastive_loss,
+                'contrastive_metrics': contrastive_metrics
+            }
         else:
-            # Standard (non-coord-gen) mode
-            predictions = self.predictor(combined_features)
-            if self.task_form == 'coord-reg':
-                predictions = predictions.view(-1, 5, 3)
-            outputs['predictions'] = predictions
+            # Standard flow: fuse agent embeddings
+            fused_embeddings = self.agent_fuser(agent_embeddings_for_inference)  # [B, proj_dim]
+            
+            # Encode team information
+            team_embeddings = self.team_encoder(pov_team_side_encoded)  # [B, team_embed_dim]
+            combined_features = torch.cat([fused_embeddings, team_embeddings], dim=1)
+            
+            outputs = {
+                'fused_embeddings': fused_embeddings,
+                'team_embeddings': team_embeddings,
+                'combined_features': combined_features,
+                'agent_embeddings': agent_embeddings_for_inference,
+                'contrastive_loss': contrastive_loss,
+                'contrastive_metrics': contrastive_metrics
+            }
+            
+            if self.task_form == 'coord-gen':
+                # coord-gen (VAE) mode
+                if mode == 'sampling':
+                    vae_outputs = self.vae(None, combined_features, mode='sampling')
+                else:
+                    target_locations = self._get_target_locations(batch)
+                    vae_outputs = self.vae(target_locations, combined_features, mode='full')
+                
+                outputs.update({
+                    'predictions': vae_outputs['predictions'],
+                    'mu': vae_outputs['mu'],
+                    'logvar': vae_outputs['logvar'],
+                    'z': vae_outputs['z']
+                })
+            else:
+                # Standard (non-coord-gen) mode
+                predictions = self.predictor(combined_features)
+                if self.task_form == 'coord-reg':
+                    predictions = predictions.view(-1, 5, 3)
+                outputs['predictions'] = predictions
         
         return outputs
     
@@ -394,7 +423,7 @@ class CrossEgoVideoLocationNet(L.LightningModule):
                             on_step=True, on_epoch=True, prog_bar=False)
         
         # Log coordinate-based metrics
-        if self.task_form in ['coord-reg', 'coord-gen']:
+        if self.task_form in ['coord-reg', 'coord-gen', 'traj-gen']:
             self.train_mse(predictions.view(batch_size, -1), targets.view(batch_size, -1))
             self.train_mae(predictions.view(batch_size, -1), targets.view(batch_size, -1))
             self.safe_log('train/mse', self.train_mse, batch_size=batch_size,
@@ -471,7 +500,7 @@ class CrossEgoVideoLocationNet(L.LightningModule):
                          on_step=False, on_epoch=True, prog_bar=False)
         
         # Log coordinate-based metrics
-        if self.task_form in ['coord-reg', 'coord-gen']:
+        if self.task_form in ['coord-reg', 'coord-gen', 'traj-gen']:
             self.val_mse(predictions.view(batch_size, -1), targets.view(batch_size, -1))
             self.val_mae(predictions.view(batch_size, -1), targets.view(batch_size, -1))
             self.safe_log('val/mse', self.val_mse, batch_size=batch_size,
@@ -515,7 +544,7 @@ class CrossEgoVideoLocationNet(L.LightningModule):
         self.test_predictions = []
         self.test_targets_unscaled = []
         self.test_predictions_unscaled = []
-        self.test_raw_samples_by_team = {'T': [], 'CT': []}
+        self.test_raw_samples_by_team = {'t': [], 'ct': []}
         
         # Initialize test metrics for multi-label classification
         if self.task_form in ['multi-label-cls', 'grid-cls']:
@@ -539,6 +568,8 @@ class CrossEgoVideoLocationNet(L.LightningModule):
                     target_key = 'enemy_locations'
                 elif 'future_locations' in batch:
                     target_key = 'future_locations'
+                elif 'trajectories' in batch:
+                    target_key = 'trajectories'
                 else:
                     target_key = 'teammate_locations'
                 sample = {
@@ -601,7 +632,7 @@ class CrossEgoVideoLocationNet(L.LightningModule):
                          on_step=False, on_epoch=True, prog_bar=False)
         
         # Initialize and log coordinate-based metrics
-        if self.task_form in ['coord-reg', 'coord-gen']:
+        if self.task_form in ['coord-reg', 'coord-gen', 'traj-gen']:
             if not hasattr(self, 'test_mse'):
                 self.test_mse = MeanSquaredError().to(self.device)
                 self.test_mae = MeanAbsoluteError().to(self.device)
@@ -647,6 +678,10 @@ class CrossEgoVideoLocationNet(L.LightningModule):
             self.test_targets.append(targets.cpu().float())
             self.test_predictions_unscaled.extend(predictions_unscaled.cpu().float().numpy())
             self.test_targets_unscaled.extend(targets_unscaled.cpu().float().numpy())
+        elif self.task_form == 'traj-gen':
+            # Store trajectory predictions and targets
+            self.test_predictions.append(predictions.cpu().float())
+            self.test_targets.append(targets.cpu().float())
         else:
             # Store predictions and targets for classification/grid tasks
             self.test_predictions.append(predictions.cpu().float())

@@ -49,6 +49,7 @@ model:
     density-cls: mse  # Options: mse, mae, kl
     coord-reg: sinkhorn  # Options: mse, sinkhorn, hausdorff, energy
     coord-gen: sinkhorn  # Options: mse, sinkhorn, hausdorff, energy
+    traj-gen: mse  # Options: mse, smooth_l1, huber
   sinkhorn:
     blur: 0.1  # Controls smoothing (0.01-0.1)
     scaling: 0.8  # Speeds convergence with ε-scaling (<1)

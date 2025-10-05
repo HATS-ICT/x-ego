@@ -10,6 +10,7 @@ dependencies = [
     "decord>=0.6.0",
     "dotenv>=0.9.9",
     "geomloss>=0.2.6",
+    "h5py>=3.14.0",
     "lightning>=2.5.5",
     "omegaconf>=2.3.0",
     "scikit-learn>=1.7.2",

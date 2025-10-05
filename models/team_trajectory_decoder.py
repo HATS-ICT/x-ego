@@ -70,43 +70,81 @@ class TransformerBlock(nn.Module):
 
 
 class TeamTrajectoryDecoder(nn.Module):
+    """
+    Team Trajectory Decoder module.
+    
+    Predicts trajectories for 5 players from a target team based on per-agent embeddings,
+    POV team, and target team information. Outputs 60 timepoints (15s at 4Hz) with (X, Y) coordinates.
+    """
+    
     def __init__(self, cfg):
         super().__init__()
         
-        self.feat_dim = cfg.traj_decoder.feat_dim
-        self.seq_len = cfg.traj_decoder.seq_len
-        self.output_dim = cfg.traj_decoder.seq_len * 2
-        self.team_emb_dim = cfg.traj_decoder.team_emb_dim
+        # Get dimensions from config
+        self.agent_embed_dim = cfg.model.encoder.proj_dim
+        self.num_agents = cfg.data.num_pov_agents
+        self.team_embed_dim = cfg.model.team_embed_dim
         
-        self.self_team_emb = nn.Embedding(cfg.traj_decoder.num_teams, cfg.traj_decoder.team_emb_dim)
-        self.target_team_emb = nn.Embedding(cfg.traj_decoder.num_teams, cfg.traj_decoder.team_emb_dim)
+        # Trajectory decoder configuration
+        self.num_timepoints = cfg.num_trajectory_timepoints  # 60
+        self.num_target_players = cfg.num_target_players  # 5
+        self.output_dim_per_player = self.num_timepoints * 2  # 60 timepoints * 2 coords
         
-        combined_dim = cfg.traj_decoder.feat_dim + cfg.traj_decoder.team_emb_dim * 2
+        # Team embeddings
+        self.pov_team_emb = nn.Embedding(2, self.team_embed_dim)  # POV team
+        self.target_team_emb = nn.Embedding(2, self.team_embed_dim)  # Target team
+        
+        # Combined dimension: per-agent embeddings + pov team + target team
+        per_agent_combined_dim = self.agent_embed_dim + self.team_embed_dim * 2
         activation = ACT2CLS[cfg.model.activation]
         
+        # Transformer blocks for trajectory decoding
         self.blocks = nn.ModuleList([
-            TransformerBlock(combined_dim, cfg.traj_decoder.num_heads, cfg.traj_decoder.mlp_ratio, cfg.traj_decoder.dropout, activation)
-            for _ in range(cfg.traj_decoder.num_layers)
+            TransformerBlock(
+                per_agent_combined_dim, 
+                cfg.model.traj_decoder.num_heads, 
+                cfg.model.traj_decoder.mlp_ratio, 
+                cfg.model.traj_decoder.dropout, 
+                activation
+            )
+            for _ in range(cfg.model.traj_decoder.num_layers)
         ])
         
-        self.norm = nn.LayerNorm(combined_dim)
-        self.head = nn.Linear(combined_dim, self.output_dim)
+        self.norm = nn.LayerNorm(per_agent_combined_dim)
+        self.head = nn.Linear(per_agent_combined_dim, self.output_dim_per_player)
+    
+    def forward(self, agent_embeddings, pov_team_encoded, target_team_encoded):
+        """
+        Forward pass.
         
-    def forward(self, x, self_team, target_team):
-        B, N, _ = x.shape
+        Args:
+            agent_embeddings: [B, A, embed_dim] per-agent video embeddings
+            pov_team_encoded: [B] POV team (0=T, 1=CT)
+            target_team_encoded: [B] Target team (0=T, 1=CT)
+                
+        Returns:
+            predictions: [B, 5, 60, 2] trajectory predictions
+        """
+        B, A, embed_dim = agent_embeddings.shape
         
-        self_team_emb = self.self_team_emb(self_team)
-        target_team_emb = self.target_team_emb(target_team)
+        # Encode team information
+        pov_team_embedding = self.pov_team_emb(pov_team_encoded)  # [B, team_embed_dim]
+        target_team_embedding = self.target_team_emb(target_team_encoded)  # [B, team_embed_dim]
         
-        self_team_emb = self_team_emb.unsqueeze(1).expand(B, N, self.team_emb_dim)
-        target_team_emb = target_team_emb.unsqueeze(1).expand(B, N, self.team_emb_dim)
+        # Expand team embeddings to match agent dimension
+        pov_team_embedding = pov_team_embedding.unsqueeze(1).expand(B, A, self.team_embed_dim)  # [B, A, team_embed_dim]
+        target_team_embedding = target_team_embedding.unsqueeze(1).expand(B, A, self.team_embed_dim)  # [B, A, team_embed_dim]
         
-        x = torch.cat([x, self_team_emb, target_team_emb], dim=-1)
+        # Combine agent embeddings with team information
+        x = torch.cat([agent_embeddings, pov_team_embedding, target_team_embedding], dim=-1)  # [B, A, combined_dim]
         
+        # Process through transformer blocks
         for block in self.blocks:
             x = block(x)
         
-        x = self.norm(x)
-        x = self.head(x)
+        x = self.norm(x)  # [B, A, combined_dim]
+        predictions = self.head(x)  # [B, A, 60*2]
         
-        return x
+        predictions = predictions.view(B, A, self.num_timepoints, 2)  # [B, A, 60, 2]
+        
+        return predictions

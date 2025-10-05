@@ -81,7 +81,7 @@ class BaseVideoDataset(ABC):
         self.task_form = self.data_cfg.task_form
         
         # Validate task_form
-        valid_task_forms = ['coord-reg', 'coord-gen', 'multi-label-cls', 'multi-output-reg', 'grid-cls', 'density-cls']
+        valid_task_forms = ['coord-reg', 'coord-gen', 'traj-gen', 'multi-label-cls', 'multi-output-reg', 'grid-cls', 'density-cls']
         if self.task_form not in valid_task_forms:
             raise ValueError(f"task_form must be one of {valid_task_forms}, got {self.task_form}")
             
@@ -308,7 +308,11 @@ class BaseVideoDataset(ABC):
             kwargs['num_places'] = self.num_places
         
         self.label_creator = create_label_creator(self.cfg, **kwargs)
-        logger.info(f"Initialized label creator: {self.label_creator.__class__.__name__}")
+        
+        if self.label_creator is not None:
+            logger.info(f"Initialized label creator: {self.label_creator.__class__.__name__}")
+        else:
+            logger.info(f"No label creator needed for task form: {self.task_form}")
     
     def __len__(self) -> int:
         """Return the number of samples in the dataset."""

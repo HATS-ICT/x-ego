@@ -38,14 +38,14 @@ class TestAnalyzer:
         checkpoint_name = getattr(self.model, 'checkpoint_name', 'last')
         base_prefix = f'test/{checkpoint_name}'
         
-        for team in ['CT', 'T']:
+        for team in ['ct', 't']:
             if team not in team_specific_metrics:
                 continue
             
             metrics = team_specific_metrics[team]
             team_prefix = f'{base_prefix}/{team.lower()}'
             
-            if self.task_form in ['coord-reg', 'coord-gen']:
+            if self.task_form in ['coord-reg', 'coord-gen', 'traj-gen']:
                 self.model.safe_log(f'{team_prefix}_mse', metrics['mse'], on_epoch=True)
                 self.model.safe_log(f'{team_prefix}_mae', metrics['mae'], on_epoch=True)
                 
@@ -91,7 +91,7 @@ class TestAnalyzer:
         checkpoint_name = getattr(self.model, 'checkpoint_name', 'last')
         base_prefix = f'test/{checkpoint_name}'
         
-        if self.task_form in ['coord-reg', 'coord-gen']:
+        if self.task_form in ['coord-reg', 'coord-gen', 'traj-gen']:
             if 'geometric_distances' in test_results:
                 geom = test_results['geometric_distances']
                 self.model.safe_log(f'{base_prefix}/chamfer_distance', 
@@ -144,15 +144,15 @@ class TestAnalyzer:
         """Create KDE heatmaps for selected test samples."""
         # Combine samples from both teams
         combined_samples = []
-        for team in ['T', 'CT']:
+        for team in ['t', 'ct']:
             combined_samples.extend(test_raw_samples_by_team[team])
         
         if len(combined_samples) == 0:
             return
         
         print(f"Creating KDE heatmaps for {len(combined_samples)} test samples...")
-        print(f"  T samples: {len(test_raw_samples_by_team['T'])}")
-        print(f"  CT samples: {len(test_raw_samples_by_team['CT'])}")
+        print(f"  t samples: {len(test_raw_samples_by_team['t'])}")
+        print(f"  ct samples: {len(test_raw_samples_by_team['ct'])}")
         
         predictions_list = []
         targets_list = []
@@ -173,8 +173,15 @@ class TestAnalyzer:
             first_pred_normalized = torch.tensor(multi_predictions[0:1], dtype=torch.float32)
             scaled_pred = first_pred_normalized
             
-            # Get target key dynamically (supports both enemy_locations and future_locations)
-            target_key = 'enemy_locations' if 'enemy_locations' in sample else 'future_locations'
+            # Get target key dynamically
+            if 'enemy_locations' in sample:
+                target_key = 'enemy_locations'
+            elif 'future_locations' in sample:
+                target_key = 'future_locations'
+            elif 'trajectories' in sample:
+                target_key = 'trajectories'
+            else:
+                target_key = 'teammate_locations'
             scaled_target = sample[target_key]  # Already normalized
             
             # Move to device
@@ -219,7 +226,7 @@ class TestAnalyzer:
             
             pred = outputs['predictions']  # [1, 5, 3]
             
-            if self.task_form in ['coord-reg', 'coord-gen']:
+            if self.task_form in ['coord-reg', 'coord-gen', 'traj-gen']:
                 pred_unscaled = self.model.unscale_coordinates(pred)
                 predictions.append(pred_unscaled.cpu().numpy()[0])
             else:
@@ -230,7 +237,14 @@ class TestAnalyzer:
         predictions = np.array(predictions)  # [num_predictions, 5, 3]
         
         # Get unscaled ground truth
-        target_key = 'enemy_locations' if 'enemy_locations' in sample else 'future_locations'
+        if 'enemy_locations' in sample:
+            target_key = 'enemy_locations'
+        elif 'future_locations' in sample:
+            target_key = 'future_locations'
+        elif 'trajectories' in sample:
+            target_key = 'trajectories'
+        else:
+            target_key = 'teammate_locations'
         target_unscaled = self.model.unscale_coordinates(sample[target_key])
         target = target_unscaled.cpu().numpy()[0]  # [5, 3]
         

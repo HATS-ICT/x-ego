@@ -13,10 +13,12 @@ from train.run_tasks import (
     train_enemy_location_forecast,
     train_teammate_location_forecast,
     train_teammate_location_nowcast,
+    train_teammate_opponent_traj_prediction,
     test_enemy_location_nowcast,
     test_enemy_location_forecast,
     test_teammate_location_forecast,
-    test_teammate_location_nowcast
+    test_teammate_location_nowcast,
+    test_teammate_opponent_traj_prediction
 )
 from utils.env_utils import get_src_base_path, get_data_base_path, get_output_base_path
 
@@ -61,9 +63,10 @@ Every settings in config file can be overridden. Examples:
                        choices=['enemy_location_nowcast', 
                                 'enemy_location_forecast', 
                                 'teammate_location_forecast',
-                                'teammate_location_nowcast'],
+                                'teammate_location_nowcast',
+                                'teammate_opponent_traj_prediction'],
                        default='enemy_location_nowcast',
-                       help='Task to run: enemy_location_nowcast, enemy_location_forecast, teammate_location_forecast, or teammate_location_nowcast')
+                       help='Task to run')
     
     
     parser.add_argument('--config', 
@@ -192,6 +195,8 @@ def main():
             test_teammate_location_forecast(cfg)
         elif args.task == 'teammate_location_nowcast':
             test_teammate_location_nowcast(cfg)
+        elif args.task == 'teammate_opponent_traj_prediction':
+            test_teammate_opponent_traj_prediction(cfg)
         else:
             raise ValueError(f"Unknown task: {args.task}")
     else:
@@ -204,6 +209,8 @@ def main():
             train_teammate_location_forecast(cfg)
         elif args.task == 'teammate_location_nowcast':
             train_teammate_location_nowcast(cfg)
+        elif args.task == 'teammate_opponent_traj_prediction':
+            train_teammate_opponent_traj_prediction(cfg)
         else:
             raise ValueError(f"Unknown task: {args.task}")
 

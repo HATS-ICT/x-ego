@@ -1,13 +1,14 @@
 """
 Label creation utilities for multi-agent enemy location prediction.
 
-Supports 6 different label formulations:
+Supports 7 different label formulations:
 1. multi-label-cls: Binary vector of occupied locations
 2. multi-output-reg: Integer count of agents per location  
 3. grid-cls: Binary vector of occupied grid cells
 4. density-cls: Smoothed density distribution over grid cells
 5. coord-reg: Direct 3D coordinate regression
 6. coord-gen: Same as coord-reg but used with VAE/coord-gen models
+7. traj-gen: Trajectory generation (labels loaded directly from H5, no creator needed)
 """
 
 import torch
@@ -219,7 +220,7 @@ def create_label_creator(cfg: Dict, **kwargs) -> LabelCreatorBase:
         **kwargs: Additional arguments like place_to_idx, num_places
         
     Returns:
-        Label creator instance
+        Label creator instance or None for tasks that don't need one
     """
     task_form = cfg.data.task_form
     
@@ -228,6 +229,9 @@ def create_label_creator(cfg: Dict, **kwargs) -> LabelCreatorBase:
     elif task_form == 'coord-gen':
         # coord-gen uses same labels as coord-reg
         return CoordRegLabelCreator(cfg)
+    elif task_form == 'traj-gen':
+        # traj-gen loads labels directly from H5 file, no label creator needed
+        return None
     elif task_form == 'multi-label-cls':
         return MultiLabelClsLabelCreator(
             cfg,

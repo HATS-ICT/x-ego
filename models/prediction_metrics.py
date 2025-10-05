@@ -42,7 +42,7 @@ class MetricsCalculator:
         Returns:
             Dictionary of calculated metrics
         """
-        if self.task_form in ['coord-reg', 'coord-gen']:
+        if self.task_form in ['coord-reg', 'coord-gen', 'traj-gen']:
             return self._calculate_coordinate_metrics(predictions, targets)
         elif self.task_form in ['multi-label-cls', 'grid-cls']:
             return self._calculate_classification_metrics(predictions, targets)
@@ -180,8 +180,8 @@ class MetricsCalculator:
         Returns:
             Dictionary with geometric distance metrics
         """
-        if self.task_form not in ['coord-reg', 'coord-gen']:
-            raise ValueError("Geometric distances only for coord-reg/coord-gen tasks")
+        if self.task_form not in ['coord-reg', 'coord-gen', 'traj-gen']:
+            raise ValueError("Geometric distances only for coord-reg/coord-gen/traj-gen tasks")
         
         all_predictions = torch.cat(pred_tensors, dim=0).float()
         all_targets = torch.cat(target_tensors, dim=0).float()
@@ -223,7 +223,7 @@ class MetricsCalculator:
         """
         team_metrics = {}
         
-        for team in ['CT', 'T']:
+        for team in ['ct', 't']:
             team_mask = pov_team_sides == team
             if not np.any(team_mask):
                 continue
@@ -235,7 +235,7 @@ class MetricsCalculator:
                 continue
             
             # Calculate task-specific metrics
-            if self.task_form in ['coord-reg', 'coord-gen']:
+            if self.task_form in ['coord-reg', 'coord-gen', 'traj-gen']:
                 team_metrics[team] = self._calculate_team_coordinate_metrics(
                     team_predictions, team_targets, team_mask, pred_tensors, target_tensors
                 )

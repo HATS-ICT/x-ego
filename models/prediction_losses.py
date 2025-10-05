@@ -4,6 +4,7 @@ Loss Functions for Multi-Agent Location Prediction
 This module provides loss computation functions for different task formulations:
 - Coordinate regression (MSE, Sinkhorn, Hausdorff, Energy)
 - VAE reconstruction + KL divergence
+- Trajectory generation (MSE, Smooth L1, Huber)
 - Binary classification (BCE, Focal Loss)
 - Count regression and density estimation (MSE)
 """
@@ -22,6 +23,7 @@ class LossComputer:
     
     Task-specific loss functions:
     - coord-reg, coord-gen: 'mse', 'sinkhorn', 'hausdorff', 'energy'
+    - traj-gen: 'mse', 'smooth_l1', 'huber'
     - multi-label-cls, grid-cls: 'bce', 'focal'
     - multi-output-reg, density-cls: 'mse', 'mae', 'kl'
     """
@@ -52,6 +54,7 @@ class LossComputer:
         valid_loss_fns = {
             'coord-reg': ['mse', 'sinkhorn', 'hausdorff', 'energy'],
             'coord-gen': ['mse', 'sinkhorn', 'hausdorff', 'energy'],
+            'traj-gen': ['mse', 'smooth_l1', 'huber'],
             'multi-label-cls': ['bce', 'focal'],
             'grid-cls': ['bce', 'focal'],
             'multi-output-reg': ['mse', 'mae', 'kl'],
@@ -165,6 +168,10 @@ class LossComputer:
         if self.task_form == 'coord-reg':
             return self._compute_regression_loss(predictions, targets), {}
         
+        elif self.task_form == 'traj-gen':
+            # Trajectory generation loss
+            return self._compute_trajectory_loss(predictions, targets), {}
+        
         elif self.task_form == 'coord-gen':
             if outputs is None or 'mu' not in outputs or 'logvar' not in outputs:
                 raise ValueError("outputs with 'mu' and 'logvar' required for coord-gen mode")
@@ -219,6 +226,17 @@ class LossComputer:
         
         else:
             raise ValueError(f"Unknown task_form: {self.task_form}")
+    
+    def _compute_trajectory_loss(self, predictions, targets):
+        """Compute regression loss for trajectory prediction tasks."""
+        if self.loss_fn == 'mse':
+            return F.mse_loss(predictions, targets)
+        elif self.loss_fn == 'smooth_l1':
+            return F.smooth_l1_loss(predictions, targets)
+        elif self.loss_fn == 'huber':
+            return F.huber_loss(predictions, targets)
+        else:
+            raise ValueError(f"Unknown loss function for traj-gen: {self.loss_fn}")
     
     def _compute_regression_loss(self, predictions, targets):
         """Compute regression loss for coordinate-based tasks."""

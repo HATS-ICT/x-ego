@@ -4,6 +4,7 @@ from data_module.enemy_location_nowcast import EnemyLocationNowcastDataModule
 from data_module.enemy_location_forecast import EnemyLocationForecastDataModule
 from data_module.teammate_location_forecast import TeammateLocationForecastDataModule
 from data_module.teammate_location_nowcast import TeammateLocationNowcastDataModule
+from data_module.teammate_opponent_traj_prediction import TeammateOpponentTrajPredictionDataModule
 from train.train_pipeline import run_training_pipeline
 from train.test_pipeline import run_test_only_pipeline
 
@@ -51,6 +52,17 @@ def train_enemy_location_forecast(cfg):
         print_header="=== TRAINING MODE MULTI-AGENT ENEMY FUTURE LOCATION PREDICTION ==="
     )
 
+
+def train_teammate_opponent_traj_prediction(cfg):
+    """Training mode implementation for trajectory prediction"""
+    run_training_pipeline(
+        cfg=cfg,
+        model_class=CrossEgoVideoLocationNet,
+        datamodule_class=TeammateOpponentTrajPredictionDataModule,
+        task_name="teammate_opponent_traj_prediction",
+        print_header="=== TRAINING MODE TRAJECTORY PREDICTION ==="
+    )
+
 # ============================================================================
 # Test-only mode functions
 # ============================================================================
@@ -92,4 +104,14 @@ def test_teammate_location_nowcast(cfg):
         model_class=CrossEgoVideoLocationNet,
         datamodule_class=TeammateLocationNowcastDataModule,
         task_name="teammate_location_nowcast"
+    )
+
+
+def test_teammate_opponent_traj_prediction(cfg):
+    """Test-only mode for trajectory prediction"""
+    run_test_only_pipeline(
+        cfg=cfg,
+        model_class=CrossEgoVideoLocationNet,
+        datamodule_class=TeammateOpponentTrajPredictionDataModule,
+        task_name="teammate_opponent_traj_prediction"
     )

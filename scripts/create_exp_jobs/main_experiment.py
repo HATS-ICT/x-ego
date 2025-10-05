@@ -169,8 +169,8 @@ def main():
                     exp_name = f"{EXP_PREFIX}/{folder_name}"
                     
                     # Set memory and time based on number of POV agents
-                    mem = "88G" if num_pov > 3 else MEM
-                    time = "08:00:00" if num_pov > 3 else TIME
+                    mem = "140G" if num_pov > 3 or contra_enable else MEM
+                    time = "10:00:00" if num_pov > 3 or contra_enable else TIME
                     
                     header = SCRIPT_HEADER.format(
                         account=ACCOUNT, partition=PARTITION, cpus=CPUS,

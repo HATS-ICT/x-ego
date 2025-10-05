@@ -12,15 +12,15 @@ ACCOUNT = "ustun_1726"
 PARTITION = "gpu"
 GPU_CONSTRAINT = "a40|a100"  # Use constraint to get either A40 or A100
 GPU_COUNT = 1
-CPUS = 15
-MEM = "44G"
-TIME = "08:00:00"
+CPUS = 20
+MEM = "64G"
+TIME = "10:00:00"
 MAIL_USER = "yunzhewa@usc.edu"
 MAIL_TYPE = "all"
 LOGS_SUBDIR = "logs"
 
 # Experiment configuration
-EXP_PREFIX = "main_exp_yes_contra"
+EXP_PREFIX = "main_exp_yes_contra_v2"
 TASK_FORM = "multi-label-cls"
 
 # Tasks to sweep over
@@ -35,7 +35,6 @@ MODELS = [
     "siglip",
     "vivit",
     "videomae",
-    "vjepa2",
 ]
 
 # Number of POV agents to sweep over

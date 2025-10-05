@@ -89,7 +89,7 @@ model:
 
 
 training:
-  max_epochs: 10  # Total training epochs
+  max_epochs: 8  # Total training epochs
   max_steps: -1  # Disabled when using max_epochs
   accelerator: gpu
   devices: 1

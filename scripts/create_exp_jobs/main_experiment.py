@@ -168,10 +168,14 @@ def main():
                     run_name = f"{model}-{task_short}-{contra_suffix}-pov{num_pov}"
                     exp_name = f"{EXP_PREFIX}/{folder_name}"
                     
+                    # Set memory and time based on number of POV agents
+                    mem = "88G" if num_pov > 3 else MEM
+                    time = "08:00:00" if num_pov > 3 else TIME
+                    
                     header = SCRIPT_HEADER.format(
                         account=ACCOUNT, partition=PARTITION, cpus=CPUS,
                         gpu_constraint=GPU_CONSTRAINT, gpu_count=GPU_COUNT,
-                        mem=MEM, time=TIME,
+                        mem=mem, time=time,
                         job_name=run_name, log_dir=str(log_root),
                         mail_block=mail_block,
                     ).rstrip()

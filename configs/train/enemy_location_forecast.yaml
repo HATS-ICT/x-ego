@@ -7,8 +7,6 @@ meta:
 
 data:
   labels_filename: enemy_location_forecast_s1s_l5s_f10s.csv  # CSV with enemy future locations
-  batch_size: 8
-  num_workers: 9
   task_form: multi-label-cls # multi-label-cls, multi-output-reg, grid-cls, density-cls, coord-reg, coord-gen
 
 wandb:

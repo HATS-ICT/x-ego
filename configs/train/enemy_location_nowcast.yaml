@@ -7,8 +7,6 @@ meta:
 
 data:
   labels_filename: enemy_location_nowcast_s1s_l5s.csv # CSV with player locations
-  batch_size: 8
-  num_workers: 9
   task_form: multi-label-cls # multi-label-cls, multi-output-reg, grid-cls, density-cls, coord-reg, coord-gen
 
 wandb:

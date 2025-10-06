@@ -26,6 +26,9 @@ from torchmetrics.classification import (
     MultilabelExactMatch,
     MultilabelF1Score
 )
+import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')  # Non-interactive backend for server environments
 
 
 # Import refactored components
@@ -375,6 +378,65 @@ class CrossEgoVideoLocationNet(L.LightningModule):
         """Extract only tensor elements from batch."""
         return {k: v for k, v in batch.items() if torch.is_tensor(v)}
     
+    def _create_trajectory_visualization(self, predictions, targets, num_samples=5):
+        """
+        Create a 2x5 subplot visualization of trajectories.
+        
+        Args:
+            predictions: [N, 5, 60, 2] predicted trajectories
+            targets: [N, 5, 60, 2] ground truth trajectories
+            num_samples: Number of samples to visualize (default 5)
+            
+        Returns:
+            matplotlib Figure object
+        """
+        # Select random samples if we have more than num_samples
+        N = predictions.shape[0]
+        if N > num_samples:
+            indices = np.random.choice(N, num_samples, replace=False)
+        else:
+            indices = np.arange(min(N, num_samples))
+        
+        # Create 2x5 subplot (2 rows: ground truth, predictions)
+        fig, axes = plt.subplots(2, num_samples, figsize=(20, 8))
+        if num_samples == 1:
+            axes = axes.reshape(2, 1)
+        
+        for i, idx in enumerate(indices):
+            pred = predictions[idx].float().cpu().numpy()  # [5, 60, 2]
+            target = targets[idx].float().cpu().numpy()  # [5, 60, 2]
+            
+            # Plot ground truth (top row)
+            ax_gt = axes[0, i]
+            for agent_idx in range(5):
+                ax_gt.plot(target[agent_idx, :, 0], target[agent_idx, :, 1], 
+                          '-o', markersize=2, linewidth=1.5, alpha=0.7, 
+                          label=f'Agent {agent_idx+1}')
+            ax_gt.set_title(f'Ground Truth {i+1}', fontsize=10, fontweight='bold')
+            ax_gt.set_xlabel('X', fontsize=9)
+            ax_gt.set_ylabel('Y', fontsize=9)
+            ax_gt.grid(True, alpha=0.3)
+            ax_gt.axis('equal')
+            if i == 0:
+                ax_gt.legend(loc='best', fontsize=7)
+            
+            # Plot predictions (bottom row)
+            ax_pred = axes[1, i]
+            for agent_idx in range(5):
+                ax_pred.plot(pred[agent_idx, :, 0], pred[agent_idx, :, 1], 
+                           '-o', markersize=2, linewidth=1.5, alpha=0.7,
+                           label=f'Agent {agent_idx+1}')
+            ax_pred.set_title(f'Predicted {i+1}', fontsize=10, fontweight='bold')
+            ax_pred.set_xlabel('X', fontsize=9)
+            ax_pred.set_ylabel('Y', fontsize=9)
+            ax_pred.grid(True, alpha=0.3)
+            ax_pred.axis('equal')
+            if i == 0:
+                ax_pred.legend(loc='best', fontsize=7)
+        
+        plt.tight_layout()
+        return fig
+    
     def training_step(self, batch, batch_idx):
         """Training step."""
         batch_size = batch["video"].shape[0]
@@ -455,6 +517,12 @@ class CrossEgoVideoLocationNet(L.LightningModule):
         
         return loss
     
+    def on_validation_epoch_start(self):
+        """Initialize validation tracking variables."""
+        if self.task_form == 'traj-gen':
+            self.val_predictions = []
+            self.val_targets = []
+    
     def validation_step(self, batch, batch_idx):
         """Validation step."""
         batch = self._tensor_only_batch(batch)
@@ -530,7 +598,52 @@ class CrossEgoVideoLocationNet(L.LightningModule):
             self.safe_log('val/macro_f1', self.val_macro_f1, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=True)
         
+        # Store predictions and targets for trajectory visualization
+        if self.task_form == 'traj-gen':
+            self.val_predictions.append(predictions.detach())
+            self.val_targets.append(targets.detach())
+        
         return loss
+    
+    def on_validation_epoch_end(self):
+        """Create and log trajectory visualization at end of validation epoch."""
+        if self.task_form == 'traj-gen' and len(self.val_predictions) > 0:
+            # Concatenate all predictions and targets
+            all_predictions = torch.cat(self.val_predictions, dim=0)  # [N, 5, 60, 2]
+            all_targets = torch.cat(self.val_targets, dim=0)  # [N, 5, 60, 2]
+            
+            # Calculate trajectory-specific metrics
+            # ADE (Average Displacement Error): average L2 distance across all timesteps
+            # FDE (Final Displacement Error): L2 distance at final timestep
+            l2_distances = torch.sqrt(((all_predictions - all_targets) ** 2).sum(dim=-1))  # [N, 5, 60]
+            ade = l2_distances.mean()
+            fde = l2_distances[:, :, -1].mean()  # Final timestep
+            
+            # Log trajectory metrics
+            self.safe_log('val/ade', ade, on_epoch=True, prog_bar=True)
+            self.safe_log('val/fde', fde, on_epoch=True, prog_bar=True)
+            
+            # Create visualization
+            fig = self._create_trajectory_visualization(all_predictions, all_targets, num_samples=5)
+            
+            # Log to wandb if logger is available
+            if self.logger is not None:
+                try:
+                    import wandb
+                    # Convert matplotlib figure to wandb Image
+                    self.logger.experiment.log({
+                        "val/trajectory_visualization": wandb.Image(fig),
+                        "trainer/global_step": self.global_step
+                    })
+                except Exception as e:
+                    print(f"Failed to log trajectory visualization to wandb: {e}")
+            
+            # Close figure to free memory
+            plt.close(fig)
+            
+            # Clear stored predictions and targets
+            self.val_predictions = []
+            self.val_targets = []
     
     def _get_test_metric_prefix(self):
         """Get the metric prefix for test logging based on checkpoint type."""

@@ -5,7 +5,7 @@ import numpy as np
 
 output_dir = Path("/project2/ustun_1726/x-ego/output/main_exp")
 
-results = defaultdict(list)
+results = defaultdict(dict)
 
 for exp_dir in sorted(output_dir.iterdir()):
     if exp_dir.is_dir():
@@ -15,40 +15,72 @@ for exp_dir in sorted(output_dir.iterdir()):
             model = parts[0]
             task = parts[1]
             contra = "yes" if "yes" in exp_dir.name else "no"
+            pov_part = [p for p in parts if p.startswith("pov")]
+            if pov_part:
+                pov = int(pov_part[0][3:])
+            else:
+                continue
             
             with open(test_results) as f:
                 data = json.load(f)
-                results[(model, contra, task)].append(data)
+                results[(pov, model, contra, task)] = data
 
-def format_val(vals, key):
-    if not vals:
-        return "_"
-    nums = [v[key] for v in vals if key in v]
-    if not nums:
-        return "_"
-    return f"{np.mean(nums) * 100:.2f}"
+def get_val(pov, model, contra, task, key):
+    data = results.get((pov, model, contra, task))
+    if not data or key not in data:
+        return None
+    return data[key] * 100
 
-rows = [
-    ("dinov2", "no"),
-    ("vivit", "no"),
-    ("dinov2", "yes"),
-    ("vivit", "yes"),
-]
+def format_val(val, baseline_val=None, metric=None):
+    if val is None:
+        return "_"
+    if baseline_val is None:
+        return f"{val:.2f}"
+    
+    diff = val - baseline_val
+    if metric == "hamming_loss":
+        sign = "+" if diff < 0 else ""
+    else:
+        sign = "+" if diff > 0 else ""
+    return f"{val:.2f} ({sign}{diff:.2f})"
 
 metrics = ["subset_accuracy", "hamming_loss", "micro_f1", "macro_f1"]
 
-print(f"{'Model':<20} {'EN SubAcc':<12} {'EN HamLoss':<12} {'EN MicroF1':<12} {'EN MacroF1':<12} {'TM SubAcc':<12} {'TM HamLoss':<12} {'TM MicroF1':<12} {'TM MacroF1':<12}")
-print("-" * 140)
-
-for model, contra in rows:
-    row_name = f"{model} {contra}-contra"
-    en_vals = results[(model, contra, "en")]
-    tm_vals = results[(model, contra, "tm")]
+for pov in range(1, 6):
+    print(f"\n{'='*140}")
+    print(f"POV {pov}")
+    print(f"{'='*140}")
+    print(f"{'Model':<25} {'EN SubAcc':<18} {'EN HamLoss':<18} {'EN MicroF1':<18} {'EN MacroF1':<18} {'TM SubAcc':<18} {'TM HamLoss':<18} {'TM MicroF1':<18} {'TM MacroF1':<18}")
+    print("-" * 190)
     
-    line = f"{row_name:<20}"
-    for metric in metrics:
-        line += f" {format_val(en_vals, metric):<12}"
-    for metric in metrics:
-        line += f" {format_val(tm_vals, metric):<12}"
-    print(line)
+    for model in ["dinov2", "vivit"]:
+        no_contra_vals = {}
+        for task in ["en", "tm"]:
+            for metric in metrics:
+                no_contra_vals[(task, metric)] = get_val(pov, model, "no", task, metric)
+        
+        line = f"{model} no-contra"
+        line = f"{line:<25}"
+        for task in ["en", "tm"]:
+            for metric in metrics:
+                val = no_contra_vals[(task, metric)]
+                line += f" {format_val(val):<18}"
+        print(line)
+    
+    for model in ["dinov2", "vivit"]:
+        no_contra_vals = {}
+        yes_contra_vals = {}
+        for task in ["en", "tm"]:
+            for metric in metrics:
+                no_contra_vals[(task, metric)] = get_val(pov, model, "no", task, metric)
+                yes_contra_vals[(task, metric)] = get_val(pov, model, "yes", task, metric)
+        
+        line = f"{model} yes-contra"
+        line = f"{line:<25}"
+        for task in ["en", "tm"]:
+            for metric in metrics:
+                val = yes_contra_vals[(task, metric)]
+                baseline = no_contra_vals[(task, metric)]
+                line += f" {format_val(val, baseline, metric):<18}"
+        print(line)
 

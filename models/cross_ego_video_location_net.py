@@ -562,7 +562,8 @@ class CrossEgoVideoLocationNet(L.LightningModule):
         
         for i in range(batch['video'].shape[0]):
             pov_team_side = pov_team_sides[i]
-            if len(self.test_raw_samples_by_team[pov_team_side]) < samples_per_team:
+            pov_team_side_lower = pov_team_side.lower()
+            if len(self.test_raw_samples_by_team[pov_team_side_lower]) < samples_per_team:
                 # Get target locations key dynamically
                 if 'enemy_locations' in batch:
                     target_key = 'enemy_locations'
@@ -578,7 +579,7 @@ class CrossEgoVideoLocationNet(L.LightningModule):
                     target_key: batch[target_key][i:i+1].clone(),
                     'pov_team_side': pov_team_side
                 }
-                self.test_raw_samples_by_team[pov_team_side].append(sample)
+                self.test_raw_samples_by_team[pov_team_side_lower].append(sample)
             
             # Break if we have enough samples
             if all(len(samples) >= samples_per_team 

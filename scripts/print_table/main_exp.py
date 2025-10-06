@@ -67,7 +67,7 @@ for pov in range(1, 6):
                 line += f" {format_val(val):<18}"
         print(line)
     
-    for model in ["dinov2", "vivit"]:
+    for model in ["dinov2", "vivit", "siglip"]:
         no_contra_vals = {}
         yes_contra_vals = {}
         for task in ["en", "tm"]:

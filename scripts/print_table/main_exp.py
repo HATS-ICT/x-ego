@@ -5,7 +5,7 @@ import numpy as np
 
 output_dir = Path("/project2/ustun_1726/x-ego/output/main_exp")
 
-results = defaultdict(lambda: defaultdict(list))
+results = defaultdict(list)
 
 for exp_dir in sorted(output_dir.iterdir()):
     if exp_dir.is_dir():

@@ -24,7 +24,7 @@ data:
   grid_resolution: 100  # Grid resolution (10x10 = 100 cells)
   gaussian_sigma: 2.0  # Gaussian smoothing sigma for density-cls
 
-  
+
 model:
   activation: gelu
   num_pov_agents: ${data.num_pov_agents}
@@ -68,8 +68,8 @@ model:
     proj_dim: ${model.agent_fusion.fused_agent_dim}
   contrastive:
     enable: false
-    logit_scale_init: 1.0  # Temperature parameter (pass actual value, not log)
-    logit_bias_init: 0.0   # Bias parameter (pass actual value)
+    logit_scale_init: 10  # Temperature parameter (pass actual value, not log)
+    logit_bias_init: -3   # Bias parameter (pass actual value)
     turn_off_bias: false   # If true, no bias is applied (for SigLIP ablation setup 1: b=n/a)
     # SigLIP ablation configurations:
     # Setup 1: logit_scale_init=10, logit_bias_init=0,   turn_off_bias=true  (b: n/a,  t: log10)

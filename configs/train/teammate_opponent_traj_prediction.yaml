@@ -14,6 +14,16 @@ data:
   task_form: traj-gen
   num_pov_agents: 5
 
+training:
+  max_epochs: 20 
+
+model:
+  contrastive:
+    enable: false
+    logit_scale_init: 1.0  # Temperature parameter (pass actual value, not log)
+    logit_bias_init: 0.0   # Bias parameter (pass actual value)
+    turn_off_bias: false 
+
 wandb:
   group: '${meta.exp_name}'
   tags: ['${meta.exp_name}']

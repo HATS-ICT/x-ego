@@ -117,14 +117,14 @@ class ConditionalVariationalAutoencoder(nn.Module):
             combined_features: [B, combined_dim] - conditioning features
             
         Returns:
-            predictions: [B, 5, 3] - predicted enemy locations
+            predictions: [B, 5, 2] - predicted enemy locations (X, Y only)
         """
         # Concatenate latent with conditioning
         decoder_input = torch.cat([z, combined_features], dim=1)
         
         # Decode to predictions
         predictions = self.decoder(decoder_input)
-        predictions = predictions.view(-1, 5, 3)
+        predictions = predictions.view(-1, 5, 2)
         return predictions
     
     def sample_from_prior(self, combined_features, num_samples=1):

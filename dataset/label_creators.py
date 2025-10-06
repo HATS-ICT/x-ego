@@ -6,7 +6,7 @@ Supports 7 different label formulations:
 2. multi-output-reg: Integer count of agents per location  
 3. grid-cls: Binary vector of occupied grid cells
 4. density-cls: Smoothed density distribution over grid cells
-5. coord-reg: Direct 3D coordinate regression
+5. coord-reg: Direct 2D coordinate regression (X,Y only)
 6. coord-gen: Same as coord-reg but used with VAE/coord-gen models
 7. traj-gen: Trajectory generation (labels loaded directly from H5, no creator needed)
 """
@@ -47,8 +47,8 @@ class CoordRegLabelCreator(LabelCreatorBase):
     """
     Coordinate regression label creator.
     
-    Directly regresses the (x, y, z) normalized coordinates of each agent.
-    Output shape: [5, 3] for 5 agents with X_norm, Y_norm, Z_norm coordinates
+    Directly regresses the (x, y) normalized coordinates of each agent.
+    Output shape: [5, 2] for 5 agents with X_norm, Y_norm coordinates
     """
     
     def __init__(self, cfg: Dict):
@@ -56,15 +56,15 @@ class CoordRegLabelCreator(LabelCreatorBase):
         self.num_target_agents = cfg.model.num_target_agents
     
     def create_labels(self, enemy_players: List[Dict]) -> torch.Tensor:
-        """Create coordinate regression labels using normalized coordinates."""
+        """Create coordinate regression labels using normalized coordinates (X, Y only)."""
         coords = []
         for i in range(self.num_target_agents):
             if i < len(enemy_players):
                 player = enemy_players[i]
-                coords.append([float(player['X_norm']), float(player['Y_norm']), float(player['Z_norm'])])
+                coords.append([float(player['X_norm']), float(player['Y_norm'])])
             else:
                 # Pad with zeros if not enough enemy players
-                coords.append([0.0, 0.0, 0.0])
+                coords.append([0.0, 0.0])
         
         coords = np.array(coords)
         return torch.tensor(coords, dtype=torch.float32)

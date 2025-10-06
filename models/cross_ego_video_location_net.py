@@ -164,8 +164,8 @@ class CrossEgoVideoLocationNet(L.LightningModule):
     def _init_task_specific_components(self, cfg, hidden_dim, dropout, num_hidden_layers):
         """Initialize task-specific output heads and metrics."""
         if self.task_form in ['coord-reg', 'coord-gen']:
-            # Coordinate regression: output [num_agents * 3 coordinates]
-            self.output_dim = cfg.model.num_target_agents * 3
+            # Coordinate regression: output [num_agents * 2 coordinates] (X, Y only)
+            self.output_dim = cfg.model.num_target_agents * 2
             self.train_mse, self.val_mse = MeanSquaredError(), MeanSquaredError()
             self.train_mae, self.val_mae = MeanAbsoluteError(), MeanAbsoluteError()
             
@@ -359,7 +359,7 @@ class CrossEgoVideoLocationNet(L.LightningModule):
                 # Standard (non-coord-gen) mode
                 predictions = self.predictor(combined_features)
                 if self.task_form == 'coord-reg':
-                    predictions = predictions.view(-1, 5, 3)
+                    predictions = predictions.view(-1, 5, 2)
                 outputs['predictions'] = predictions
         
         return outputs

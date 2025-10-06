@@ -22,17 +22,17 @@ def create_prediction_plots(task_form, predictions, targets, output_dir, pov_tea
 
 def create_regression_plots(predictions, targets, output_dir, pov_team_sides=None):
     """Create plots for regression predictions."""
-    # predictions and targets shape: [N, 5, 3]
-    predictions_flat = predictions.reshape(-1, 15)  # [N, 15]
-    targets_flat = targets.reshape(-1, 15)
+    # predictions and targets shape: [N, 5, 2] (X,Y only)
+    predictions_flat = predictions.reshape(-1, 10)  # [N, 10]
+    targets_flat = targets.reshape(-1, 10)
     
     # Create scatter plots for each coordinate
-    fig, axes = plt.subplots(3, 5, figsize=(20, 12))
-    fig.suptitle('Enemy Location Prediction: Predicted vs Actual Coordinates', fontsize=16)
+    fig, axes = plt.subplots(2, 5, figsize=(20, 8))
+    fig.suptitle('Enemy Location Prediction: Predicted vs Actual Coordinates (X,Y)', fontsize=16)
     
     for player in range(5):
-        for coord_idx, coord_name in enumerate(['X', 'Y', 'Z']):
-            dim_idx = player * 3 + coord_idx
+        for coord_idx, coord_name in enumerate(['X', 'Y']):
+            dim_idx = player * 2 + coord_idx
             
             ax = axes[coord_idx, player]
             
@@ -337,21 +337,21 @@ def create_prediction_heatmaps(predictions_list, targets_list, pov_team_sides_li
     Create KDE heatmaps for multiple prediction instances with ground truth overlay.
     
     Args:
-        predictions_list: List of prediction arrays, each of shape [num_predictions, 5, 3]
-        targets_list: List of target arrays, each of shape [5, 3]
+        predictions_list: List of prediction arrays, each of shape [num_predictions, 5, 2]
+        targets_list: List of target arrays, each of shape [5, 2]
         pov_team_sides_list: List of team sides for each instance
         output_dir: Directory to save plots
         map_name: CS:GO map name for background
     """
     for idx, (predictions, target, pov_team_side) in enumerate(zip(predictions_list, targets_list, pov_team_sides_list)):
-        # predictions: [num_predictions, 5, 3] - multiple predictions for 5 agents
-        # target: [5, 3] - ground truth for 5 agents
+        # predictions: [num_predictions, 5, 2] - multiple predictions for 5 agents (X,Y only)
+        # target: [5, 2] - ground truth for 5 agents (X,Y only)
         
         # Flatten all predictions to get all predicted points
-        all_pred_points = predictions.reshape(-1, 3)  # [num_predictions * 5, 3]
-        # Convert to list of tuples for heatmap function
-        pred_points_tuples = [(point[0], point[1], point[2]) for point in all_pred_points]
-        target_points_tuples = [(point[0], point[1], point[2]) for point in target]
+        all_pred_points = predictions.reshape(-1, 2)  # [num_predictions * 5, 2]
+        # Convert to list of tuples for heatmap function (add dummy Z=0)
+        pred_points_tuples = [(point[0], point[1], 0) for point in all_pred_points]
+        target_points_tuples = [(point[0], point[1], 0) for point in target]
         
         # Create heatmap for predictions
         fig, ax = heatmap(
@@ -397,8 +397,8 @@ def create_prediction_heatmaps_grid(predictions_list, targets_list, pov_team_sid
     Create a grid of KDE heatmaps with T samples on top row and CT samples on bottom row.
     
     Args:
-        predictions_list: List of prediction arrays, each of shape [num_predictions, 5, 3] (unscaled)
-        targets_list: List of target arrays, each of shape [5, 3] (unscaled)
+        predictions_list: List of prediction arrays, each of shape [num_predictions, 5, 2] (unscaled, X,Y only)
+        targets_list: List of target arrays, each of shape [5, 2] (unscaled, X,Y only)
         pov_team_sides_list: List of team sides for each instance
         scaled_predictions_list: List of scaled prediction tensors for Chamfer distance calculation
         scaled_targets_list: List of scaled target tensors for Chamfer distance calculation

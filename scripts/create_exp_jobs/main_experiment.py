@@ -35,6 +35,7 @@ MODELS = [
     "siglip",
     "vivit",
     "videomae",
+    "vjepa2",
 ]
 
 # Number of POV agents to sweep over

@@ -336,8 +336,8 @@ def _plot_labels(labels_tensor, ax, task_form, cfg, label_type='enemy'):
         plt.colorbar(im, ax=ax, label='Occupied (0=Absent, 1=Present)')
     
     elif task_form in ['coord-reg', 'coord-gen']:
-        # Labels shape: [5, 3] - (x, y, z) coordinates for 5 players
-        coords = labels.reshape(-1, 3)  # [5, 3]
+        # Labels shape: [5, 2] - (x, y) coordinates for 5 players
+        coords = labels.reshape(-1, 2)  # [5, 2]
         
         # Plot x-y scatter
         ax.scatter(coords[:, 0], coords[:, 1], s=100, c=range(len(coords)), 

@@ -251,8 +251,8 @@ class LossComputer:
             
             total_loss = 0.0
             for i in range(batch_size):
-                pred_i = predictions[i]  # [5, 3]
-                target_i = targets[i]    # [5, 3]
+                pred_i = predictions[i]  # [5, 2]
+                target_i = targets[i]    # [5, 2]
                 loss_i = self.geometric_loss(pred_i, target_i)
                 total_loss += loss_i
             

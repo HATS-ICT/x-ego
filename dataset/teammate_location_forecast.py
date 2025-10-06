@@ -130,9 +130,9 @@ class TeammateLocationForecastDataset(BaseVideoDataset, Dataset):
         players_for_label = []
         for player in team_players:
             players_for_label.append({
-                'X_norm': player['future_X'],
-                'Y_norm': player['future_Y'],
-                'Z_norm': player['future_Z'],
+                'X_norm': player['future_X_norm'],
+                'Y_norm': player['future_Y_norm'],
+                'Z_norm': player['future_Z_norm'],
                 'place': player['future_place']
             })
         
@@ -156,7 +156,7 @@ class TeammateLocationForecastDataset(BaseVideoDataset, Dataset):
         end_seconds = row['normalized_end_seconds']
         match_id = row['match_id']
         round_num = row['round_num']
-        pov_team_side = row['team_side'].upper()  # Convert to uppercase (T or CT)
+        pov_team_side = row['pov_team_side'].upper()  # Convert to uppercase (T or CT)
         
         # Get team players (both input and labels from same team)
         team_players = self._get_all_team_players(row)

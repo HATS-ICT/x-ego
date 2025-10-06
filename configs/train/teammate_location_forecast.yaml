@@ -13,3 +13,6 @@ wandb:
   group: '${meta.exp_name}'
   tags: ['${meta.exp_name}']
   notes: 'teammate location forecast'
+
+training:
+  max_epochs: 20 

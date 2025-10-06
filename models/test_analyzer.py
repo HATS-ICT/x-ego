@@ -11,6 +11,7 @@ import json
 
 from utils.plot_utils import create_prediction_plots, create_prediction_heatmaps_grid
 from utils.serialization_utils import json_serializable
+from models.coordinate_scaler import unscale_coordinates
 
 
 class TestAnalyzer:
@@ -145,7 +146,7 @@ class TestAnalyzer:
     
     def add_coordinate_metadata(self, test_results):
         """Add coordinate-specific metadata to test results."""
-        import pickle
+        import joblib
         from pathlib import Path
         
         test_results['loss_function'] = self.model.loss_computer.loss_fn
@@ -155,8 +156,7 @@ class TestAnalyzer:
         test_results['coordinate_scaling'] = scaler_path.exists()
         
         if scaler_path.exists():
-            with open(scaler_path, 'rb') as f:
-                scaler = pickle.load(f)
+            scaler = joblib.load(scaler_path)
             test_results['scaler_data_min'] = scaler.data_min_.tolist()
             test_results['scaler_data_max'] = scaler.data_max_.tolist()
             test_results['scaler_scale'] = scaler.scale_.tolist()
@@ -241,8 +241,8 @@ class TestAnalyzer:
             num_predictions: Number of predictions to generate
             
         Returns:
-            predictions: numpy array of shape [num_predictions, 5, 3] (unscaled)
-            target: numpy array of shape [5, 3] (unscaled ground truth)
+            predictions: numpy array of shape [num_predictions, 5, 2] (unscaled, X,Y only)
+            target: numpy array of shape [5, 2] (unscaled ground truth, X,Y only)
         """
         self.model.eval()
         
@@ -256,7 +256,7 @@ class TestAnalyzer:
             pred = outputs['predictions']  # [1, 5, 3]
             
             if self.task_form in ['coord-reg', 'coord-gen', 'traj-gen']:
-                pred_unscaled = self.model.unscale_coordinates(pred)
+                pred_unscaled = unscale_coordinates(pred, self.model.scaler_path)
                 predictions.append(pred_unscaled.cpu().numpy()[0])
             else:
                 raise NotImplementedError(
@@ -274,8 +274,8 @@ class TestAnalyzer:
             target_key = 'trajectories'
         else:
             target_key = 'teammate_locations'
-        target_unscaled = self.model.unscale_coordinates(sample[target_key])
-        target = target_unscaled.cpu().numpy()[0]  # [5, 3]
+        target_unscaled = unscale_coordinates(sample[target_key], self.model.scaler_path)
+        target = target_unscaled.cpu().numpy()[0]  # [5, 2]
         
         return predictions, target
     

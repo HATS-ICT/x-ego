@@ -7,7 +7,7 @@ from omegaconf import OmegaConf
 
 # Local imports
 from utils.config_utils import load_cfg, apply_cfg_overrides
-from utils.experiment_utils import create_experiment_dir, save_hyperparameters, setup_resume_cfg
+from utils.experiment_utils import create_experiment_dir, save_hyperparameters, setup_resume_cfg, load_experiment_cfg
 from train.run_tasks import (
     train_enemy_location_nowcast,
     train_enemy_location_forecast,
@@ -145,39 +145,73 @@ def main():
     parser = setup_argument_parser()
     args = parser.parse_args()
     
-    if args.config is None:
-        # Load configs in order: global.yaml -> train/{task}.yaml -> dev/{task}.yaml (if dev mode)
-        global_cfg_path = 'configs/global.yaml'
-        train_cfg_path = f'configs/train/{args.task}.yaml'
-        
-        # 1. Load global config first
-        print(f"Loading global config from: {global_cfg_path}")
-        cfg = load_cfg(global_cfg_path)
-        
-        # 2. Merge with task-specific train config
-        print(f"Applying task-specific config from: {train_cfg_path}")
-        train_cfg = load_cfg(train_cfg_path)
-        cfg = OmegaConf.merge(cfg, train_cfg)
-        
-        # 3. If dev mode, apply dev overrides
-        if args.mode == 'dev':
-            dev_cfg_path = f'configs/dev/{args.task}.yaml'
-            print(f"Applying dev overrides from: {dev_cfg_path}")
-            dev_cfg = load_cfg(dev_cfg_path)
-            cfg = OmegaConf.merge(cfg, dev_cfg)
-    else:
-        print(f"Loading config from: {args.config}")
-        cfg = load_cfg(args.config)
-    cfg = apply_cfg_overrides(cfg, args.overrides)
-    cfg = setup_base_pathing(cfg)
+    # Check if we're in test mode and have resume_exp in overrides
+    resume_exp_from_overrides = None
+    for override in args.overrides:
+        if override.startswith('meta.resume_exp='):
+            resume_exp_from_overrides = override.split('=', 1)[1]
+            break
     
-    # Validate test mode requirements
-    if args.mode == 'test' and not cfg.meta.resume_exp:
-        raise ValueError(
-            "Test mode requires 'meta.resume_exp' to be set to the experiment name.\n"
-            "Example: python main.py --mode test --task enemy_location_nowcast "
-            "meta.resume_exp=enemy-nowcast-clip-250930-032609-1uqe"
-        )
+    # Test mode: skip config files entirely, load only from saved experiment
+    if args.mode == 'test':
+        if not resume_exp_from_overrides:
+            raise ValueError(
+                "Test mode requires 'meta.resume_exp' to be set to the experiment name.\n"
+                "Example: python main.py --mode test --task enemy_location_nowcast "
+                "meta.resume_exp=enemy-nowcast-clip-250930-032609-1uqe"
+            )
+        
+        print(f"=== TEST MODE: Loading configuration from saved experiment ===")
+        
+        # Create minimal config with just the resume_exp
+        cfg = OmegaConf.create({'meta': {'resume_exp': resume_exp_from_overrides}})
+        cfg = setup_base_pathing(cfg)
+        
+        # Load saved hyperparameters from the experiment
+        output_dir = cfg.path.output
+        saved_cfg, exp_path = load_experiment_cfg(resume_exp_from_overrides)
+        
+        print(f"Loaded saved hyperparameters from: {exp_path / 'hparam.yaml'}")
+        cfg = saved_cfg
+        
+        # Apply command-line overrides (excluding meta.resume_exp which is already set)
+        overrides_without_resume = [o for o in args.overrides if not o.startswith('meta.resume_exp=')]
+        if overrides_without_resume:
+            print(f"Applying command-line overrides: {overrides_without_resume}")
+            cfg = apply_cfg_overrides(cfg, overrides_without_resume)
+        
+        # Ensure paths are set correctly
+        cfg = setup_base_pathing(cfg)
+        cfg.meta.resume_exp = resume_exp_from_overrides
+        
+    # Train/dev mode: load config files as usual
+    else:
+        if args.config is None:
+            # Load configs in order: global.yaml -> train/{task}.yaml -> dev/{task}.yaml (if dev mode)
+            global_cfg_path = 'configs/global.yaml'
+            train_cfg_path = f'configs/train/{args.task}.yaml'
+            
+            # 1. Load global config first
+            print(f"Loading global config from: {global_cfg_path}")
+            cfg = load_cfg(global_cfg_path)
+            
+            # 2. Merge with task-specific train config
+            print(f"Applying task-specific config from: {train_cfg_path}")
+            train_cfg = load_cfg(train_cfg_path)
+            cfg = OmegaConf.merge(cfg, train_cfg)
+            
+            # 3. If dev mode, apply dev overrides
+            if args.mode == 'dev':
+                dev_cfg_path = f'configs/dev/{args.task}.yaml'
+                print(f"Applying dev overrides from: {dev_cfg_path}")
+                dev_cfg = load_cfg(dev_cfg_path)
+                cfg = OmegaConf.merge(cfg, dev_cfg)
+        else:
+            print(f"Loading config from: {args.config}")
+            cfg = load_cfg(args.config)
+        
+        cfg = apply_cfg_overrides(cfg, args.overrides)
+        cfg = setup_base_pathing(cfg)
     
     # TODO: Validation need to be adjusted per training mode at the end
     # validate_cfg(cfg)

@@ -184,18 +184,23 @@ def find_resume_checkpoint(resume_exp, output_dir="output"):
 def setup_resume_cfg(cfg, resume_exp, output_dir="output"):
     """Setup configuration for resuming from an existing experiment
     
+    This function only sets up paths for the existing experiment directory.
+    Note: In test mode, the saved hyperparameters should already be loaded in main.py
+    before calling this function. In train mode (resuming training), this will merge
+    the saved hyperparameters with the current config (current config takes precedence).
+    
     Args:
-        cfg (dict): Current configuration
+        cfg (dict): Current configuration (already loaded from hparam.yaml in test mode)
         resume_exp (str): Experiment name to resume from
         output_dir (str): Output directory containing experiments
         
     Returns:
-        tuple: (updated_cfg, checkpoint_path)
+        OmegaConf: Updated configuration with paths set
     """
     if not resume_exp:
-        return cfg, None
+        return cfg
     
-    print(f"=== RESUMING FROM EXPERIMENT: {resume_exp} ===")
+    print(f"=== SETTING UP PATHS FOR EXPERIMENT: {resume_exp} ===")
     
     checkpoint_path, experiment_dir = find_resume_checkpoint(resume_exp, output_dir)
     
@@ -203,35 +208,41 @@ def setup_resume_cfg(cfg, resume_exp, output_dir="output"):
         raise ValueError(f"Could not find checkpoint for experiment: {resume_exp}")
     
     experiment_path = Path(experiment_dir)
-    hparam_path = experiment_path / "hparam.yaml"
-    if hparam_path.exists():
-        print(f"Loading original hyperparameters from: {hparam_path}")
-        original_cfg = OmegaConf.load(hparam_path)
-        
-        # Use OmegaConf to merge configurations
-        cfg = OmegaConf.merge(original_cfg, cfg)
-    else:
-        print(f"Warning: Could not find hparam.yaml at {hparam_path}, using current cfg")
-    
     checkpoint_dir = experiment_path / "checkpoint"
     plots_dir = experiment_path / "plots"
     
-    if 'path' not in cfg:
-        cfg['path'] = {}
+    # Update paths in config
+    path_updates = OmegaConf.create({
+        'path': {
+            'exp': str(experiment_dir),
+            'ckpt': str(checkpoint_dir),
+            'plots': str(plots_dir)
+        }
+    })
+    cfg = OmegaConf.merge(cfg, path_updates)
     
-    cfg['path']['exp'] = experiment_dir
-    cfg['path']['ckpt'] = checkpoint_dir
-    cfg['path']['plots'] = plots_dir
-    
+    # Update checkpoint paths
     if 'checkpoint' in cfg:
-        cfg['checkpoint']['dirpath'] = str(checkpoint_dir)
-        cfg['checkpoint']['resume_checkpoint_path'] = str(checkpoint_path)
-    if 'wandb' in cfg:
-        cfg['wandb']['save_dir'] = str(experiment_dir)
-        cfg['wandb']['name'] = resume_exp
+        checkpoint_updates = OmegaConf.create({
+            'checkpoint': {
+                'dirpath': str(checkpoint_dir),
+                'resume_checkpoint_path': str(checkpoint_path)
+            }
+        })
+        cfg = OmegaConf.merge(cfg, checkpoint_updates)
     
-    print(f"Will resume from checkpoint: {checkpoint_path}")
-    print(f"Continuing in experiment directory: {experiment_dir}")
+    # Update wandb paths
+    if 'wandb' in cfg:
+        wandb_updates = OmegaConf.create({
+            'wandb': {
+                'save_dir': str(experiment_dir),
+                'name': resume_exp
+            }
+        })
+        cfg = OmegaConf.merge(cfg, wandb_updates)
+    
+    print(f"Checkpoint path: {checkpoint_path}")
+    print(f"Experiment directory: {experiment_dir}")
     
     return cfg
 

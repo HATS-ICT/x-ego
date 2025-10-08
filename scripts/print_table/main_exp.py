@@ -96,8 +96,8 @@ sns.set_context("paper", font_scale=1.3)
 mpl.rcParams['font.family'] = 'sans-serif'
 mpl.rcParams['axes.linewidth'] = 1.2
 
-# Create figure with 2x4 subplots
-fig, axes = plt.subplots(2, 4, figsize=(20, 10))
+# Create figure with 10x4 subplots (5 models × 2 tasks × 4 metrics)
+fig, axes = plt.subplots(10, 4, figsize=(20, 25))
 
 # Define metrics and their display names
 metric_info = {
@@ -135,13 +135,24 @@ povs = list(range(1, 6))
 tasks = ['tm', 'en']
 task_names = {'tm': 'Teammate', 'en': 'Enemy'}
 
-# Plot for each task and metric
-for task_idx, task in enumerate(tasks):
-    for metric_idx, (metric_key, metric_name) in enumerate(metric_info.items()):
-        ax = axes[task_idx, metric_idx]
-        
-        # Plot each model and contra setting
-        for model in ['dinov2', 'vivit', 'siglip', 'vjepa2', 'videomae']:
+# Models
+models = ['dinov2', 'vivit', 'siglip', 'vjepa2', 'videomae']
+model_display_names = {
+    'dinov2': 'DINOV2',
+    'vivit': 'VIVIT',
+    'siglip': 'SigLIP',
+    'vjepa2': 'VJEPA2',
+    'videomae': 'VIDEOMAE'
+}
+
+# Plot for each model, task, and metric
+row_idx = 0
+for model in models:
+    for task in tasks:
+        for metric_idx, (metric_key, metric_name) in enumerate(metric_info.items()):
+            ax = axes[row_idx, metric_idx]
+            
+            # Plot only this model's two lines (with/without contrastive)
             for contra in ['no', 'yes']:
                 values = []
                 for pov in povs:
@@ -161,38 +172,36 @@ for task_idx, task in enumerate(tasks):
                     plot_povs = [p for p, v in zip(povs, values) if v is not None]
                     plot_values = [v for v in values if v is not None]
                     
-                    # Only add label for legend (will be created separately)
                     ax.plot(plot_povs, plot_values, 
                            color=contra_colors[contra],
                            linestyle=line_styles[contra],
                            marker=model_markers[model],
-                           markersize=8,
-                           linewidth=2.5,
+                           markersize=7,
+                           linewidth=2.0,
                            alpha=0.85,
-                           markeredgewidth=1.5,
+                           markeredgewidth=1.2,
                            markeredgecolor='white')
-        
-        # Styling
-        ax.set_title(f"{metric_name}", fontsize=13, fontweight='bold', pad=10)
-        ax.set_xticks(povs)
-        ax.set_xlim(0.8, 5.2)
-        
-        # Only show x-axis label on bottom row
-        if task_idx == 1:
-            ax.set_xlabel('', fontsize=12)
-        else:
-            ax.set_xlabel('', fontsize=12)
-        
-        # Add task name (Teammate/Enemy) as ylabel on leftmost column only
-        if metric_idx == 0:
-            ax.set_ylabel(f"{task_names[task]}", fontsize=14, fontweight='bold')
-        else:
+            
+            # Styling
+            # Only show metric name in top row
+            if row_idx == 0:
+                ax.set_title(f"{metric_name}", fontsize=12, fontweight='bold', pad=8)
+            
+            ax.set_xticks(povs)
+            ax.set_xlim(0.8, 5.2)
+            
+            # Remove x and y labels
+            ax.set_xlabel('')
             ax.set_ylabel('')
-        
-        # Set y-axis limits based on actual data range for better separation
-        # Collect all plotted values
-        all_values = []
-        for model in ['dinov2', 'vivit', 'siglip', 'vjepa2', 'videomae']:
+            
+            # Add model name and task on leftmost column only
+            if metric_idx == 0:
+                ax.set_ylabel(f"{model_display_names[model]}\n{task_names[task]}", 
+                             fontsize=11, fontweight='bold')
+            
+            # Set y-axis limits based on actual data range for better separation
+            # Collect all plotted values for this specific model and task
+            all_values = []
             for contra in ['no', 'yes']:
                 for pov in povs:
                     if metric_key == 'hamming_accuracy':
@@ -203,49 +212,42 @@ for task_idx, task in enumerate(tasks):
                         val = get_val(pov, model, contra, task, metric_key)
                         if val is not None:
                             all_values.append(val)
+            
+            if all_values:
+                data_min = min(all_values)
+                data_max = max(all_values)
+                data_range = data_max - data_min
+                # Add 10% padding on each side for clearer visualization
+                padding = max(data_range * 0.1, 0.5)  # At least 0.5 padding
+                ax.set_ylim(max(0, data_min - padding), min(100, data_max + padding))
+            
+            # Improve grid
+            ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.8)
+            ax.set_axisbelow(True)
         
-        if all_values:
-            data_min = min(all_values)
-            data_max = max(all_values)
-            data_range = data_max - data_min
-            # Add 10% padding on each side for clearer visualization
-            padding = data_range * 0.1
-            ax.set_ylim(max(0, data_min - padding), min(100, data_max + padding))
-        
-        # Improve grid
-        ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.8)
-        ax.set_axisbelow(True)
+        row_idx += 1
 
-# Create custom legend (only once, no duplicates)
+# Create custom legend (simplified since each subplot shows one model)
 from matplotlib.lines import Line2D
-from matplotlib.patches import Patch
 
 legend_elements = []
 
-# Add contrastive condition (colors)
+# Add contrastive condition (colors and line styles)
 legend_elements.append(Line2D([0], [0], color=contra_colors['no'], linestyle='-', 
-                              linewidth=2.5, label='Without Contrastive'))
+                              linewidth=2.5, marker='o', markersize=7,
+                              label='Without Contrastive'))
 legend_elements.append(Line2D([0], [0], color=contra_colors['yes'], linestyle='--', 
-                              linewidth=2.5, label='With Contrastive'))
+                              linewidth=2.5, marker='o', markersize=7,
+                              label='With Contrastive'))
 
-# Add a separator
-legend_elements.append(Line2D([0], [0], color='none', label=''))
+# Place legend at the top
+fig.legend(handles=legend_elements, loc='upper center', 
+          bbox_to_anchor=(0.5, 0.995), frameon=True, 
+          fancybox=False, shadow=False, fontsize=12, 
+          ncol=2, title='Contrastive Learning', title_fontsize=13)
 
-# Add model markers
-for model in ['dinov2', 'vivit', 'siglip', 'vjepa2', 'videomae']:
-    legend_elements.append(Line2D([0], [0], color='gray', marker=model_markers[model], 
-                                  linestyle='', markersize=8, markeredgewidth=1.5,
-                                  markeredgecolor='white',
-                                  label=model.upper() if model != 'siglip' else 'SigLIP'))
-
-# Place legend on the right side of the entire figure
-fig.legend(handles=legend_elements, loc='center right', 
-          bbox_to_anchor=(0.99, 0.5), frameon=True, 
-          fancybox=True, shadow=False, fontsize=11, 
-          title='Condition & Model', title_fontsize=12)
-
-# Adjust layout
-plt.tight_layout(rect=[0, 0, 0.92, 1.0])
+# Adjust layout to make room for legend at top
+plt.tight_layout(rect=[0, 0, 1.0, 0.98])
 
 # Save figure
 save_path = Path("main_exp_metrics.png")

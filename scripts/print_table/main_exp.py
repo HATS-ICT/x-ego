@@ -107,19 +107,25 @@ metric_info = {
     'macro_f1': 'Macro F1'
 }
 
-# Define colors for each model
-model_colors = {
-    'dinov2': '#1f77b4',  # blue
-    'vivit': '#ff7f0e',    # orange
-    'siglip': '#2ca02c',   # green
-    'vjepa2': '#d62728',   # red
-    'videomae': '#9467bd'  # purple
+# Define colors for contrastive condition
+contra_colors = {
+    'no': '#1f77b4',   # blue for without contrastive
+    'yes': '#ff7f0e'   # orange for with contrastive
 }
 
 # Define line styles for contra
 line_styles = {
     'no': '-',      # solid line for no contra
     'yes': '--'     # dashed line for yes contra
+}
+
+# Define markers for each model
+model_markers = {
+    'dinov2': 'o',      # circle
+    'vivit': 's',       # square
+    'siglip': '^',      # triangle up
+    'vjepa2': 'D',      # diamond
+    'videomae': 'v'     # triangle down
 }
 
 # POV range
@@ -157,19 +163,31 @@ for task_idx, task in enumerate(tasks):
                     
                     # Only add label for legend (will be created separately)
                     ax.plot(plot_povs, plot_values, 
-                           color=model_colors[model],
+                           color=contra_colors[contra],
                            linestyle=line_styles[contra],
-                           marker='o',
-                           markersize=6,
+                           marker=model_markers[model],
+                           markersize=8,
                            linewidth=2.5,
-                           alpha=0.85)
+                           alpha=0.85,
+                           markeredgewidth=1.5,
+                           markeredgecolor='white')
         
         # Styling
-        ax.set_xlabel('Number of POVs', fontsize=12)
-        ax.set_ylabel('Value (%)', fontsize=12)
-        ax.set_title(f"{task_names[task]}: {metric_name}", fontsize=13, fontweight='bold', pad=10)
+        ax.set_title(f"{metric_name}", fontsize=13, fontweight='bold', pad=10)
         ax.set_xticks(povs)
         ax.set_xlim(0.8, 5.2)
+        
+        # Only show x-axis label on bottom row
+        if task_idx == 1:
+            ax.set_xlabel('', fontsize=12)
+        else:
+            ax.set_xlabel('', fontsize=12)
+        
+        # Add task name (Teammate/Enemy) as ylabel on leftmost column only
+        if metric_idx == 0:
+            ax.set_ylabel(f"{task_names[task]}", fontsize=14, fontweight='bold')
+        else:
+            ax.set_ylabel('')
         
         # Set y-axis limits based on actual data range for better separation
         # Collect all plotted values
@@ -204,25 +222,27 @@ from matplotlib.patches import Patch
 
 legend_elements = []
 
-# Add model colors
-for model in ['dinov2', 'vivit', 'siglip', 'vjepa2', 'videomae']:
-    legend_elements.append(Line2D([0], [0], color=model_colors[model], linewidth=2.5, 
-                                  label=model.upper() if model != 'siglip' else 'SigLIP'))
+# Add contrastive condition (colors)
+legend_elements.append(Line2D([0], [0], color=contra_colors['no'], linestyle='-', 
+                              linewidth=2.5, label='Without Contrastive'))
+legend_elements.append(Line2D([0], [0], color=contra_colors['yes'], linestyle='--', 
+                              linewidth=2.5, label='With Contrastive'))
 
 # Add a separator
 legend_elements.append(Line2D([0], [0], color='none', label=''))
 
-# Add line style explanations
-legend_elements.append(Line2D([0], [0], color='gray', linestyle='-', linewidth=2.5, 
-                              label='Without Contrastive'))
-legend_elements.append(Line2D([0], [0], color='gray', linestyle='--', linewidth=2.5, 
-                              label='With Contrastive'))
+# Add model markers
+for model in ['dinov2', 'vivit', 'siglip', 'vjepa2', 'videomae']:
+    legend_elements.append(Line2D([0], [0], color='gray', marker=model_markers[model], 
+                                  linestyle='', markersize=8, markeredgewidth=1.5,
+                                  markeredgecolor='white',
+                                  label=model.upper() if model != 'siglip' else 'SigLIP'))
 
 # Place legend on the right side of the entire figure
 fig.legend(handles=legend_elements, loc='center right', 
           bbox_to_anchor=(0.99, 0.5), frameon=True, 
           fancybox=True, shadow=False, fontsize=11, 
-          title='Models & Settings', title_fontsize=12)
+          title='Condition & Model', title_fontsize=12)
 
 # Adjust layout
 plt.tight_layout(rect=[0, 0, 0.92, 1.0])

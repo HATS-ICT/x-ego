@@ -171,9 +171,28 @@ for task_idx, task in enumerate(tasks):
         ax.set_xticks(povs)
         ax.set_xlim(0.8, 5.2)
         
-        # Set y-axis limits based on data range
-        y_min, y_max = ax.get_ylim()
-        ax.set_ylim(max(0, y_min - 5), min(100, y_max + 5))
+        # Set y-axis limits based on actual data range for better separation
+        # Collect all plotted values
+        all_values = []
+        for model in ['dinov2', 'vivit', 'siglip', 'vjepa2', 'videomae']:
+            for contra in ['no', 'yes']:
+                for pov in povs:
+                    if metric_key == 'hamming_accuracy':
+                        ham_loss = get_val(pov, model, contra, task, 'hamming_loss')
+                        if ham_loss is not None:
+                            all_values.append(100 - ham_loss)
+                    else:
+                        val = get_val(pov, model, contra, task, metric_key)
+                        if val is not None:
+                            all_values.append(val)
+        
+        if all_values:
+            data_min = min(all_values)
+            data_max = max(all_values)
+            data_range = data_max - data_min
+            # Add 10% padding on each side for clearer visualization
+            padding = data_range * 0.1
+            ax.set_ylim(max(0, data_min - padding), min(100, data_max + padding))
         
         # Improve grid
         ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.8)

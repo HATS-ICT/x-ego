@@ -69,7 +69,7 @@ for pov in range(1, 6):
                 line += f" {format_val(val):<18}"
         print(line)
     
-    for model in ["dinov2", "vivit", "siglip"]:
+    for model in ["dinov2", "vivit", "siglip", "vjepa2", "videomae"]:
         no_contra_vals = {}
         yes_contra_vals = {}
         for task in ["en", "tm"]:
@@ -111,7 +111,9 @@ metric_info = {
 model_colors = {
     'dinov2': '#1f77b4',  # blue
     'vivit': '#ff7f0e',    # orange
-    'siglip': '#2ca02c'    # green
+    'siglip': '#2ca02c',   # green
+    'vjepa2': '#d62728',   # red
+    'videomae': '#9467bd'  # purple
 }
 
 # Define line styles for contra
@@ -133,7 +135,7 @@ for task_idx, task in enumerate(tasks):
         ax = axes[task_idx, metric_idx]
         
         # Plot each model and contra setting
-        for model in ['dinov2', 'vivit', 'siglip']:
+        for model in ['dinov2', 'vivit', 'siglip', 'vjepa2', 'videomae']:
             for contra in ['no', 'yes']:
                 values = []
                 for pov in povs:

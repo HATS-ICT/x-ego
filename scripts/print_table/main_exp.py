@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 from collections import defaultdict
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib as mpl
 
 output_dir = Path("/project2/ustun_1726/x-ego/output/main_exp")
 
@@ -50,7 +52,7 @@ for pov in range(1, 6):
     print(f"\n{'='*140}")
     print(f"POV {pov}")
     print(f"{'='*140}")
-    print(f"{'Model':<25} {'EN SubAcc':<18} {'EN HamLoss':<18} {'EN MicroF1':<18} {'EN MacroF1':<18} {'TM SubAcc':<18} {'TM HamLoss':<18} {'TM MicroF1':<18} {'TM MacroF1':<18}")
+    print(f"{'Model':<25} {'TM SubAcc':<18} {'TM HamLoss':<18} {'TM MicroF1':<18} {'TM MacroF1':<18} {'EN SubAcc':<18} {'EN HamLoss':<18} {'EN MicroF1':<18} {'EN MacroF1':<18}")
     print("-" * 190)
     
     for model in ["dinov2", "vivit", "siglip"]:
@@ -61,7 +63,7 @@ for pov in range(1, 6):
         
         line = f"{model} no-contra"
         line = f"{line:<25}"
-        for task in ["en", "tm"]:
+        for task in ["tm", "en"]:
             for metric in metrics:
                 val = no_contra_vals[(task, metric)]
                 line += f" {format_val(val):<18}"
@@ -77,10 +79,117 @@ for pov in range(1, 6):
         
         line = f"{model} yes-contra"
         line = f"{line:<25}"
-        for task in ["en", "tm"]:
+        for task in ["tm", "en"]:
             for metric in metrics:
                 val = yes_contra_vals[(task, metric)]
                 baseline = no_contra_vals[(task, metric)]
                 line += f" {format_val(val, baseline, metric):<18}"
         print(line)
 
+# Create visualization
+print("\n\nGenerating plots...")
+
+# Set professional style
+mpl.rcParams['font.family'] = 'sans-serif'
+mpl.rcParams['font.size'] = 10
+mpl.rcParams['axes.linewidth'] = 1.2
+mpl.rcParams['grid.alpha'] = 0.3
+
+# Create figure with 2x4 subplots
+fig, axes = plt.subplots(2, 4, figsize=(20, 10))
+fig.suptitle('Model Performance Across POVs', fontsize=16, fontweight='bold', y=0.995)
+
+# Define metrics and their display names
+metric_info = {
+    'subset_accuracy': 'Subset Accuracy',
+    'hamming_accuracy': 'Hamming Accuracy',
+    'micro_f1': 'Micro F1',
+    'macro_f1': 'Macro F1'
+}
+
+# Define colors for each model
+model_colors = {
+    'dinov2': '#1f77b4',  # blue
+    'vivit': '#ff7f0e',    # orange
+    'siglip': '#2ca02c'    # green
+}
+
+# Define line styles for contra
+line_styles = {
+    'no': '-',      # solid line for no contra
+    'yes': '--'     # dashed line for yes contra
+}
+
+# POV range
+povs = list(range(1, 6))
+
+# Tasks
+tasks = ['tm', 'en']
+task_names = {'tm': 'Teammate', 'en': 'Enemy'}
+
+# Plot for each task and metric
+for task_idx, task in enumerate(tasks):
+    for metric_idx, (metric_key, metric_name) in enumerate(metric_info.items()):
+        ax = axes[task_idx, metric_idx]
+        
+        # Plot each model and contra setting
+        for model in ['dinov2', 'vivit', 'siglip']:
+            for contra in ['no', 'yes']:
+                values = []
+                for pov in povs:
+                    if metric_key == 'hamming_accuracy':
+                        # Convert hamming_loss to hamming_accuracy
+                        ham_loss = get_val(pov, model, contra, task, 'hamming_loss')
+                        if ham_loss is not None:
+                            values.append(100 - ham_loss)
+                        else:
+                            values.append(None)
+                    else:
+                        values.append(get_val(pov, model, contra, task, metric_key))
+                
+                # Only plot if we have valid values
+                if any(v is not None for v in values):
+                    # Handle None values for plotting
+                    plot_povs = [p for p, v in zip(povs, values) if v is not None]
+                    plot_values = [v for v in values if v is not None]
+                    
+                    label = f"{model} {'w/ contra' if contra == 'yes' else 'w/o contra'}"
+                    ax.plot(plot_povs, plot_values, 
+                           color=model_colors[model],
+                           linestyle=line_styles[contra],
+                           marker='o',
+                           markersize=6,
+                           linewidth=2,
+                           label=label,
+                           alpha=0.8)
+        
+        # Styling
+        ax.set_xlabel('Number of POVs', fontsize=11, fontweight='bold')
+        ax.set_ylabel('Value (%)', fontsize=11, fontweight='bold')
+        ax.set_title(f"{task_names[task]}: {metric_name}", fontsize=12, fontweight='bold', pad=10)
+        ax.set_xticks(povs)
+        ax.grid(True, alpha=0.3, linestyle='--')
+        ax.set_xlim(0.8, 5.2)
+        
+        # Set y-axis limits based on data range
+        y_min, y_max = ax.get_ylim()
+        ax.set_ylim(max(0, y_min - 5), min(100, y_max + 5))
+        
+        # Add legend only to the top-right subplot
+        if task_idx == 0 and metric_idx == 3:
+            ax.legend(loc='center left', bbox_to_anchor=(1.02, 0.5), 
+                     frameon=True, fancybox=True, shadow=True, ncol=1, fontsize=9)
+
+# Adjust layout
+plt.tight_layout(rect=[0, 0, 0.98, 0.99])
+
+# Save figure
+save_path = Path("main_exp_metrics.png")
+plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
+print(f"Figure saved to: {save_path}")
+
+save_path_pdf = Path("main_exp_metrics.pdf")
+plt.savefig(save_path_pdf, bbox_inches='tight', facecolor='white')
+print(f"Figure saved to: {save_path_pdf}")
+
+plt.show()

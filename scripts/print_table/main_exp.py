@@ -55,7 +55,7 @@ for pov in range(1, 6):
     print(f"{'Model':<25} {'TM SubAcc':<18} {'TM HamLoss':<18} {'TM MicroF1':<18} {'TM MacroF1':<18} {'EN SubAcc':<18} {'EN HamLoss':<18} {'EN MicroF1':<18} {'EN MacroF1':<18}")
     print("-" * 190)
     
-    for model in ["dinov2", "vivit", "siglip"]:
+    for model in ["dinov2", "vivit", "siglip", "vjepa2", "videomae"]:
         no_contra_vals = {}
         for task in ["en", "tm"]:
             for metric in metrics:

@@ -4,6 +4,7 @@ from collections import defaultdict
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+import seaborn as sns
 
 output_dir = Path("/project2/ustun_1726/x-ego/output/main_exp")
 
@@ -89,15 +90,14 @@ for pov in range(1, 6):
 # Create visualization
 print("\n\nGenerating plots...")
 
-# Set professional style
+# Set professional style with seaborn
+sns.set_style("whitegrid")
+sns.set_context("paper", font_scale=1.3)
 mpl.rcParams['font.family'] = 'sans-serif'
-mpl.rcParams['font.size'] = 10
 mpl.rcParams['axes.linewidth'] = 1.2
-mpl.rcParams['grid.alpha'] = 0.3
 
 # Create figure with 2x4 subplots
 fig, axes = plt.subplots(2, 4, figsize=(20, 10))
-fig.suptitle('Model Performance Across POVs', fontsize=16, fontweight='bold', y=0.995)
 
 # Define metrics and their display names
 metric_info = {
@@ -155,35 +155,58 @@ for task_idx, task in enumerate(tasks):
                     plot_povs = [p for p, v in zip(povs, values) if v is not None]
                     plot_values = [v for v in values if v is not None]
                     
-                    label = f"{model} {'w/ contra' if contra == 'yes' else 'w/o contra'}"
+                    # Only add label for legend (will be created separately)
                     ax.plot(plot_povs, plot_values, 
                            color=model_colors[model],
                            linestyle=line_styles[contra],
                            marker='o',
                            markersize=6,
-                           linewidth=2,
-                           label=label,
-                           alpha=0.8)
+                           linewidth=2.5,
+                           alpha=0.85)
         
         # Styling
-        ax.set_xlabel('Number of POVs', fontsize=11, fontweight='bold')
-        ax.set_ylabel('Value (%)', fontsize=11, fontweight='bold')
-        ax.set_title(f"{task_names[task]}: {metric_name}", fontsize=12, fontweight='bold', pad=10)
+        ax.set_xlabel('Number of POVs', fontsize=12)
+        ax.set_ylabel('Value (%)', fontsize=12)
+        ax.set_title(f"{task_names[task]}: {metric_name}", fontsize=13, fontweight='bold', pad=10)
         ax.set_xticks(povs)
-        ax.grid(True, alpha=0.3, linestyle='--')
         ax.set_xlim(0.8, 5.2)
         
         # Set y-axis limits based on data range
         y_min, y_max = ax.get_ylim()
         ax.set_ylim(max(0, y_min - 5), min(100, y_max + 5))
         
-        # Add legend only to the top-right subplot
-        if task_idx == 0 and metric_idx == 3:
-            ax.legend(loc='center left', bbox_to_anchor=(1.02, 0.5), 
-                     frameon=True, fancybox=True, shadow=True, ncol=1, fontsize=9)
+        # Improve grid
+        ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.8)
+        ax.set_axisbelow(True)
+
+# Create custom legend (only once, no duplicates)
+from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
+
+legend_elements = []
+
+# Add model colors
+for model in ['dinov2', 'vivit', 'siglip', 'vjepa2', 'videomae']:
+    legend_elements.append(Line2D([0], [0], color=model_colors[model], linewidth=2.5, 
+                                  label=model.upper() if model != 'siglip' else 'SigLIP'))
+
+# Add a separator
+legend_elements.append(Line2D([0], [0], color='none', label=''))
+
+# Add line style explanations
+legend_elements.append(Line2D([0], [0], color='gray', linestyle='-', linewidth=2.5, 
+                              label='Without Contrastive'))
+legend_elements.append(Line2D([0], [0], color='gray', linestyle='--', linewidth=2.5, 
+                              label='With Contrastive'))
+
+# Place legend on the right side of the entire figure
+fig.legend(handles=legend_elements, loc='center right', 
+          bbox_to_anchor=(0.99, 0.5), frameon=True, 
+          fancybox=True, shadow=False, fontsize=11, 
+          title='Models & Settings', title_fontsize=12)
 
 # Adjust layout
-plt.tight_layout(rect=[0, 0, 0.98, 0.99])
+plt.tight_layout(rect=[0, 0, 0.92, 1.0])
 
 # Save figure
 save_path = Path("main_exp_metrics.png")

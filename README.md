@@ -6,9 +6,7 @@
 **X-Ego-CS** is a large-scale multi-agent gameplay dataset for **cross-egocentric video understanding** in *Counter-Strike 2*.  
 It provides synchronized **first-person (egocentric)** video streams from **10 players (5v5)** across **45 professional-level matches**, enabling research on **tactical reasoning**, **situational awareness**, and **multi-agent coordination**.
 
-<video controls>
-  <source src="https://huggingface.co/datasets/wangyz1999/X-EGO-CS/resolve/main/multi-ego-sync-demo-pistol.mp4" type="video/mp4">
-</video>
+https://github.com/user-attachments/assets/5485943e-95e4-4f0d-ae16-4cde4744bd2f
 
 ---
 

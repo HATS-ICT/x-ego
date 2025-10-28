@@ -8,6 +8,8 @@ It provides synchronized **first-person (egocentric)** video streams from **10 p
 
 https://github.com/user-attachments/assets/5485943e-95e4-4f0d-ae16-4cde4744bd2f
 
+![x-ego](https://github.com/user-attachments/assets/c81e440f-3246-493e-9354-0a845157c581)
+
 ---
 
 ## Quick Start

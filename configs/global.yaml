@@ -8,7 +8,7 @@ data:
   persistent_workers: true
   pin_mem: true
   batch_size: 16
-  num_workers: 16
+  num_workers: 0
   prefetch_factor: 2
   data_path_csv_filename: video_partitioned_chunked_downsized.csv
   fixed_duration_seconds: 5
@@ -23,6 +23,8 @@ data:
   time_jitter_max_seconds: 0.3  # Maximum random time jitter (±seconds) applied to each sampled frame for temporal augmentation. Set to 0 to disable.
   grid_resolution: 100  # Grid resolution (10x10 = 100 cells)
   gaussian_sigma: 2.0  # Gaussian smoothing sigma for density-cls
+  use_precomputed_embeddings: true  # If true, load pre-computed embeddings instead of videos
+  precomputed_embeddings_encoder: ${model.encoder.video.model_type}
 
 
 model:
@@ -64,7 +66,7 @@ model:
   encoder:
     video:
       freeze_backbone: true
-      model_type: dinov2  # Options: clip, dinov2, siglip, vivit, videomae, vjepa2
+      model_type: clip  # Options: clip, dinov2, siglip, vivit, videomae, vjepa2
     proj_dim: ${model.agent_fusion.fused_agent_dim}
   contrastive:
     enable: true

@@ -164,6 +164,9 @@ class TeammateOpponentTrajPredictionDataset(BaseVideoDataset, Dataset):
         """
         row = self.df.iloc[idx]
         
+        # Get original CSV index for loading pre-computed embeddings
+        original_csv_idx = row.get('original_csv_idx', idx)
+        
         # Sample POV and target sides
         pov_team_side, target_team_side = self._sample_pov_and_target_sides()
         
@@ -183,7 +186,7 @@ class TeammateOpponentTrajPredictionDataset(BaseVideoDataset, Dataset):
         round_num = row['round_num']
         h5_traj_idx = row['h5_traj_idx']
         
-        # Load videos for POV agents
+        # Load videos or embeddings for POV agents
         video_clips = []
         agent_ids = []
         
@@ -191,26 +194,37 @@ class TeammateOpponentTrajPredictionDataset(BaseVideoDataset, Dataset):
         video_start_seconds = row['normalized_start_seconds']
         video_end_seconds = row['normalized_video_end_seconds']
         
-        for agent in pov_agents:
-            agent_id = agent['id']
-            agent_ids.append(agent_id)
+        if self.use_precomputed_embeddings:
+            # Load pre-computed embeddings using original CSV index
+            for agent_idx, agent in enumerate(pov_agents):
+                agent_ids.append(agent['id'])
+                embedding = self._load_embedding(original_csv_idx, agent_idx)
+                video_clips.append(embedding)
             
-            # Construct video path
-            video_path = self._construct_video_path(match_id, agent_id, round_num)
+            # Stack embeddings: [num_agents, embed_dim]
+            video = torch.stack(video_clips, dim=0)
+        else:
+            # Load and process videos
+            for agent in pov_agents:
+                agent_id = agent['id']
+                agent_ids.append(agent_id)
+                
+                # Construct video path
+                video_path = self._construct_video_path(match_id, agent_id, round_num)
+                
+                # Load video clip
+                video_clip = self._load_video_clip_with_decord(
+                    video_path,
+                    video_start_seconds,
+                    video_end_seconds
+                )
+                
+                # Transform video
+                video_features = self._transform_video(video_clip)
+                video_clips.append(video_features)
             
-            # Load video clip
-            video_clip = self._load_video_clip_with_decord(
-                video_path,
-                video_start_seconds,
-                video_end_seconds
-            )
-            
-            # Transform video
-            video_features = self._transform_video(video_clip)
-            video_clips.append(video_features)
-        
-        # Stack video clips: [num_agents, num_frames, C, H, W]
-        video = torch.stack(video_clips, dim=0)
+            # Stack video clips: [num_agents, num_frames, C, H, W]
+            video = torch.stack(video_clips, dim=0)
         
         # Get trajectories for target team
         # Load from preloaded H5 data
@@ -228,5 +242,6 @@ class TeammateOpponentTrajPredictionDataset(BaseVideoDataset, Dataset):
             'pov_team_side': pov_team_side,
             'target_team_side': target_team_side,
             'agent_ids': agent_ids,
-            'target_player_ids': target_player_ids
+            'target_player_ids': target_player_ids,
+            'original_csv_idx': original_csv_idx  # Always include for embedding extraction
         }

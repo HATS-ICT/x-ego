@@ -1,0 +1,11 @@
+python scripts/data_processing/embed_video.py --task teammate_location_nowcast --encoders clip --batch-size 16
+python scripts/data_processing/embed_video.py --task enemy_location_nowcast --encoders dinov2 --batch-size 16
+python scripts/data_processing/embed_video.py --task teammate_location_nowcast --encoders dinov2 --batch-size 16
+python scripts/data_processing/embed_video.py --task enemy_location_nowcast --encoders siglip --batch-size 16
+python scripts/data_processing/embed_video.py --task teammate_location_nowcast --encoders siglip --batch-size 16
+python scripts/data_processing/embed_video.py --task enemy_location_nowcast --encoders vivit --batch-size 16
+python scripts/data_processing/embed_video.py --task teammate_location_nowcast --encoders vivit --batch-size 16
+python scripts/data_processing/embed_video.py --task enemy_location_nowcast --encoders videomae --batch-size 16
+python scripts/data_processing/embed_video.py --task teammate_location_nowcast --encoders videomae --batch-size 16
+python scripts/data_processing/embed_video.py --task enemy_location_nowcast --encoders vjepa2 --batch-size 16
+python scripts/data_processing/embed_video.py --task teammate_location_nowcast --encoders vjepa2 --batch-size 16

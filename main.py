@@ -68,7 +68,6 @@ Every settings in config file can be overridden. Examples:
                        default='enemy_location_nowcast',
                        help='Task to run')
     
-    
     parser.add_argument('--config', 
                        type=str,
                        help='Path to config file (auto-determined from mode and task if not specified)')

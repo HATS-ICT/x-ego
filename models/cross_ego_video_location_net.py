@@ -273,18 +273,27 @@ class CrossEgoVideoLocationNet(L.LightningModule):
                 - agent_embeddings: Per-agent embeddings
                 - mu, logvar, z: VAE latent variables (coord-gen mode only)
         """
-        video = batch['video']  # [B, A, T, C, H, W]
+        video = batch['video']  # [B, A, T, C, H, W] or [B, A, embed_dim] if using pre-computed embeddings
         pov_team_side_encoded = batch['pov_team_side_encoded']  # [B]
         
-        if len(video.shape) != 6:
-            raise ValueError(f"Expected video shape [B, A, T, C, H, W], got {video.shape}")
-        
-        # Encode each agent's video
-        B, A, T, C, H, W = video.shape
-        video_reshaped = video.view(B * A, T, C, H, W)
-        agent_embeddings = self.video_encoder(video_reshaped)  # [B*A, embed_dim]
-        agent_embeddings = self.video_projector(agent_embeddings)  # [B*A, proj_dim]
-        agent_embeddings = agent_embeddings.view(B, A, -1)  # [B, A, proj_dim]
+        # Check if using pre-computed embeddings (shape is [B, A, embed_dim] instead of [B, A, T, C, H, W])
+        if len(video.shape) == 3:
+            # Pre-computed embeddings: [B, A, embed_dim]
+            agent_embeddings = video  # Already embeddings, just rename
+            # Still apply projector to match expected dimensions
+            B, A, embed_dim = agent_embeddings.shape
+            agent_embeddings = agent_embeddings.view(B * A, embed_dim)
+            agent_embeddings = self.video_projector(agent_embeddings)  # [B*A, proj_dim]
+            agent_embeddings = agent_embeddings.view(B, A, -1)  # [B, A, proj_dim]
+        elif len(video.shape) == 6:
+            # Raw videos: [B, A, T, C, H, W] - need to encode
+            B, A, T, C, H, W = video.shape
+            video_reshaped = video.view(B * A, T, C, H, W)
+            agent_embeddings = self.video_encoder(video_reshaped)  # [B*A, embed_dim]
+            agent_embeddings = self.video_projector(agent_embeddings)  # [B*A, proj_dim]
+            agent_embeddings = agent_embeddings.view(B, A, -1)  # [B, A, proj_dim]
+        else:
+            raise ValueError(f"Expected video shape [B, A, T, C, H, W] or [B, A, embed_dim], got {video.shape}")
         
         # Optional contrastive learning (align agents from same batch)
         contrastive_loss = None

@@ -5,6 +5,7 @@ from typing import Dict, Tuple, Optional, List
 import torch
 import numpy as np
 import pandas as pd
+import h5py
 from abc import ABC, abstractmethod
 from transformers import AutoVideoProcessor
 from decord import VideoReader, cpu
@@ -63,8 +64,34 @@ class BaseVideoDataset(ABC):
         # Path configuration
         self.data_root = Path(cfg.path.data)
         
-        # Initialize video processor
-        self._init_video_processor()
+        # Pre-computed embeddings configuration
+        self.use_precomputed_embeddings = self.data_cfg.get('use_precomputed_embeddings', False)
+        if self.use_precomputed_embeddings:
+            self.embeddings_encoder = self.data_cfg.precomputed_embeddings_encoder
+            
+            # Build embedding file path: {csv_filename_without_ext}_{encoder_name}.h5
+            # e.g., teammate_location_nowcast_s1s_l5s_half_clip.h5
+            csv_filename = self.data_cfg.labels_filename
+            csv_name_without_ext = Path(csv_filename).stem
+            embeddings_filename = f"{csv_name_without_ext}_{self.embeddings_encoder}.h5"
+            embeddings_file = self.data_root / "video_544x306_30fps_embed" / embeddings_filename
+            
+            if not embeddings_file.exists():
+                raise FileNotFoundError(
+                    f"Pre-computed embeddings file not found: {embeddings_file}\n"
+                    f"Expected format: {{csv_filename}}_{{encoder}}.h5\n"
+                    f"Run: python scripts/data_processing/embed_video.py --encoders {self.embeddings_encoder} "
+                    f"--config configs/train/{{task}}.yaml"
+                )
+            
+            self.embeddings_h5 = h5py.File(embeddings_file, 'r')
+            logger.info(f"Using pre-computed {self.embeddings_encoder} embeddings from: {embeddings_file}")
+        else:
+            self.embeddings_h5 = None
+        
+        # Initialize video processor (only needed if not using pre-computed embeddings)
+        if not self.use_precomputed_embeddings:
+            self._init_video_processor()
         
         # Load label CSV file
         self.label_path = self.data_cfg.label_path
@@ -106,9 +133,14 @@ class BaseVideoDataset(ABC):
         self.partition = self.data_cfg.partition
         if self.partition != 'all':
             initial_count = len(self.df)
+            # Store original CSV index before filtering (needed for pre-computed embeddings)
+            self.df['original_csv_idx'] = self.df.index
             self.df = self.df[self.df['partition'] == self.partition].reset_index(drop=True)
             filtered_count = len(self.df)
             logger.info(f"Filtered dataset from {initial_count} to {filtered_count} samples for partition '{self.partition}'")
+        else:
+            # No filtering, original index = current index
+            self.df['original_csv_idx'] = self.df.index
             
         # Output directory for saving/loading artifacts
         self.output_dir = Path(cfg.path.exp)
@@ -272,6 +304,24 @@ class BaseVideoDataset(ABC):
         video_processed = self.video_processor(video_clip, return_tensors="pt")
         video_features = video_processed.pixel_values_videos.squeeze(0)
         return video_features
+    
+    def _load_embedding(self, csv_idx: int, agent_position: int) -> torch.Tensor:
+        """
+        Load pre-computed embedding from h5 file.
+        
+        Args:
+            csv_idx: Row index in the CSV file
+            agent_position: Agent position (0-4)
+            
+        Returns:
+            embedding: Pre-computed embedding tensor [embed_dim]
+        """
+        if self.embeddings_h5 is None:
+            raise RuntimeError("Embeddings h5 file not loaded. Set use_precomputed_embeddings=True in config.")
+        
+        # Load embedding from h5 file: {csv_idx}/{agent_position}
+        embedding = self.embeddings_h5[str(csv_idx)][str(agent_position)][:]
+        return torch.from_numpy(embedding).float()
     
     @abstractmethod
     def _extract_unique_places(self) -> List[str]:

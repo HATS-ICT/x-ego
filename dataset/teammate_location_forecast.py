@@ -158,28 +158,43 @@ class TeammateLocationForecastDataset(BaseVideoDataset, Dataset):
         round_num = row['round_num']
         pov_team_side = row['pov_team_side'].upper()  # Convert to uppercase (T or CT)
         
+        # Get original CSV index for loading pre-computed embeddings
+        original_csv_idx = row.get('original_csv_idx', idx)
+        
         # Get team players (both input and labels from same team)
         team_players = self._get_all_team_players(row)
         
         # Select subset of agents from team for input
         selected_agents = self._select_agents(team_players)
         
-        # Load videos for selected agents
+        # Load videos or embeddings for selected agents
         agent_videos = []
         agent_ids = []
         agent_places = []
         
-        for agent in selected_agents:
-            # Construct video path dynamically
-            video_path = self._construct_video_path(match_id, agent['id'], round_num)
-            video_clip = self._load_video_clip_with_decord(video_path, start_seconds, end_seconds)
-            video_features = self._transform_video(video_clip)
-            agent_videos.append(video_features)
-            agent_ids.append(agent['id'])
-            agent_places.append(agent['future_place'])
-        
-        # Stack agent videos: [A, T, C, H, W]
-        multi_agent_video = torch.stack(agent_videos, dim=0)
+        if self.use_precomputed_embeddings:
+            # Load pre-computed embeddings using original CSV index
+            for agent_idx, agent in enumerate(selected_agents):
+                embedding = self._load_embedding(original_csv_idx, agent_idx)
+                agent_videos.append(embedding)
+                agent_ids.append(agent['id'])
+                agent_places.append(agent['future_place'])
+            
+            # Stack agent embeddings: [A, embed_dim]
+            multi_agent_video = torch.stack(agent_videos, dim=0)
+        else:
+            # Load and process videos
+            for agent in selected_agents:
+                # Construct video path dynamically
+                video_path = self._construct_video_path(match_id, agent['id'], round_num)
+                video_clip = self._load_video_clip_with_decord(video_path, start_seconds, end_seconds)
+                video_features = self._transform_video(video_clip)
+                agent_videos.append(video_features)
+                agent_ids.append(agent['id'])
+                agent_places.append(agent['future_place'])
+            
+            # Stack agent videos: [A, T, C, H, W]
+            multi_agent_video = torch.stack(agent_videos, dim=0)
         
         # Create future location labels (using all 5 team players)
         future_location_labels = self._create_future_location_labels(team_players)
@@ -194,7 +209,8 @@ class TeammateLocationForecastDataset(BaseVideoDataset, Dataset):
             'pov_team_side': pov_team_side,
             'pov_team_side_encoded': torch.tensor(pov_team_side_encoded, dtype=torch.long),
             'agent_ids': agent_ids,
-            'agent_places': agent_places
+            'agent_places': agent_places,
+            'original_csv_idx': original_csv_idx  # Always include for embedding extraction
         }
         
         return result

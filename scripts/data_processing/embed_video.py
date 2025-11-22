@@ -112,7 +112,7 @@ class VideoEmbeddingExtractor:
         self.output_file = self.output_dir / f"{csv_name_without_ext}_{encoder_name}.h5"
         print(f"Output file: {self.output_file}")
     
-    def extract_embeddings(self, dataset, batch_size=8, max_steps=None):
+    def extract_embeddings(self, dataset, batch_size=8, max_steps=None, num_workers=8):
         """
         Extract embeddings for all samples in the dataset.
         
@@ -120,6 +120,7 @@ class VideoEmbeddingExtractor:
             dataset: Dataset to extract embeddings from
             batch_size: Batch size for processing
             max_steps: Maximum number of batches to process (None for all)
+            num_workers: Number of workers for data loading
         """
         print(f"\nExtracting embeddings for {len(dataset)} samples...")
         print(f"Using batch size: {batch_size}")
@@ -132,7 +133,7 @@ class VideoEmbeddingExtractor:
             dataset,
             batch_size=batch_size,
             shuffle=False,
-            num_workers=20,  # No multiprocessing to avoid issues with h5py
+            num_workers=num_workers,
             pin_memory=False,
         )
         
@@ -296,6 +297,13 @@ def main():
         help='Maximum number of batches to process (default: None, process all)'
     )
     
+    parser.add_argument(
+        '--num-workers',
+        type=int,
+        default=8,
+        help='Number of workers for data loading (default: 8)'
+    )
+    
     args = parser.parse_args()
     
     # Check if CUDA is available
@@ -381,7 +389,12 @@ def main():
             )
             
             # Extract and save embeddings
-            extractor.extract_embeddings(dataset, batch_size=args.batch_size, max_steps=args.max_steps)
+            extractor.extract_embeddings(
+                dataset, 
+                batch_size=args.batch_size, 
+                max_steps=args.max_steps,
+                num_workers=args.num_workers
+            )
             
             # Clear CUDA cache
             if args.device == 'cuda':

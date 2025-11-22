@@ -40,6 +40,9 @@ ENCODERS = [
 # Batch size for embedding
 BATCH_SIZE = 16
 
+# Number of workers for data loading
+NUM_WORKERS = 8
+
 # ===== Templates =====
 SCRIPT_HEADER = """#!/bin/bash
 #SBATCH --account={account}
@@ -64,7 +67,8 @@ cd {project_src}
 uv run python scripts/data_processing/embed_video.py \\
   --task {task} \\
   --encoders {encoder} \\
-  --batch-size {batch_size}
+  --batch-size {batch_size} \\
+  --num-workers {num_workers}
 """
 
 SBATCH_ALL_HEADER = """#!/bin/bash
@@ -142,6 +146,7 @@ def main():
                 task=task,
                 encoder=encoder,
                 batch_size=BATCH_SIZE,
+                num_workers=NUM_WORKERS,
             ).rstrip()
 
             content = header + "\n\n" + body + "\n"
@@ -154,7 +159,8 @@ def main():
             command = f"""uv run python scripts/data_processing/embed_video.py \\
   --task {task} \\
   --encoders {encoder} \\
-  --batch-size {BATCH_SIZE}"""
+  --batch-size {BATCH_SIZE} \\
+  --num-workers {NUM_WORKERS}"""
             all_commands.append((run_name, command))
 
     # Generate sbatch_all script
@@ -180,6 +186,7 @@ def main():
     print(f"  - Total: {len(TASKS)} × {len(ENCODERS)} = {len(all_jobs)} jobs")
     print("\nConfiguration:")
     print(f"  - batch_size: {BATCH_SIZE}")
+    print(f"  - num_workers: {NUM_WORKERS}")
     print(f"  - encoders: {ENCODERS}")
     print(f"  - tasks: {TASKS}")
     print("\nTo submit all jobs to SLURM, run:")

@@ -151,11 +151,8 @@ def main():
             all_commands = []
             task_short = get_task_short_name(task)
             
-            # Order: for each seed, do with_contra and without_contra
-            for seed in SEEDS:
-                # For each pov_num
-                for num_pov in NUM_POV_AGENTS:
-                    # For each contra setting (yes then no)
+            for num_pov in NUM_POV_AGENTS:
+                for seed in SEEDS:
                     for with_contra in [True, False]:
                         run_name, command = generate_command(task, num_pov, model, with_contra, seed)
                         all_commands.append((run_name, command))

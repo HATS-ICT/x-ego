@@ -380,6 +380,54 @@ class VideoEncoderVJEPA2(nn.Module):
         return video_features
 
 
+def get_embed_dim_for_model_type(model_type: str) -> int:
+    """
+    Get the embedding dimension for a given model type without initializing the full model.
+    This is useful when using precomputed embeddings to save memory.
+    
+    Args:
+        model_type: The model type (clip, siglip, dinov2, vivit, videomae, vjepa2)
+        
+    Returns:
+        The embedding dimension for the specified model type
+    """
+    if model_type not in MODEL_TYPE_TO_PRETRAINED:
+        raise ValueError(
+            f"Unknown model_type: '{model_type}'. "
+            f"Supported types: {list(MODEL_TYPE_TO_PRETRAINED.keys())}"
+        )
+    
+    pretrained_name = MODEL_TYPE_TO_PRETRAINED[model_type]
+    
+    # Get config without loading weights
+    if model_type == 'clip':
+        from transformers import CLIPConfig
+        config = CLIPConfig.from_pretrained(pretrained_name)
+        return config.vision_config.hidden_size
+    elif model_type == 'siglip':
+        from transformers import SiglipConfig
+        config = SiglipConfig.from_pretrained(pretrained_name)
+        return config.vision_config.hidden_size
+    elif model_type == 'dinov2':
+        from transformers import Dinov2Config
+        config = Dinov2Config.from_pretrained(pretrained_name)
+        return config.hidden_size * 2  # DINOv2 uses concatenated CLS and patch tokens
+    elif model_type == 'vivit':
+        from transformers import VivitConfig
+        config = VivitConfig.from_pretrained(pretrained_name)
+        return config.hidden_size
+    elif model_type == 'videomae':
+        from transformers import VideoMAEConfig
+        config = VideoMAEConfig.from_pretrained(pretrained_name)
+        return config.hidden_size
+    elif model_type == 'vjepa2':
+        from transformers import VJEPA2Config
+        config = VJEPA2Config.from_pretrained(pretrained_name)
+        return config.hidden_size
+    else:
+        raise ValueError(f"Unsupported model_type: {model_type}")
+
+
 class VideoEncoder(nn.Module):
     """
     Factory class for video encoders that automatically selects the appropriate encoder

@@ -41,12 +41,12 @@ from models.test_analyzer import TestAnalyzer
 from pathlib import Path
 
 try:
-    from video_encoder import VideoEncoder
+    from video_encoder import VideoEncoder, get_embed_dim_for_model_type
     from agent_fuser import AgentFuser
     from cross_ego_contrastive import CrossEgoContrastive
     from team_trajectory_decoder import TeamTrajectoryDecoder
 except ImportError:
-    from .video_encoder import VideoEncoder
+    from .video_encoder import VideoEncoder, get_embed_dim_for_model_type
     from .agent_fuser import AgentFuser
     from .cross_ego_contrastive import CrossEgoContrastive
     from .team_trajectory_decoder import TeamTrajectoryDecoder
@@ -61,6 +61,11 @@ class CrossEgoVideoLocationNet(L.LightningModule):
     
     Video frames are sampled with optional temporal jitter (configured via 
     data.time_jitter_max_seconds) to augment training data and improve robustness.
+    
+    Memory Optimization:
+        When cfg.data.use_precomputed_embeddings=True, the video encoder is NOT 
+        initialized, significantly reducing memory usage and checkpoint size. 
+        The model expects precomputed embeddings as input in this mode.
     """
     
     def __init__(self, cfg):
@@ -69,10 +74,23 @@ class CrossEgoVideoLocationNet(L.LightningModule):
         self.cfg = cfg
         
         # Core model components
-        self.video_encoder = VideoEncoder(cfg.model.encoder.video)
+        # Only initialize video encoder if not using precomputed embeddings
+        self.use_precomputed_embeddings = cfg.data.use_precomputed_embeddings
+        
+        if self.use_precomputed_embeddings:
+            # Get embed_dim without initializing the full encoder (saves memory)
+            video_embed_dim = get_embed_dim_for_model_type(cfg.model.encoder.video.model_type)
+            self.video_encoder = None  # Don't initialize encoder when using precomputed embeddings
+            print(f"[Memory Optimization] Video encoder NOT initialized (using precomputed embeddings)")
+            print(f"[Memory Optimization] Using {cfg.model.encoder.video.model_type} embed_dim: {video_embed_dim}")
+        else:
+            # Initialize full video encoder
+            self.video_encoder = VideoEncoder(cfg.model.encoder.video)
+            video_embed_dim = self.video_encoder.embed_dim
+            print(f"[Model Init] Video encoder initialized: {cfg.model.encoder.video.model_type} (embed_dim: {video_embed_dim})")
         
         self.video_projector = build_mlp(
-            input_dim=self.video_encoder.embed_dim,
+            input_dim=video_embed_dim,
             output_dim=cfg.model.encoder.proj_dim,
             num_hidden_layers=1,
             hidden_dim=cfg.model.encoder.proj_dim,
@@ -287,6 +305,12 @@ class CrossEgoVideoLocationNet(L.LightningModule):
             agent_embeddings = agent_embeddings.view(B, A, -1)  # [B, A, proj_dim]
         elif len(video.shape) == 6:
             # Raw videos: [B, A, T, C, H, W] - need to encode
+            if self.video_encoder is None:
+                raise RuntimeError(
+                    "Received raw video input but video_encoder is not initialized. "
+                    "This happens when use_precomputed_embeddings=True but raw videos are provided. "
+                    "Either set use_precomputed_embeddings=False or provide precomputed embeddings."
+                )
             B, A, T, C, H, W = video.shape
             video_reshaped = video.view(B * A, T, C, H, W)
             agent_embeddings = self.video_encoder(video_reshaped)  # [B*A, embed_dim]

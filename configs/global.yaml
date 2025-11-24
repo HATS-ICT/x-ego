@@ -7,7 +7,7 @@ data:
   video_folder: video_544x306_30fps
   persistent_workers: true
   pin_mem: true
-  batch_size: 16
+  batch_size: 64
   num_workers: 0
   prefetch_factor: 2
   data_path_csv_filename: video_partitioned_chunked_downsized.csv
@@ -24,6 +24,7 @@ data:
   grid_resolution: 100  # Grid resolution (10x10 = 100 cells)
   gaussian_sigma: 2.0  # Gaussian smoothing sigma for density-cls
   use_precomputed_embeddings: true  # If true, load pre-computed embeddings instead of videos
+                                     # MEMORY OPTIMIZATION: Video encoder will NOT be initialized, saving ~300-500MB memory and checkpoint size
   precomputed_embeddings_encoder: ${model.encoder.video.model_type}
 
 
@@ -66,7 +67,7 @@ model:
   encoder:
     video:
       freeze_backbone: true
-      model_type: clip  # Options: clip, dinov2, siglip, vivit, videomae, vjepa2
+      model_type: dinov2  # Options: clip, dinov2, siglip, vivit, videomae, vjepa2
     proj_dim: ${model.agent_fusion.fused_agent_dim}
   contrastive:
     enable: true
@@ -92,14 +93,14 @@ model:
 
 
 training:
-  max_epochs: 8  # Total training epochs
+  max_epochs: 40  # Total training epochs
   max_steps: -1  # Disabled when using max_epochs
   accelerator: gpu
   devices: 1
   strategy: auto
   precision: bf16-mixed
   gradient_clip_val: 1.0
-  accumulate_grad_batches: 2
+  accumulate_grad_batches: 1
   val_check_interval: null  # Disabled when using check_val_every_n_epoch
   check_val_every_n_epoch: 1  # Validate at the end of each epoch
   log_every_n_steps: 10

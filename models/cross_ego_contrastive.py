@@ -202,7 +202,6 @@ class CrossEgoContrastive(nn.Module):
         # L2 normalize embeddings
         normalized_embeddings = projected_embeddings / projected_embeddings.norm(p=2, dim=-1, keepdim=True)
         
-        
         # Compute cosine similarity matrix: [B*A, B*A]
         logits = torch.matmul(normalized_embeddings, normalized_embeddings.t())
         

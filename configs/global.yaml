@@ -21,8 +21,6 @@ data:
                      # then model randomly selects num_pov_agents from these 5 for inference
   mask_minimap: true
   time_jitter_max_seconds: 0.3  # Maximum random time jitter (±seconds) applied to each sampled frame for temporal augmentation. Set to 0 to disable.
-  grid_resolution: 100  # Grid resolution (10x10 = 100 cells)
-  gaussian_sigma: 2.0  # Gaussian smoothing sigma for density-cls
   use_precomputed_embeddings: true  # If true, load pre-computed embeddings instead of videos
                                      # MEMORY OPTIMIZATION: Video encoder will NOT be initialized, saving ~300-500MB memory and checkpoint size
   precomputed_embeddings_encoder: ${model.encoder.video.model_type}
@@ -42,25 +40,7 @@ model:
     fused_agent_dim: 768
     num_attn_heads: 8 # only when method is attention
     num_layers: 2
-  vae:
-    latent_dim: 64
-    kl_weight: 0.5
-  loss_fn:
-    multi-label-cls: bce  # Options: bce, focal
-    grid-cls: bce  # Options: bce, focal
-    multi-output-reg: mse  # Options: mse, mae
-    density-cls: mse  # Options: mse, mae, kl
-    coord-reg: sinkhorn  # Options: mse, sinkhorn, hausdorff, energy
-    coord-gen: sinkhorn  # Options: mse, sinkhorn, hausdorff, energy
-    traj-gen: mse  # Options: mse, smooth_l1, huber
-  sinkhorn:
-    blur: 0.1  # Controls smoothing (0.01-0.1)
-    scaling: 0.8  # Speeds convergence with ε-scaling (<1)
-    p: 2  # Power parameter for Sinkhorn loss
-  hausdorff:
-    p: 2  # Power parameter for Hausdorff loss
-  energy:
-    p: 2  # Power parameter for Energy loss
+  loss_fn: bce  # Options: bce, focal
   focal:
     alpha: 0.25  # Class balance weight for positive class
     gamma: 2.0  # Focusing parameter (higher = more focus on hard examples)
@@ -81,15 +61,6 @@ model:
     # Setup 4: logit_scale_init=10, logit_bias_init=0,   turn_off_bias=false (b: 0,    t: log10)
     # Setup 5: logit_scale_init=1,  logit_bias_init=0,   turn_off_bias=false (b: 0,    t: log1)
     loss_weight: 1.0
-  traj_decoder:
-    feat_dim: ${model.agent_fusion.fused_agent_dim}
-    seq_len: 10
-    num_teams: 2
-    team_emb_dim: ${model.team_embed_dim}
-    num_heads: 8
-    num_layers: 2
-    mlp_ratio: 4.0
-    dropout: 0.1
 
 
 training:

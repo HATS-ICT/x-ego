@@ -73,14 +73,9 @@ class EnemyLocationNowcastDataset(BaseVideoDataset, Dataset):
         self.return_time = cfg.data.get('return_time', False)
             
         logger.info(f"Dataset initialized with {len(self.df)} samples")
-        logger.info(f"Number of agents: {self.num_agents}, Task form: {self.task_form}")
+        logger.info(f"Number of agents: {self.num_agents}")
         logger.info(f"Minimap masking enabled: {self.mask_minimap}")
         logger.info(f"Return time: {self.return_time}")
-        if self.task_form in ['grid-cls', 'density-cls']:
-            grid_res = self.cfg.data.grid_resolution
-            logger.info(f"Grid resolution: {grid_res}x{grid_res} = {grid_res*grid_res} cells")
-            if self.task_form == 'density-cls':
-                logger.info(f"Gaussian sigma: {self.cfg.data.gaussian_sigma}")
         logger.info("Team side will be randomly selected for each sample")
     
     def _extract_unique_places(self) -> List[str]:
@@ -127,7 +122,7 @@ class EnemyLocationNowcastDataset(BaseVideoDataset, Dataset):
     
     def _create_enemy_location_labels(self, enemy_players: List[Dict]) -> torch.Tensor:
         """
-        Create enemy location labels based on task_form.
+        Create enemy location labels (multi-hot classification).
         
         Args:
             enemy_players: List of enemy player data dictionaries

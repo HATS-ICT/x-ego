@@ -104,30 +104,16 @@ class BaseVideoDataset(ABC):
         if self.num_agents < 1 or self.num_agents > 5:
             raise ValueError(f"num_agents must be between 1 and 5, got {self.num_agents}")
             
-        # Task form
-        self.task_form = self.data_cfg.task_form
-        
-        # Validate task_form
-        valid_task_forms = ['coord-reg', 'coord-gen', 'traj-gen', 'multi-label-cls', 'multi-output-reg', 'grid-cls', 'density-cls']
-        if self.task_form not in valid_task_forms:
-            raise ValueError(f"task_form must be one of {valid_task_forms}, got {self.task_form}")
-            
         # Contrastive learning configuration
         self.use_contrastive = cfg.model.contrastive.enable
         self.num_agents_to_sample = 5 if self.use_contrastive else self.num_agents
             
-        # Place-based classification setup
-        if self.task_form in ['multi-label-cls', 'multi-output-reg']:
-            self.place_names = self._extract_unique_places()
-            self.place_to_idx = {place: idx for idx, place in enumerate(self.place_names)}
-            self.idx_to_place = {idx: place for place, idx in self.place_to_idx.items()}
-            self.num_places = len(self.place_names)
-            logger.info(f"Found {self.num_places} unique places: {self.place_names}")
-        else:
-            self.place_names = None
-            self.place_to_idx = None
-            self.idx_to_place = None
-            self.num_places = None
+        # Place-based classification setup (multi-label-cls)
+        self.place_names = self._extract_unique_places()
+        self.place_to_idx = {place: idx for idx, place in enumerate(self.place_names)}
+        self.idx_to_place = {idx: place for place, idx in self.place_to_idx.items()}
+        self.num_places = len(self.place_names)
+        logger.info(f"Found {self.num_places} unique places: {self.place_names}")
             
         # Partition filtering
         self.partition = self.data_cfg.partition
@@ -351,18 +337,12 @@ class BaseVideoDataset(ABC):
     
     def _init_label_creator(self):
         """Initialize label creator based on task form."""
-        kwargs = {}
-        
-        if self.task_form in ['multi-label-cls', 'multi-output-reg']:
-            kwargs['place_to_idx'] = self.place_to_idx
-            kwargs['num_places'] = self.num_places
-        
-        self.label_creator = create_label_creator(self.cfg, **kwargs)
-        
-        if self.label_creator is not None:
-            logger.info(f"Initialized label creator: {self.label_creator.__class__.__name__}")
-        else:
-            logger.info(f"No label creator needed for task form: {self.task_form}")
+        self.label_creator = create_label_creator(
+            self.cfg, 
+            place_to_idx=self.place_to_idx,
+            num_places=self.num_places
+        )
+        logger.info(f"Initialized label creator: {self.label_creator.__class__.__name__}")
     
     def __len__(self) -> int:
         """Return the number of samples in the dataset."""

@@ -4,7 +4,8 @@ import torch.nn.functional as F
 from transformers import CLIPModel, SiglipModel, Dinov2Model, VivitModel, VideoMAEModel, VJEPA2Model
 from transformers.models.vjepa2.modeling_vjepa2 import VJEPA2AttentivePooler
 from torch import Tensor
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
+import math
 
 
 # Mapping from model_type to HuggingFace pretrained model identifier
@@ -77,15 +78,17 @@ class VideoEncoderClip(nn.Module):
         for param in self.vision_model.parameters():
             param.requires_grad = False
     
-    def forward(self, pixel_values: torch.Tensor, return_last_hidden_state: bool = False) -> Tensor:
+    def forward(self, pixel_values: torch.Tensor, return_temporal_features: bool = False) -> Tensor:
         """
         Forward pass through the CLIP video encoder.
         
         Args:
             pixel_values: Video tensor of shape [batch_size, num_frames, channels, height, width]
+            return_temporal_features: If True, return per-frame features [batch_size, num_frames, hidden_size]
+                                     If False, return pooled video features [batch_size, hidden_size]
             
         Returns:
-            Video features - either pooled [batch_size, hidden_size] or unpooled [batch_size, seq_len, hidden_size]
+            Video features - either pooled [batch_size, hidden_size] or temporal [batch_size, num_frames, hidden_size]
         """
         batch_size, num_frames, channels, height, width = pixel_values.shape
         frames = pixel_values.view(-1, channels, height, width)
@@ -93,10 +96,13 @@ class VideoEncoderClip(nn.Module):
         vision_outputs = self.vision_model(pixel_values=frames)
         sequence_output = vision_outputs.last_hidden_state  # [batch_size * num_frames, seq_len, hidden_size]
 
-        # Original pooled behavior
         # following https://github.com/huggingface/transformers/blob/main/src/transformers/models/clip/modeling_clip.py#L1170-L1251
         frame_features = torch.mean(sequence_output[:, 1:, :], dim=1)  # [batch_size * num_frames, hidden_size]
         frame_features = frame_features.view(batch_size, num_frames, -1)  # [batch_size, num_frames, hidden_size]
+        
+        if return_temporal_features:
+            return frame_features  # [batch_size, num_frames, hidden_size]
+        
         video_features = torch.mean(frame_features, dim=1)  # [batch_size, hidden_size]
         return video_features
 
@@ -127,15 +133,17 @@ class VideoEncoderSigLIP(nn.Module):
         for param in self.vision_model.parameters():
             param.requires_grad = False
     
-    def forward(self, pixel_values: torch.Tensor, return_last_hidden_state: bool = False) -> Tensor:
+    def forward(self, pixel_values: torch.Tensor, return_temporal_features: bool = False) -> Tensor:
         """
         Forward pass through the SigLIP video encoder.
         
         Args:
             pixel_values: Video tensor of shape [batch_size, num_frames, channels, height, width]
+            return_temporal_features: If True, return per-frame features [batch_size, num_frames, hidden_size]
+                                     If False, return pooled video features [batch_size, hidden_size]
             
         Returns:
-            Video features with pooled video features
+            Video features - either pooled [batch_size, hidden_size] or temporal [batch_size, num_frames, hidden_size]
         """
         batch_size, num_frames, channels, height, width = pixel_values.shape
         
@@ -147,8 +155,11 @@ class VideoEncoderSigLIP(nn.Module):
         # following https://github.com/huggingface/transformers/blob/main/src/transformers/models/siglip/modeling_siglip.py#L1007-L1109
         frame_features = torch.mean(sequence_output, dim=1)  # [batch_size * num_frames, hidden_size]
         frame_features = frame_features.view(batch_size, num_frames, -1)  # [batch_size, num_frames, hidden_size]
-        video_features = torch.mean(frame_features, dim=1)  # [batch_size, hidden_size]
         
+        if return_temporal_features:
+            return frame_features  # [batch_size, num_frames, hidden_size]
+        
+        video_features = torch.mean(frame_features, dim=1)  # [batch_size, hidden_size]
         return video_features
 
 
@@ -178,15 +189,17 @@ class VideoEncoderDinov2(nn.Module):
         for param in self.vision_model.parameters():
             param.requires_grad = False
     
-    def forward(self, pixel_values: torch.Tensor, return_last_hidden_state: bool = False) -> Tensor:
+    def forward(self, pixel_values: torch.Tensor, return_temporal_features: bool = False) -> Tensor:
         """
         Forward pass through the DINOv2 video encoder.
         
         Args:
             pixel_values: Video tensor of shape [batch_size, num_frames, channels, height, width]
+            return_temporal_features: If True, return per-frame features [batch_size, num_frames, hidden_size * 2]
+                                     If False, return pooled video features [batch_size, hidden_size * 2]
             
         Returns:
-            Video features with pooled video features
+            Video features - either pooled [batch_size, hidden_size * 2] or temporal [batch_size, num_frames, hidden_size * 2]
         """
         batch_size, num_frames, channels, height, width = pixel_values.shape
         frames = pixel_values.view(-1, channels, height, width)
@@ -200,10 +213,13 @@ class VideoEncoderDinov2(nn.Module):
         patch_features = torch.mean(patch_tokens, dim=1)  # [batch_size * num_frames, hidden_size]
         frame_features = torch.cat([cls_tokens, patch_features], dim=1)  # [batch_size * num_frames, hidden_size * 2]
         
-        # pool to get video features
-        frame_features = frame_features.view(batch_size, num_frames, -1)  # [batch_size, num_frames, hidden_size * 2]
-        video_features = torch.mean(frame_features, dim=1)  # [batch_size, hidden_size * 2]
+        # reshape to [batch_size, num_frames, hidden_size * 2]
+        frame_features = frame_features.view(batch_size, num_frames, -1)
         
+        if return_temporal_features:
+            return frame_features  # [batch_size, num_frames, hidden_size * 2]
+        
+        video_features = torch.mean(frame_features, dim=1)  # [batch_size, hidden_size * 2]
         return video_features
 
 
@@ -236,15 +252,19 @@ class VideoEncoderVivit(nn.Module):
         for param in self.vision_model.parameters():
             param.requires_grad = False
     
-    def forward(self, pixel_values: torch.Tensor, return_last_hidden_state: bool = False) -> Tensor:
+    def forward(self, pixel_values: torch.Tensor, return_temporal_features: bool = False) -> Tensor:
         """
         Forward pass through the ViViT video encoder.
         
         Args:
             pixel_values: Video tensor of shape [batch_size, num_frames, channels, height, width]
+            return_temporal_features: If True, return spatiotemporal tokens [batch_size, seq_len-1, hidden_size]
+                                     (excluding CLS token)
+                                     If False, return CLS token [batch_size, hidden_size]
             
         Returns:
-            Video features from CLS token
+            Video features - either CLS token [batch_size, hidden_size] or 
+            spatiotemporal tokens [batch_size, seq_len-1, hidden_size]
         """
         # ViViT expects exactly 32 frames, so we need to resample if necessary
         pixel_values = temporal_sampling(pixel_values, self.expected_num_frames)
@@ -252,9 +272,12 @@ class VideoEncoderVivit(nn.Module):
         outputs = self.vision_model(pixel_values=pixel_values)
         sequence_output = outputs.last_hidden_state  # [batch_size, sequence_length, hidden_size]
         
+        if return_temporal_features:
+            # Return all tokens except CLS token (spatiotemporal patch tokens)
+            return sequence_output[:, 1:, :]  # [batch_size, seq_len-1, hidden_size]
+        
         # following https://github.com/huggingface/transformers/blob/bb45d3631ec7026db04a77d33a52b31766372160/src/transformers/models/vivit/modeling_vivit.py#L566-L687
         video_features = sequence_output[:, 0, :]  # [batch_size, hidden_size]
-        
         return video_features
 
 
@@ -294,21 +317,27 @@ class VideoEncoderVideoMAE(nn.Module):
         for param in self.vision_model.parameters():
             param.requires_grad = False
     
-    def forward(self, pixel_values: torch.Tensor, return_last_hidden_state: bool = False) -> Tensor:
+    def forward(self, pixel_values: torch.Tensor, return_temporal_features: bool = False) -> Tensor:
         """
         Forward pass through the VideoMAE video encoder.
         
         Args:
             pixel_values: Video tensor of shape [batch_size, num_frames, channels, height, width]
+            return_temporal_features: If True, return all spatiotemporal tokens [batch_size, seq_len, hidden_size]
+                                     If False, return pooled/CLS video features [batch_size, hidden_size]
             
         Returns:
-            Video features using either mean pooling or CLS token
+            Video features - either pooled [batch_size, hidden_size] or 
+            spatiotemporal tokens [batch_size, seq_len, hidden_size]
         """
         # VideoMAE expects exactly 16 frames, so we need to resample if necessary
         pixel_values = temporal_sampling(pixel_values, self.expected_num_frames)
         
         outputs = self.vision_model(pixel_values=pixel_values)
         sequence_output = outputs.last_hidden_state  # [batch_size, sequence_length, hidden_size]
+        
+        if return_temporal_features:
+            return sequence_output  # [batch_size, seq_len, hidden_size]
         
         if self.use_mean_pooling:
             # Use mean pooling over all tokens (following VideoMAE classification head)
@@ -326,9 +355,11 @@ class VideoEncoderVJEPA2(nn.Module):
     """
     VJEPA2-based video encoder for video classification.
     
-    Processes videos natively through VJEPA2 model with attentive pooling.
-    VJEPA2 is designed to handle video sequences directly with joint embedding
-    predictive architecture.
+    Processes videos natively through VJEPA2 model.
+    Supports returning:
+    1. A single vector per video (Attentive Pooling)
+    2. A vector per time-step (Spatial Pooling only)
+    3. Raw spatiotemporal tokens (No Pooling)
     """
     
     def __init__(self, cfg: Dict[str, Any]):
@@ -336,47 +367,112 @@ class VideoEncoderVJEPA2(nn.Module):
         self.cfg = cfg
         
         self.model_type = cfg.model_type
-        self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
+        # Assuming you have this mapping defined globally or pass the string directly
+        self.from_pretrained = cfg.get('from_pretrained', 'facebook/vjepa2-vitl-fpc16-256-ssv2')
         
-        
+        # Load Model
         self.vision_model = VJEPA2Model.from_pretrained(self.from_pretrained)
         self.pooler = VJEPA2AttentivePooler(self.vision_model.config)
         
+        # Store reference to the patch projection layer to calculate grid sizes later
+        self.patch_proj = self.vision_model.embeddings.patch_embeddings.projection
+        
         self.embed_dim = self.vision_model.config.hidden_size
         
-        if cfg.freeze_backbone:
+        if getattr(cfg, 'freeze_backbone', False):
             self._freeze_backbone()
     
     def _freeze_backbone(self):
         """Freeze VJEPA2 model parameters."""
         for param in self.vision_model.parameters():
             param.requires_grad = False
+            
+    def _get_patch_grid_shape(self, input_shape: Tuple[int, ...]) -> Tuple[int, int, int]:
+        """
+        Calculates the (Depth/Time, Height, Width) of the patch grid 
+        based on the input video shape and the model's convolution parameters.
+        """
+        # input_shape is (Batch, Frames, Channels, Height, Width)
+        batch_size, D_in, in_channels, H_in, W_in = input_shape
+        
+        # Extract Conv3d parameters from the model's patch embedding layer
+        K_d, K_h, K_w = self.patch_proj.kernel_size
+        S_d, S_h, S_w = self.patch_proj.stride
+        P_d, P_h, P_w = self.patch_proj.padding
+        Dil_d, Dil_h, Dil_w = self.patch_proj.dilation
+
+        # Apply Conv3d dimension formula: floor((In + 2*P - Dil*(K-1) - 1)/S + 1)
+        # Note: VJEPA2 typically uses tubelet_size=2, patch_size=16
+        D_out = math.floor((D_in + 2 * P_d - Dil_d * (K_d - 1) - 1) / S_d + 1)
+        H_out = math.floor((H_in + 2 * P_h - Dil_h * (K_h - 1) - 1) / S_h + 1)
+        W_out = math.floor((W_in + 2 * P_w - Dil_w * (K_w - 1) - 1) / S_w + 1)
+
+        return D_out, H_out, W_out
     
-    def forward(self, pixel_values: torch.Tensor, return_last_hidden_state: bool = False) -> Tensor:
+    def get_temporal_embeddings(self, pixel_values: torch.Tensor) -> Tensor:
+        """
+        Get embeddings with spatial dimensions collapsed but time preserved.
+        
+        Args:
+            pixel_values: (Batch, Frames, Channels, Height, Width)
+            
+        Returns:
+            Tensor: (Batch, Time_Patches, Hidden_Size)
+        """
+        # 1. Forward pass to get flat tokens
+        outputs = self.vision_model(
+            pixel_values_videos=pixel_values,
+            skip_predictor=True,
+            output_attentions=False,
+            output_hidden_states=False,
+        )
+        last_hidden_state = outputs.last_hidden_state # (Batch, Total_Patches, Dim)
+        
+        # 2. Calculate the 3D grid shape
+        D_out, H_out, W_out = self._get_patch_grid_shape(pixel_values.shape)
+        
+        batch_size, total_patches, dim = last_hidden_state.shape
+        
+        # 3. Unflatten: (Batch, Total_Patches, Dim) -> (Batch, Time, Height, Width, Dim)
+        # VJEPA flattens in T, H, W order
+        features_3d = last_hidden_state.view(batch_size, D_out, H_out, W_out, dim)
+        
+        # 4. Collapse spatial dimensions (Height and Width), keeping Time
+        temporal_features = features_3d.mean(dim=(2, 3)) # (Batch, Time, Dim)
+        
+        return temporal_features
+
+    def forward(self, 
+                pixel_values: torch.Tensor, 
+                return_temporal_features: bool = False) -> Tensor:
         """
         Forward pass through the VJEPA2 video encoder.
         
         Args:
             pixel_values: Video tensor of shape [batch_size, num_frames, channels, height, width]
+            return_all_tokens: Return raw flattened tokens [batch_size, seq_len, hidden_size]
+            return_time_series: Return spatially pooled time series [batch_size, time_steps, hidden_size]
             
         Returns:
-            Video features using attentive pooling
+            Tensor: Video features based on flags. Default is pooled [batch_size, hidden_size]
         """
-        # VJEPA2 expects input of shape [batch_size, num_frames, channels, height, width]
-        # which matches our input format
         
+        # If user wants time series specifically, use the optimized path
+        if return_temporal_features:
+            return self.get_temporal_embeddings(pixel_values)
+
+        # Standard Forward
         outputs = self.vision_model(
             pixel_values_videos=pixel_values,
-            skip_predictor=True,  # Skip predictor for classification tasks
+            skip_predictor=True,
             output_attentions=False,
             output_hidden_states=False,
         )
         
         last_hidden_state = outputs.last_hidden_state  # [batch_size, sequence_length, hidden_size]
         
-        # Use attentive pooling to get video-level features
-        # following https://github.com/huggingface/transformers/blob/bb45d3631ec7026db04a77d33a52b31766372160/src/transformers/models/vjepa2/modeling_vjepa2.py#L1137-1214
         video_features = self.pooler(last_hidden_state)  # [batch_size, hidden_size]
+        
         return video_features
 
 
@@ -468,10 +564,24 @@ class VideoEncoder(nn.Module):
         
         self.embed_dim = self.video_encoder.embed_dim
     
-    def forward(self, pixel_values: torch.Tensor, return_last_hidden_state: bool = False):
-        """Forward pass through the selected video encoder."""
-        return self.video_encoder.forward(pixel_values, return_last_hidden_state)
+    def forward(self, pixel_values: torch.Tensor, return_temporal_features: bool = False) -> Tensor:
+        """
+        Forward pass through the selected video encoder.
+        
+        Args:
+            pixel_values: Video tensor of shape [batch_size, num_frames, channels, height, width]
+            return_temporal_features: If True, return temporal/spatiotemporal features
+                                     If False, return pooled video features
+        
+        Returns:
+            Video features - shape depends on return_temporal_features and model type:
+            - If return_temporal_features=False: [batch_size, hidden_size]
+            - If return_temporal_features=True:
+              - CLIP/SigLIP/DINOv2: [batch_size, num_frames, hidden_size]
+              - ViViT/VideoMAE/VJEPA2: [batch_size, seq_len, hidden_size]
+        """
+        return self.video_encoder.forward(pixel_values, return_temporal_features)
     
-    def get_embeddings(self, pixel_values: torch.Tensor) -> Tensor:
+    def get_embeddings(self, pixel_values: torch.Tensor, return_temporal_features: bool = False) -> Tensor:
         """Get video embeddings (alias for forward method)."""
-        return self.forward(pixel_values)
+        return self.forward(pixel_values, return_temporal_features)

@@ -9,10 +9,9 @@ from abc import ABC, abstractmethod
 
 class LocationPredictionBase(ABC):
     """
-    Base class for location prediction tasks including:
+    Base class for location nowcast tasks including:
     - Enemy location nowcast (current moment)
-    - Enemy location forecast (future moment) 
-    - Teammate location forecast (future moment)
+    - Teammate location nowcast (current moment)
     
     Handles common functionality like trajectory loading, segment extraction,
     and player death boundary detection.

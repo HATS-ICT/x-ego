@@ -47,6 +47,15 @@ def plot_distribution(multihot_vectors, place_names, title, output_path):
     fig.suptitle(title, fontsize=16)
     
     num_active_per_sample = multihot_vectors.sum(axis=1)
+    
+    # Print distribution of occupied places per sample
+    unique, counts = np.unique(num_active_per_sample, return_counts=True)
+    print("\nDistribution of Occupied Places per Sample:")
+    print("-" * 50)
+    for num_places, count in zip(unique, counts):
+        percentage = (count / len(num_active_per_sample)) * 100
+        print(f"  {int(num_places):2d} places: {count:5d} samples ({percentage:5.2f}%)")
+    
     axes[0, 0].hist(num_active_per_sample, bins=np.arange(num_active_per_sample.max() + 2) - 0.5, edgecolor='black')
     axes[0, 0].set_xlabel('Number of Occupied Places per Sample')
     axes[0, 0].set_ylabel('Frequency')

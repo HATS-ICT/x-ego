@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import seaborn as sns
 
-output_dir = Path("/project2/ustun_1726/x-ego/output/main_exp")
+output_dir = Path(r"C:\Users\wangy\projects\x-ego\output\main_exp_no_ckpt\main_exp_no_ckpt")
 
 results = defaultdict(dict)
 
@@ -56,7 +56,7 @@ for pov in range(1, 6):
     print(f"{'Model':<25} {'TM SubAcc':<18} {'TM HamLoss':<18} {'TM MicroF1':<18} {'TM MacroF1':<18} {'EN SubAcc':<18} {'EN HamLoss':<18} {'EN MicroF1':<18} {'EN MacroF1':<18}")
     print("-" * 190)
     
-    for model in ["dinov2", "vivit", "siglip", "vjepa2", "videomae"]:
+    for model in ["dinov2", "vivit", "siglip", "videomae"]:
         no_contra_vals = {}
         for task in ["en", "tm"]:
             for metric in metrics:
@@ -70,7 +70,7 @@ for pov in range(1, 6):
                 line += f" {format_val(val):<18}"
         print(line)
     
-    for model in ["dinov2", "vivit", "siglip", "vjepa2", "videomae"]:
+    for model in ["dinov2", "vivit", "siglip", "videomae"]:
         no_contra_vals = {}
         yes_contra_vals = {}
         for task in ["en", "tm"]:
@@ -96,8 +96,8 @@ sns.set_context("paper", font_scale=1.3)
 mpl.rcParams['font.family'] = 'sans-serif'
 mpl.rcParams['axes.linewidth'] = 1.2
 
-# Create figure with 10x4 subplots (5 models × 2 tasks × 4 metrics)
-fig, axes = plt.subplots(10, 4, figsize=(20, 25))
+# Create figure with 8x4 subplots (4 models × 2 tasks × 4 metrics)
+fig, axes = plt.subplots(8, 4, figsize=(16, 12))
 
 # Define metrics and their display names
 metric_info = {
@@ -107,10 +107,10 @@ metric_info = {
     'macro_f1': 'Macro F1'
 }
 
-# Define colors for contrastive condition
+# Define colors for contrastive condition (plasma scheme)
 contra_colors = {
-    'no': '#1f77b4',   # blue for without contrastive
-    'yes': '#ff7f0e'   # orange for with contrastive
+    'no': '#7201a8',   # purple from plasma
+    'yes': '#fca636'   # orange from plasma
 }
 
 # Define line styles for contra
@@ -124,7 +124,6 @@ model_markers = {
     'dinov2': 'o',      # circle
     'vivit': 's',       # square
     'siglip': '^',      # triangle up
-    'vjepa2': 'D',      # diamond
     'videomae': 'v'     # triangle down
 }
 
@@ -133,15 +132,14 @@ povs = list(range(1, 6))
 
 # Tasks
 tasks = ['tm', 'en']
-task_names = {'tm': 'Teammate', 'en': 'Enemy'}
+task_names = {'tm': 'Teammate', 'en': 'Opponent'}
 
 # Models
-models = ['dinov2', 'vivit', 'siglip', 'vjepa2', 'videomae']
+models = ['dinov2', 'vivit', 'siglip', 'videomae']
 model_display_names = {
     'dinov2': 'DINOV2',
     'vivit': 'VIVIT',
     'siglip': 'SigLIP',
-    'vjepa2': 'VJEPA2',
     'videomae': 'VIDEOMAE'
 }
 
@@ -242,9 +240,9 @@ legend_elements.append(Line2D([0], [0], color=contra_colors['yes'], linestyle='-
 
 # Place legend at the top
 fig.legend(handles=legend_elements, loc='upper center', 
-          bbox_to_anchor=(0.5, 0.995), frameon=True, 
+          bbox_to_anchor=(0.5, 0.995), frameon=False, 
           fancybox=False, shadow=False, fontsize=12, 
-          ncol=2, title='Contrastive Learning', title_fontsize=13)
+          ncol=2)
 
 # Adjust layout to make room for legend at top
 plt.tight_layout(rect=[0, 0, 1.0, 0.98])

@@ -6,8 +6,7 @@ meta:
   run_name: teammate-location-nowcast-clip
 
 data:
-  labels_filename: teammate_location_nowcast_s1s_l5s_half.csv  # CSV with future location predictions
-  task_form: multi-label-cls # multi-label-cls, multi-output-reg, grid-cls, density-cls, coord-reg, coord-gen
+  labels_filename: teammate_location_nowcast_s1s_l5s_half.csv  # CSV with teammate location labels
 
 wandb:
   group: '${meta.exp_name}'

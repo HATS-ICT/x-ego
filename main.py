@@ -10,15 +10,9 @@ from utils.config_utils import load_cfg, apply_cfg_overrides
 from utils.experiment_utils import create_experiment_dir, save_hyperparameters, setup_resume_cfg, load_experiment_cfg
 from train.run_tasks import (
     train_enemy_location_nowcast,
-    train_enemy_location_forecast,
-    train_teammate_location_forecast,
     train_teammate_location_nowcast,
-    train_teammate_opponent_traj_prediction,
     test_enemy_location_nowcast,
-    test_enemy_location_forecast,
-    test_teammate_location_forecast,
     test_teammate_location_nowcast,
-    test_teammate_opponent_traj_prediction
 )
 from utils.env_utils import get_src_base_path, get_data_base_path, get_output_base_path
 
@@ -45,12 +39,10 @@ Every settings in config file can be overridden. Examples:
   
   Training mode (includes testing after training):
     python main.py --mode train --task enemy_location_nowcast meta.seed=123
-    python main.py --mode train --task enemy_location_forecast data.batch_size=16 training.max_epochs=20
-    python main.py --mode dev --task teammate_location_forecast training.devices=[0,1] data.num_workers=8
+    python main.py --mode dev --task teammate_location_nowcast training.devices=[0,1] data.num_workers=8
   
   Test-only mode (requires resume_exp):
     python main.py --mode test --task enemy_location_nowcast meta.resume_exp=enemy-nowcast-clip-250930-032609-1uqe
-    python main.py --mode test --task enemy_location_forecast meta.resume_exp=your-experiment-name
         """
     )
     
@@ -61,10 +53,7 @@ Every settings in config file can be overridden. Examples:
     
     parser.add_argument('--task',
                        choices=['enemy_location_nowcast', 
-                                'enemy_location_forecast', 
-                                'teammate_location_forecast',
-                                'teammate_location_nowcast',
-                                'teammate_opponent_traj_prediction'],
+                                'teammate_location_nowcast'],
                        default='enemy_location_nowcast',
                        help='Task to run')
     
@@ -222,28 +211,16 @@ def main():
         # Test-only mode
         if args.task == 'enemy_location_nowcast':
             test_enemy_location_nowcast(cfg)
-        elif args.task == 'enemy_location_forecast':
-            test_enemy_location_forecast(cfg)
-        elif args.task == 'teammate_location_forecast':
-            test_teammate_location_forecast(cfg)
         elif args.task == 'teammate_location_nowcast':
             test_teammate_location_nowcast(cfg)
-        elif args.task == 'teammate_opponent_traj_prediction':
-            test_teammate_opponent_traj_prediction(cfg)
         else:
             raise ValueError(f"Unknown task: {args.task}")
     else:
         # Train mode (includes validation and testing after training)
         if args.task == 'enemy_location_nowcast':
             train_enemy_location_nowcast(cfg)
-        elif args.task == 'enemy_location_forecast':
-            train_enemy_location_forecast(cfg)
-        elif args.task == 'teammate_location_forecast':
-            train_teammate_location_forecast(cfg)
         elif args.task == 'teammate_location_nowcast':
             train_teammate_location_nowcast(cfg)
-        elif args.task == 'teammate_opponent_traj_prediction':
-            train_teammate_opponent_traj_prediction(cfg)
         else:
             raise ValueError(f"Unknown task: {args.task}")
 

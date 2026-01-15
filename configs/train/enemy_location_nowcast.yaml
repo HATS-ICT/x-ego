@@ -7,7 +7,6 @@ meta:
 
 data:
   labels_filename: enemy_location_nowcast_s1s_l5s.csv # CSV with player locations
-  task_form: multi-label-cls # multi-label-cls, multi-output-reg, grid-cls, density-cls, coord-reg, coord-gen
 
 wandb:
   group: '${meta.exp_name}'

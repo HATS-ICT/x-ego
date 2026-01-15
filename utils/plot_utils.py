@@ -13,12 +13,9 @@ from matplotlib.figure import Figure, Axes
 from .metric_utils import chamfer_distance_batch
 
 
-def create_prediction_plots(task_form, predictions, targets, output_dir, pov_team_sides=None):
-    """Create and save prediction analysis plots."""
-    if task_form == 'regression':
-        create_regression_plots(predictions, targets, output_dir, pov_team_sides)
-    elif task_form == 'classification':
-        create_classification_plots(predictions, targets, output_dir, pov_team_sides)
+def create_prediction_plots(predictions, targets, output_dir, pov_team_sides=None):
+    """Create and save prediction analysis plots for multi-label classification."""
+    create_classification_plots(predictions, targets, output_dir, pov_team_sides)
 
 def create_regression_plots(predictions, targets, output_dir, pov_team_sides=None):
     """Create plots for regression predictions."""

@@ -99,14 +99,8 @@ def setup_logger(cfg):
     exp_name = cfg.meta.exp_name
     if 'enemy-nowcast' in exp_name or 'enemy-now' in exp_name:
         tags.append('task:enemy-now')
-    elif 'enemy-forecast' in exp_name or 'enemy-fore' in exp_name:
-        tags.append('task:enemy-fore')
-    elif 'self-future' in exp_name or 'teammate' in exp_name:
-        tags.append('task:team-fore')
-    
-    # Add task form tag
-    task_form = cfg.data.task_form
-    tags.append(f'form:{task_form}')
+    elif 'teammate' in exp_name:
+        tags.append('task:teammate-now')
     
     # Add contrastive tag
     contrastive_enabled = cfg.model.contrastive.enable
@@ -146,11 +140,7 @@ def debug_batch_plot(batch, model, max_examples=4):
     
     For each example, shows:
     1) Multi-agent video frames (one frame per agent)
-    2) Labels visualization (depends on task_form):
-       - multi-label-cls: Heatmap showing which places each player occupies
-       - grid-cls: Grid heatmap showing spatial occupancy
-       - coord-reg/coord-gen: Scatter plot of coordinates
-       - density-cls: Density heatmap
+    2) Labels visualization: Heatmap showing which places each player occupies
     
     Args:
         batch: Batch dictionary containing 'video' and labels
@@ -177,8 +167,6 @@ def debug_batch_plot(batch, model, max_examples=4):
         print("Warning: No labels found in batch")
         return
     
-    # Get task info from model
-    task_form = model.task_form
     cfg = model.cfg
     
     # Create separate figure for each example
@@ -196,7 +184,7 @@ def debug_batch_plot(batch, model, max_examples=4):
         
         # Right: labels (more compact)
         label_ax = fig.add_subplot(gs[0, 1])
-        _plot_labels(labels[i], label_ax, task_form, cfg, label_type)
+        _plot_labels(labels[i], label_ax, cfg, label_type)
         
         plt.tight_layout()
         plt.show()
@@ -273,142 +261,51 @@ def _plot_multi_agent_video(video_tensor, ax, num_agents):
                bbox=dict(boxstyle='round', facecolor='black', alpha=0.5))
 
 
-def _plot_labels(labels_tensor, ax, task_form, cfg, label_type='enemy'):
+def _plot_labels(labels_tensor, ax, cfg, label_type='enemy'):
     """
-    Plot labels based on task form.
+    Plot multi-label classification labels.
     
     Args:
-        labels_tensor: Label tensor (shape depends on task_form)
+        labels_tensor: Label tensor [num_places] - binary vector indicating occupied places
         ax: Matplotlib axis
-        task_form: Task formulation (multi-label-cls, grid-cls, coord-reg, etc.)
         cfg: Configuration object
-        label_type: 'enemy' or 'future'
+        label_type: 'enemy' or 'teammate'
     """
     labels = _to_numpy(labels_tensor)
     
-    if task_form == 'multi-label-cls':
-        # Labels shape: [num_places] - binary vector indicating occupied places
-        place_names = cfg.place_names if hasattr(cfg, 'place_names') else None
-        
-        if place_names is None:
-            # Fallback: use indices
-            place_names = [f'Place {i}' for i in range(len(labels))]
-        
-        # Reshape to [1, num_places] for visualization as a single row heatmap
-        labels_2d = labels.reshape(1, -1)
-        
-        # Create heatmap
-        im = ax.imshow(labels_2d, aspect='auto', cmap='YlOrRd', vmin=0, vmax=1)
-        ax.set_xlabel('Place', fontsize=12)
-        ax.set_ylabel('Occupied', fontsize=12)
-        ax.set_title(f'{label_type.capitalize()} Location Labels (Multi-Label Classification)\nBinary vector: 1 = at least one player present', 
-                    fontsize=12, fontweight='bold')
-        
-        # Set y-axis
-        ax.set_yticks([0])
-        ax.set_yticklabels(['Any Player'])
-        
-        # Only show place names if there aren't too many
-        ax.set_xticks(range(len(place_names)))
-        ax.set_xticklabels(list(place_names), rotation=45, ha='right', fontsize=8)
-        
-        # Add colorbar
-        plt.colorbar(im, ax=ax, label='Presence (0=Absent, 1=Present)')
-        
-        # Add text annotations for positive labels
-        for place_idx in range(len(labels)):
-            if labels[place_idx] > 0.5:
-                ax.text(place_idx, 0, '✓', ha='center', va='center', 
-                       color='black', fontsize=10, fontweight='bold')
+    # Labels shape: [num_places] - binary vector indicating occupied places
+    place_names = cfg.place_names if hasattr(cfg, 'place_names') else None
     
-    elif task_form == 'grid-cls':
-        # Labels shape: [grid_res*grid_res] - binary classification over grid
-        grid_res = cfg.data.grid_resolution
-        
-        # Reshape to [grid_res, grid_res]
-        grid = labels.reshape(grid_res, grid_res)
-        
-        im = ax.imshow(grid, cmap='hot', origin='lower', vmin=0, vmax=1)
-        ax.set_xlabel('Grid X', fontsize=12)
-        ax.set_ylabel('Grid Y', fontsize=12)
-        ax.set_title(f'{label_type.capitalize()} Location Labels (Grid Classification, {grid_res}x{grid_res})', 
-                    fontsize=12, fontweight='bold')
-        plt.colorbar(im, ax=ax, label='Occupied (0=Absent, 1=Present)')
+    if place_names is None:
+        # Fallback: use indices
+        place_names = [f'Place {i}' for i in range(len(labels))]
     
-    elif task_form in ['coord-reg', 'coord-gen']:
-        # Labels shape: [5, 2] - (x, y) coordinates for 5 players
-        coords = labels.reshape(-1, 2)  # [5, 2]
-        
-        # Plot x-y scatter
-        ax.scatter(coords[:, 0], coords[:, 1], s=100, c=range(len(coords)), 
-                  cmap='viridis', edgecolors='black', linewidths=2)
-        ax.set_xlabel('X Coordinate', fontsize=12)
-        ax.set_ylabel('Y Coordinate', fontsize=12)
-        ax.set_title(f'{label_type.capitalize()} Location Labels (Coordinate Regression)', 
-                    fontsize=12, fontweight='bold')
-        ax.grid(True, alpha=0.3)
-        
-        # Add player labels
-        for i in range(len(coords)):
-            ax.text(coords[i, 0], coords[i, 1], f'P{i+1}', 
-                   ha='center', va='center', color='white', fontsize=8, fontweight='bold')
+    # Reshape to [1, num_places] for visualization as a single row heatmap
+    labels_2d = labels.reshape(1, -1)
     
-    elif task_form == 'density-cls':
-        # Labels shape: [grid_res*grid_res] - density distribution over grid
-        grid_res = cfg.data.grid_resolution
-        
-        # Reshape to [grid_res, grid_res]
-        density_grid = labels.reshape(grid_res, grid_res)
-        
-        im = ax.imshow(density_grid, cmap='hot', origin='lower')
-        ax.set_xlabel('Grid X', fontsize=12)
-        ax.set_ylabel('Grid Y', fontsize=12)
-        ax.set_title(f'{label_type.capitalize()} Location Labels (Density Map, {grid_res}x{grid_res})', 
-                    fontsize=12, fontweight='bold')
-        plt.colorbar(im, ax=ax, label='Density')
+    # Create heatmap
+    im = ax.imshow(labels_2d, aspect='auto', cmap='YlOrRd', vmin=0, vmax=1)
+    ax.set_xlabel('Place', fontsize=12)
+    ax.set_ylabel('Occupied', fontsize=12)
+    ax.set_title(f'{label_type.capitalize()} Location Labels (Multi-Label Classification)\nBinary vector: 1 = at least one player present', 
+                fontsize=12, fontweight='bold')
     
-    elif task_form in ['multi-output-reg']:
-        # Labels shape: [num_places] - regression of counts per place
-        place_names = cfg.place_names if hasattr(cfg, 'place_names') else None
-        
-        if place_names is None:
-            place_names = [f'Place {i}' for i in range(len(labels))]
-        
-        # Reshape to [1, num_places] for visualization as a single row heatmap
-        labels_2d = labels.reshape(1, -1)
-        
-        # Create heatmap
-        im = ax.imshow(labels_2d, aspect='auto', cmap='YlOrRd')
-        ax.set_xlabel('Place', fontsize=12)
-        ax.set_ylabel('Count', fontsize=12)
-        ax.set_title(f'{label_type.capitalize()} Location Labels (Multi-Output Regression)\nPlayer count per location', 
-                    fontsize=12, fontweight='bold')
-        
-        # Set y-axis
-        ax.set_yticks([0])
-        ax.set_yticklabels(['# Players'])
-        
-        if len(place_names) <= 20:
-            ax.set_xticks(range(len(place_names)))
-            ax.set_xticklabels(list(place_names), rotation=45, ha='right', fontsize=8)
-        else:
-            num_ticks = 10
-            tick_indices = np.linspace(0, len(place_names) - 1, num_ticks).astype(int)
-            ax.set_xticks(tick_indices)
-            ax.set_xticklabels([place_names[int(i)] for i in tick_indices], rotation=45, ha='right', fontsize=8)
-        
-        plt.colorbar(im, ax=ax, label='Player Count')
-        
-        # Add text annotations showing counts
-        for place_idx in range(len(labels)):
-            if labels[place_idx] > 0:
-                ax.text(place_idx, 0, f'{int(labels[place_idx])}', 
-                       ha='center', va='center', color='white', 
-                       fontsize=8, fontweight='bold')
+    # Set y-axis
+    ax.set_yticks([0])
+    ax.set_yticklabels(['Any Player'])
     
-    else:
-        ax.text(0.5, 0.5, f'Visualization not implemented for task_form: {task_form}', 
-               ha='center', va='center', transform=ax.transAxes, fontsize=12)
+    # Only show place names if there aren't too many
+    ax.set_xticks(range(len(place_names)))
+    ax.set_xticklabels(list(place_names), rotation=45, ha='right', fontsize=8)
+    
+    # Add colorbar
+    plt.colorbar(im, ax=ax, label='Presence (0=Absent, 1=Present)')
+    
+    # Add text annotations for positive labels
+    for place_idx in range(len(labels)):
+        if labels[place_idx] > 0.5:
+            ax.text(place_idx, 0, '✓', ha='center', va='center', 
+                   color='black', fontsize=10, fontweight='bold')
     
 def setup_test_model_with_dataset_info(cfg, datamodule, test_model):
     """Setup test model with dataset-specific information"""
@@ -421,22 +318,8 @@ def print_task_info(cfg, datamodule, task_name):
     # Common info for location prediction tasks
     if 'location' in task_name:
         print(f"Number of agents: {cfg.data.num_pov_agents}")
-        print(f"Task form: {cfg.data.task_form}")
         print(f"Agent fusion method: {cfg.model.agent_fusion.method}")
         
-        if cfg.data.task_form in ['coord-reg', 'coord-gen']:
-            loss_fn = cfg.model.loss_fn[cfg.data.task_form]
-            print(f"Loss function: {loss_fn}")
-            if loss_fn == 'sinkhorn':
-                print(f"  Sinkhorn blur: {cfg.model.sinkhorn.blur}")
-                print(f"  Sinkhorn scaling: {cfg.model.sinkhorn.scaling}")
-        
-        if cfg.data.task_form in ['multi-label-cls', 'multi-output-reg']:
-            # Get num_places from datamodule after setup and update cfg
-            cfg.num_places = datamodule.num_places
-            print(f"Number of places: {cfg.num_places}")
-        elif cfg.data.task_form in ['grid-cls', 'density-cls']:
-            grid_resolution = cfg.data.grid_resolution
-            print(f"Grid resolution: {grid_resolution}x{grid_resolution} = {grid_resolution * grid_resolution} cells")
-            if cfg.data.task_form == 'density-cls':
-                print(f"Gaussian sigma: {cfg.data.gaussian_sigma}")
+        # Get num_places from datamodule after setup and update cfg
+        cfg.num_places = datamodule.num_places
+        print(f"Number of places: {cfg.num_places}")

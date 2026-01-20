@@ -504,15 +504,204 @@ class TaskCreatorBase(ABC):
     
     # ========== Balanced Sampling ==========
     
+    def _detect_label_field(self, segments: List[Dict]) -> tuple:
+        """
+        Auto-detect the label field and task type from segment dictionaries.
+        
+        Returns:
+            Tuple of (label_field, task_type) where task_type is one of:
+            'binary', 'multi_cls', 'multi_label', 'regression', 'unknown'
+        """
+        if not segments:
+            return None, 'unknown'
+        
+        sample = segments[0]
+        
+        # Check for common binary classification labels
+        binary_fields = ['has_kill', 'pov_dies', 'pov_kills', 'in_combat', 
+                        'bomb_planted', 'bomb_site', 'will_plant', 
+                        'post_plant_outcome', 'round_winner']
+        for field in binary_fields:
+            if field in sample:
+                val = sample[field]
+                if isinstance(val, (int, float, np.integer, np.floating)) and val in [0, 1, 0.0, 1.0]:
+                    return field, 'binary'
+        
+        # Check for multi-class labels (integer values)
+        multi_cls_fields = ['movement_dir', 'place_idx', 'alive_count', 
+                           'round_outcome', 'weapon_idx', 'direction']
+        for field in multi_cls_fields:
+            if field in sample:
+                val = sample[field]
+                if isinstance(val, (int, np.integer)):
+                    return field, 'multi_cls'
+        
+        # Check for multi-label classification (list of labels)
+        if 'place_labels' in sample:
+            return 'place_labels', 'multi_label'
+        if 'direction_labels' in sample:
+            return 'direction_labels', 'multi_label'
+        
+        # Check for regression labels
+        regression_fields = ['team_spread', 'centroid_x', 'centroid_y', 
+                            'nearest_distance', 'speed', 'speed_0']
+        for field in regression_fields:
+            if field in sample:
+                return field, 'regression'
+        
+        return None, 'unknown'
+    
+    def _balanced_downsample_binary(self, segments: List[Dict], max_samples: int,
+                                    label_field: str) -> List[Dict]:
+        """
+        Balanced downsample for binary classification tasks.
+        Ensures equal representation of both classes.
+        """
+        # Group by label
+        groups = {0: [], 1: []}
+        for seg in segments:
+            label = int(seg[label_field])
+            groups[label].append(seg)
+        
+        count_0, count_1 = len(groups[0]), len(groups[1])
+        
+        # Calculate target samples per class
+        samples_per_class = max_samples // 2
+        remainder = max_samples % 2
+        
+        random.seed(self.seed)
+        balanced = []
+        
+        # Sample from each class
+        for i, (label, group) in enumerate(sorted(groups.items())):
+            target = samples_per_class + (1 if i < remainder else 0)
+            if len(group) >= target:
+                balanced.extend(random.sample(group, target))
+            else:
+                # Undersample: take all from minority class, reduce majority
+                balanced.extend(group)
+                print(f"  Warning: Class {label} has only {len(group)} samples (target: {target})")
+        
+        random.shuffle(balanced)
+        
+        # Report balance
+        final_0 = sum(1 for s in balanced if int(s[label_field]) == 0)
+        final_1 = len(balanced) - final_0
+        print(f"  Binary balanced downsample: {len(segments)} -> {len(balanced)}")
+        print(f"  Original: Class 0={count_0}, Class 1={count_1} (ratio: {max(count_0, count_1)/max(1, min(count_0, count_1)):.2f}:1)")
+        print(f"  Final: Class 0={final_0}, Class 1={final_1} (ratio: {max(final_0, final_1)/max(1, min(final_0, final_1)):.2f}:1)")
+        
+        return balanced
+    
+    def _balanced_downsample_multi_cls(self, segments: List[Dict], max_samples: int,
+                                       label_field: str) -> List[Dict]:
+        """
+        Balanced downsample for multi-class classification tasks.
+        Uses stratified sampling across all classes.
+        """
+        # Group by label
+        groups = {}
+        for seg in segments:
+            label = seg[label_field]
+            if label not in groups:
+                groups[label] = []
+            groups[label].append(seg)
+        
+        num_classes = len(groups)
+        if num_classes == 0:
+            return segments
+        
+        # Calculate target samples per class
+        samples_per_class = max_samples // num_classes
+        remainder = max_samples % num_classes
+        
+        random.seed(self.seed)
+        balanced = []
+        
+        class_counts_before = {k: len(v) for k, v in groups.items()}
+        
+        for i, (label, group) in enumerate(sorted(groups.items())):
+            target = samples_per_class + (1 if i < remainder else 0)
+            if len(group) >= target:
+                balanced.extend(random.sample(group, target))
+            else:
+                balanced.extend(group)
+                print(f"  Warning: Class {label} has only {len(group)} samples (target: {target})")
+        
+        random.shuffle(balanced)
+        
+        # Report balance
+        class_counts_after = {}
+        for s in balanced:
+            label = s[label_field]
+            class_counts_after[label] = class_counts_after.get(label, 0) + 1
+        
+        max_before = max(class_counts_before.values())
+        min_before = min(class_counts_before.values())
+        max_after = max(class_counts_after.values()) if class_counts_after else 0
+        min_after = min(class_counts_after.values()) if class_counts_after else 0
+        
+        print(f"  Multi-class balanced downsample: {len(segments)} -> {len(balanced)}")
+        print(f"  Classes: {num_classes}, Original imbalance: {max_before/max(1, min_before):.2f}:1")
+        print(f"  Final imbalance: {max_after/max(1, min_after):.2f}:1")
+        
+        return balanced
+    
+    def _balanced_downsample_multi_label(self, segments: List[Dict], max_samples: int,
+                                         label_field: str) -> List[Dict]:
+        """
+        Balanced downsample for multi-label classification tasks.
+        Uses label-wise stratification to ensure each label has good representation.
+        """
+        if len(segments) <= max_samples:
+            return segments
+        
+        # Convert labels to numpy for easier manipulation
+        labels = np.array([seg[label_field] for seg in segments])  # Shape: (N, num_labels)
+        num_labels = labels.shape[1]
+        
+        # Calculate positive rate for each label
+        label_positive_rates = labels.sum(axis=0) / len(labels)
+        
+        # Compute per-sample rarity score (samples with rare labels get higher scores)
+        # Use inverse frequency weighting
+        label_weights = 1.0 / (label_positive_rates + 0.01)  # Add small epsilon to avoid div by zero
+        sample_scores = (labels * label_weights).sum(axis=1)  # Higher = more rare labels
+        
+        # Select samples using weighted probability based on rarity score
+        # This ensures samples with rare labels are more likely to be selected
+        probs = sample_scores / sample_scores.sum()
+        
+        random.seed(self.seed)
+        np.random.seed(self.seed)
+        
+        # Sample with probability proportional to rarity score
+        indices = np.random.choice(len(segments), size=min(max_samples, len(segments)), 
+                                   replace=False, p=probs)
+        
+        balanced = [segments[i] for i in indices]
+        
+        # Report balance
+        new_labels = np.array([seg[label_field] for seg in balanced])
+        new_rates = new_labels.sum(axis=0) / len(new_labels)
+        
+        print(f"  Multi-label balanced downsample: {len(segments)} -> {len(balanced)}")
+        print(f"  Labels: {num_labels}")
+        print(f"  Original positive rates: min={label_positive_rates.min()*100:.1f}%, max={label_positive_rates.max()*100:.1f}%")
+        print(f"  Final positive rates: min={new_rates.min()*100:.1f}%, max={new_rates.max()*100:.1f}%")
+        
+        return balanced
+    
     def _balanced_downsample(self, segments: List[Dict], max_samples: int, 
-                            label_field: str = 'label') -> List[Dict]:
+                            label_field: str = None) -> List[Dict]:
         """
         Downsample segments while maintaining class balance.
+        Auto-detects task type and applies appropriate balancing strategy.
         
         Args:
             segments: List of segment dictionaries
             max_samples: Target number of samples
-            label_field: Field name containing the label
+            label_field: Field name containing the label (auto-detected if None)
         
         Returns:
             Downsampled list of segments with balanced classes
@@ -520,57 +709,35 @@ class TaskCreatorBase(ABC):
         if len(segments) <= max_samples:
             return segments
         
-        # Group segments by label
-        label_groups = {}
-        for seg in segments:
-            label = seg.get(label_field)
-            if label is None:
-                # For regression or multi-label tasks, skip balancing
-                random.seed(self.seed)
-                return random.sample(segments, max_samples)
-            
-            # Convert to hashable type
-            if isinstance(label, (list, np.ndarray)):
-                label_key = tuple(label) if isinstance(label, list) else tuple(label.tolist())
-            else:
-                label_key = label
-            
-            if label_key not in label_groups:
-                label_groups[label_key] = []
-            label_groups[label_key].append(seg)
+        # Auto-detect label field and task type if not specified
+        detected_field, task_type = self._detect_label_field(segments)
         
-        num_classes = len(label_groups)
-        if num_classes == 0:
-            return segments
+        if label_field is None:
+            label_field = detected_field
         
-        # Calculate samples per class (aim for equal distribution)
-        samples_per_class = max_samples // num_classes
-        remainder = max_samples % num_classes
+        print(f"  Detected task type: {task_type}, label field: {label_field}")
         
-        balanced_segments = []
-        random.seed(self.seed)
+        # Apply task-specific balancing
+        if task_type == 'binary' and label_field:
+            return self._balanced_downsample_binary(segments, max_samples, label_field)
         
-        for i, (label_key, group) in enumerate(sorted(label_groups.items())):
-            # Distribute remainder among first few classes
-            target = samples_per_class + (1 if i < remainder else 0)
-            
-            # Sample from this class
-            if len(group) >= target:
-                sampled = random.sample(group, target)
-            else:
-                # If not enough samples, take all and warn
-                sampled = group
-                print(f"  Warning: Class {label_key} has only {len(group)} samples (target: {target})")
-            
-            balanced_segments.extend(sampled)
+        elif task_type == 'multi_cls' and label_field:
+            return self._balanced_downsample_multi_cls(segments, max_samples, label_field)
         
-        # Shuffle the final balanced set
-        random.shuffle(balanced_segments)
+        elif task_type == 'multi_label' and label_field:
+            return self._balanced_downsample_multi_label(segments, max_samples, label_field)
         
-        print(f"  Balanced downsampling: {len(segments)} -> {len(balanced_segments)} samples")
-        print(f"  Target per class: ~{samples_per_class} (from {num_classes} classes)")
+        elif task_type == 'regression':
+            # For regression, just random sample
+            print(f"  Regression task: random sampling {len(segments)} -> {max_samples}")
+            random.seed(self.seed)
+            return random.sample(segments, max_samples)
         
-        return balanced_segments
+        else:
+            # Unknown task type, fall back to random sampling
+            print(f"  Unknown task type, falling back to random sampling")
+            random.seed(self.seed)
+            return random.sample(segments, max_samples)
     
     # ========== Main Processing ==========
     

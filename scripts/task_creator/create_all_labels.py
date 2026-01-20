@@ -50,44 +50,70 @@ from scripts.task_creator.task_creator_helper import (
 
 # Oversampling multipliers for each task based on their imbalance ratios
 # Higher multiplier = collect more samples before balanced downsampling
+# Formula: multiplier ≈ ceil(imbalance_ratio * 1.5) to ensure enough minority samples
+# Updated based on label analysis from analyze_label_stats.py
 TASK_OVERSAMPLE_MULTIPLIERS: Dict[str, int] = {
-    # Binary tasks with high imbalance
-    'global_bombPlanted': 10,
-    'global_teamInCombat': 15,
-    'self_inCombat': 15,
-    'self_death_5s': 11,
-    'self_kill_5s': 21,
-    'self_kill_10s': 10,
-    'global_anyKill_20s': 8,
+    # ===== Binary tasks with extreme imbalance (ratio > 15) =====
+    'self_kill_5s': 35,           # 21.62:1 imbalance
+    'global_teamInCombat': 25,    # 15.84:1 imbalance
+    'self_inCombat': 25,          # 15.84:1 imbalance
     
-    # Binary tasks with moderate imbalance
-    'self_death_10s': 6,
-    'self_kill_20s': 6,
-    'self_death_20s': 3,
-    'global_anyKill_10s': 3,
+    # ===== Binary tasks with high imbalance (ratio 10-15) =====
+    'self_kill_10s': 18,          # 11.35:1 imbalance
+    'self_death_5s': 18,          # 10.49:1 imbalance
+    'global_bombPlanted': 18,     # 10.47:1 imbalance
     
-    # Binary tasks with low imbalance
-    'global_anyKill_5s': 3,
-    'global_bombSite': 3,
-    'global_postPlantOutcome': 3,
-    'global_roundWinner': 3,
-    'global_willPlant': 3,
+    # ===== Binary tasks with moderate imbalance (ratio 5-10) =====
+    'global_anyKill_20s': 12,     # 7.55:1 imbalance
+    'self_kill_20s': 10,          # 6.44:1 imbalance
+    'self_death_10s': 8,          # 4.80:1 imbalance
     
-    # Multi-class tasks with high imbalance
-    'self_location': 80,
-    'self_location_5s': 18,
-    'self_location_10s': 18,
-    'self_location_20s': 18,
+    # ===== Binary tasks with low imbalance (ratio 2-5) =====
+    'self_death_20s': 4,          # 2.22:1 imbalance
+    'global_anyKill_10s': 4,      # 1.96:1 imbalance
     
-    # Multi-class tasks with moderate imbalance
-    'global_roundOutcome': 6,
-    'enemy_aliveCount': 4,
-    'teammate_aliveCount': 4,
-    'self_movementDir': 4,
+    # ===== Binary tasks with minimal imbalance (ratio < 2) =====
+    'global_anyKill_5s': 3,       # 1.35:1 imbalance
+    'global_bombSite': 3,         # 1.31:1 imbalance
+    'global_postPlantOutcome': 3, # 1.24:1 imbalance
+    'global_willPlant': 3,        # 1.23:1 imbalance
+    'global_roundWinner': 3,      # 1.20:1 imbalance
     
-    # Multi-class tasks with low/no imbalance
-    'global_teamMovementDir': 3,
-    'self_weapon': 3,
+    # ===== Multi-class tasks with extreme imbalance =====
+    'self_location': 240,         # 235.33:1 imbalance (23 classes)
+    'global_roundOutcome': 100,   # 66.84:1 imbalance (5 classes)
+    
+    # ===== Multi-class tasks with high imbalance =====
+    'self_location_5s': 35,       # 21.03:1 imbalance (2 classes observed)
+    'self_location_10s': 25,      # 16.61:1 imbalance
+    'self_location_20s': 25,      # 15.95:1 imbalance
+    
+    # ===== Multi-class tasks with moderate imbalance =====
+    'enemy_aliveCount': 6,        # 3.42:1 imbalance
+    'teammate_aliveCount': 6,     # 3.42:1 imbalance
+    'self_movementDir': 6,        # 3.13:1 imbalance
+    
+    # ===== Multi-class tasks with low/no imbalance =====
+    'global_teamMovementDir': 3,  # 1.0:1 (but only 1 class observed - data issue?)
+    'self_weapon': 3,             # 1.0:1 (only 22 samples - data issue?)
+    
+    # ===== Multi-label tasks (use moderate multiplier for coverage) =====
+    'enemy_location': 4,          # Multi-label: 0.2%-31.5% positive rates
+    'enemy_location_5s': 4,
+    'enemy_location_10s': 4,
+    'enemy_location_20s': 4,
+    'teammate_location': 4,       # Multi-label: 0.5%-32.1% positive rates
+    'teammate_location_5s': 4,
+    'teammate_location_10s': 4,
+    'teammate_location_20s': 4,
+    'teammate_movementDir': 4,    # Multi-label: 5.1%-6.4% positive rates
+    
+    # ===== Regression tasks (no class imbalance, use small multiplier) =====
+    'global_teamCentroid': 3,
+    'global_teamSpread': 3,
+    'self_speed': 3,
+    'self_teammateProximity': 3,
+    'teammate_speed': 3,
     
     # Default for other tasks
     'default': 3,

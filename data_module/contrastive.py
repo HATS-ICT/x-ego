@@ -45,10 +45,6 @@ class ContrastiveDataModule(BaseDataModule):
         # Store contrastive-specific parameters
         self.allow_variable_agents = cfg.data.allow_variable_agents
         self.min_agents = cfg.data.min_agents
-        
-        # These will be set in _store_dataset_info
-        self.num_places = None
-        self.place_names = None
     
     def _create_base_dataset(self):
         """Create the base contrastive dataset."""
@@ -60,8 +56,10 @@ class ContrastiveDataModule(BaseDataModule):
     
     def _copy_dataset_attributes(self, base_dataset, partition_dataset):
         """Copy dataset attributes."""
-        attrs = ['place_names', 'place_to_idx', 'idx_to_place', 'num_places',
-                 'allow_variable_agents', 'min_agents']
+        attrs = ['allow_variable_agents', 'min_agents', 'use_precomputed_embeddings',
+                 'embeddings_h5', 'embeddings_encoder', 'video_processor',
+                 'cfg', 'data_cfg', 'path_cfg', 'data_root', 
+                 'target_fps', 'fixed_duration_seconds', 'mask_minimap', 'time_jitter_max_seconds']
         for attr in attrs:
             if hasattr(base_dataset, attr):
                 setattr(partition_dataset, attr, getattr(base_dataset, attr))
@@ -77,13 +75,6 @@ class ContrastiveDataModule(BaseDataModule):
     
     def _store_dataset_info(self, base_dataset):
         """Store dataset information."""
-        self.num_places = base_dataset.num_places
-        self.place_names = base_dataset.place_names
-        
-        # Update config
-        self.cfg.num_places = self.num_places
-        self.cfg.place_names = self.place_names
-        
         logger.info(f"Full contrastive dataset: {len(base_dataset)} samples")
         logger.info(f"Variable agents enabled: {self.allow_variable_agents}")
         logger.info(f"Minimum agents: {self.min_agents}")

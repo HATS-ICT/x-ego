@@ -1,6 +1,15 @@
 meta:
   seed: 42
 
+# Task configuration (for Stage 2 linear probing)
+# These are defaults, override in task-specific configs
+task:
+  task_id: null
+  ml_form: null
+  num_classes: null
+  output_dim: null
+  label_column: null
+
 data:
   partition: all # train, val, test, all
   labels_folder: labels
@@ -24,6 +33,9 @@ data:
   use_precomputed_embeddings: true  # If true, load pre-computed embeddings instead of videos
                                      # MEMORY OPTIMIZATION: Video encoder will NOT be initialized, saving ~300-500MB memory and checkpoint size
   precomputed_embeddings_encoder: ${model.encoder.video.model_type}
+  # Contrastive learning (Stage 1) settings
+  allow_variable_agents: false  # If true, allow samples with less than 5 agents (dead teammates)
+  min_agents: 2  # Minimum number of agents required per sample when allow_variable_agents=true
 
 
 model:
@@ -35,6 +47,9 @@ model:
   num_hidden_layers: 3
   dropout: 0.1
   class_weights: null  # Options: null, inverse, inverse_sqrt, effective_num, pos_weight
+  # Stage 2 linear probing settings
+  stage1_checkpoint: null  # Path to Stage 1 contrastive checkpoint
+  freeze_encoder: false    # Whether to freeze encoder (video projector) weights
   agent_fusion:
     method: concat  # Options: "mean", "max", "attention", "concat"
     fused_agent_dim: 768

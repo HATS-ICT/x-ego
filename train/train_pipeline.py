@@ -31,11 +31,7 @@ def run_training_pipeline(cfg, model_class, datamodule_class, task_name, print_h
     
     # Create datamodule
     print("Creating datamodule...")
-    # Handle different datamodule initialization patterns
-    if task_name == "contrastive":
-        datamodule = datamodule_class(config=cfg)
-    else:
-        datamodule = datamodule_class(cfg)
+    datamodule = datamodule_class(cfg)
     datamodule.prepare_data()
     datamodule.setup("fit")
     

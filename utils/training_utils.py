@@ -96,8 +96,11 @@ def setup_logger(cfg):
     tags = list(wandb_cfg.tags) if wandb_cfg.tags else []
     
     # Add task type tag based on exp_name
-    exp_name = cfg.meta.exp_name
-    if 'enemy-nowcast' in exp_name or 'enemy-now' in exp_name:
+    exp_name = cfg.meta.exp_name if hasattr(cfg.meta, 'exp_name') else cfg.meta.run_name
+    if 'contrastive' in exp_name.lower():
+        tags.append('task:contrastive')
+        tags.append('stage:1')
+    elif 'enemy-nowcast' in exp_name or 'enemy-now' in exp_name:
         tags.append('task:enemy-now')
     elif 'teammate' in exp_name:
         tags.append('task:teammate-now')
@@ -315,8 +318,25 @@ def setup_test_model_with_dataset_info(cfg, datamodule, test_model):
     
 def print_task_info(cfg, datamodule, task_name):
     """Print task-specific information"""
+    # Contrastive learning task
+    if task_name == 'contrastive':
+        print(f"Video encoder: {cfg.model.encoder.video.model_type}")
+        print(f"Projection dimension: {cfg.model.encoder.proj_dim}")
+        print(f"Allow variable agents: {cfg.data.allow_variable_agents}")
+        print(f"Minimum agents: {cfg.data.min_agents}")
+        print(f"Contrastive temperature init: {cfg.model.contrastive.logit_scale_init}")
+        print(f"Contrastive bias init: {cfg.model.contrastive.logit_bias_init}")
+    # Linear probing task
+    elif task_name == 'linear_probe':
+        print(f"Task ID: {cfg.task.task_id}")
+        print(f"ML form: {cfg.task.ml_form}")
+        print(f"Num classes: {cfg.task.num_classes}")
+        print(f"Output dim: {cfg.task.output_dim}")
+        print(f"Encoder frozen: {cfg.model.freeze_encoder}")
+        if cfg.model.stage1_checkpoint:
+            print(f"Stage 1 checkpoint: {cfg.model.stage1_checkpoint}")
     # Common info for location prediction tasks
-    if 'location' in task_name:
+    elif 'location' in task_name:
         print(f"Number of agents: {cfg.data.num_pov_agents}")
         print(f"Agent fusion method: {cfg.model.agent_fusion.method}")
         

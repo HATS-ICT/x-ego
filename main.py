@@ -9,6 +9,10 @@ from omegaconf import OmegaConf
 from utils.config_utils import load_cfg, apply_cfg_overrides
 from utils.experiment_utils import create_experiment_dir, save_hyperparameters, setup_resume_cfg, load_experiment_cfg
 from train.run_tasks import (
+    train_contrastive,
+    test_contrastive,
+    train_linear_probe,
+    test_linear_probe,
     train_enemy_location_nowcast,
     train_teammate_location_nowcast,
     test_enemy_location_nowcast,
@@ -52,10 +56,12 @@ Every settings in config file can be overridden. Examples:
                        help='Mode to run: train, test, or dev')
     
     parser.add_argument('--task',
-                       choices=['enemy_location_nowcast', 
+                       choices=['contrastive',
+                                'linear_probe',
+                                'enemy_location_nowcast', 
                                 'teammate_location_nowcast'],
-                       default='enemy_location_nowcast',
-                       help='Task to run')
+                       default='contrastive',
+                       help='Task to run: contrastive (stage 1), linear_probe (stage 2), or legacy tasks')
     
     parser.add_argument('--config', 
                        type=str,
@@ -209,7 +215,11 @@ def main():
     # Dispatch based on task and mode
     if args.mode == 'test':
         # Test-only mode
-        if args.task == 'enemy_location_nowcast':
+        if args.task == 'contrastive':
+            test_contrastive(cfg)
+        elif args.task == 'linear_probe':
+            test_linear_probe(cfg)
+        elif args.task == 'enemy_location_nowcast':
             test_enemy_location_nowcast(cfg)
         elif args.task == 'teammate_location_nowcast':
             test_teammate_location_nowcast(cfg)
@@ -217,7 +227,11 @@ def main():
             raise ValueError(f"Unknown task: {args.task}")
     else:
         # Train mode (includes validation and testing after training)
-        if args.task == 'enemy_location_nowcast':
+        if args.task == 'contrastive':
+            train_contrastive(cfg)
+        elif args.task == 'linear_probe':
+            train_linear_probe(cfg)
+        elif args.task == 'enemy_location_nowcast':
             train_enemy_location_nowcast(cfg)
         elif args.task == 'teammate_location_nowcast':
             train_teammate_location_nowcast(cfg)

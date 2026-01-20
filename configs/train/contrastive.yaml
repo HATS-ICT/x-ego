@@ -1,0 +1,40 @@
+# Stage 1: Contrastive Learning Only (Team Alignment)
+# This is the first stage of two-stage training pipeline:
+#   Stage 1: Contrastive learning to learn team-aligned video representations
+#   Stage 2: Linear probing on downstream tasks using frozen contrastive encoder
+
+meta:
+  run_name: contrastive-${model.encoder.video.model_type}
+  fast_dev_run: false
+  resume_exp: null
+
+data:
+  labels_filename: teammate_location_nowcast_s1s_l5s_half.csv
+  # Stage 1 uses simpler data loading: just load 5 teammate videos
+  # Dead teammates result in fewer than 5 videos (variable agent count)
+  allow_variable_agents: true  # Allow samples with <5 agents (dead teammates)
+  min_agents: 2  # Minimum agents required for contrastive learning
+
+model:
+  contrastive:
+    enable: true
+    logit_scale_init: 10
+    logit_bias_init: -3
+    turn_off_bias: false
+    loss_weight: 1.0
+    # Contrastive-only mode: no prediction head, only alignment loss
+    mode: contrastive_only
+
+training:
+  max_epochs: 20
+
+checkpoint:
+  epoch:
+    filename: ${meta.run_name}-e{epoch:02d}-s{step:06d}-l{val/contrastive_loss:.4f}
+    monitor: 'val/contrastive_loss'
+    mode: min
+    save_top_k: 1
+    save_last: true
+    auto_insert_metric_name: false
+    save_on_train_epoch_end: true
+    every_n_epochs: 1

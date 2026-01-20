@@ -1,0 +1,12 @@
+# Dev overrides for linear probing
+
+data:
+  batch_size: 4
+  num_workers: 0
+
+training:
+  max_epochs: 2
+  limit_train_batches: 0.01
+  limit_val_batches: 0.1
+  limit_test_batches: 0.1
+  log_every_n_steps: 1

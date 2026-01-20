@@ -1,0 +1,40 @@
+task_id,task_name,category,description,relevance_to_team_alignment,expected_effect,ml_form,num_classes,output_dim,primary_data_source,label_field,temporal_type,horizon_sec,feasibility_notes
+teammate_loc_now,Teammate Location Nowcast,location,Predict 4 teammates current locations (places),high,improve,multi_label_cls,25,25,trajectory,place,nowcast,0,Uses place field from trajectory; 25 unique places on de_mirage
+teammate_coord_now,Teammate Coordinate Nowcast,location,Predict 4 teammates normalized XYZ coordinates,high,improve,regression,,12,trajectory,X_norm;Y_norm;Z_norm,nowcast,0,4 teammates x 3 coordinates = 12 output dims
+enemy_loc_now,Enemy Location Nowcast,location,Predict 5 enemies current locations (places),low,neutral,multi_label_cls,25,25,trajectory,place,nowcast,0,Enemies not in contrastive set; baseline task
+enemy_coord_now,Enemy Coordinate Nowcast,location,Predict 5 enemies normalized XYZ coordinates,low,neutral,regression,,15,trajectory,X_norm;Y_norm;Z_norm,nowcast,0,5 enemies x 3 coordinates = 15 output dims
+self_loc_forecast_5s,Self Location Forecast 5s,location,Predict own location 5 seconds ahead,medium,neutral,multi_cls,25,25,trajectory,place,forecast,5,Own future intent; medium team relevance
+self_loc_forecast_10s,Self Location Forecast 10s,location,Predict own location 10 seconds ahead,medium,neutral,multi_cls,25,25,trajectory,place,forecast,10,Longer horizon self prediction
+teammate_loc_forecast_5s,Teammate Location Forecast 5s,location,Predict 4 teammates locations 5 seconds ahead,high,improve,multi_label_cls,25,25,trajectory,place,forecast,5,Team coordination prediction
+teammate_loc_forecast_10s,Teammate Location Forecast 10s,location,Predict 4 teammates locations 10 seconds ahead,high,improve,multi_label_cls,25,25,trajectory,place,forecast,10,Longer horizon team prediction
+enemy_loc_forecast_5s,Enemy Location Forecast 5s,location,Predict 5 enemies locations 5 seconds ahead,low,neutral,multi_label_cls,25,25,trajectory,place,forecast,5,Enemy prediction baseline
+enemy_loc_forecast_10s,Enemy Location Forecast 10s,location,Predict 5 enemies locations 10 seconds ahead,low,neutral,multi_label_cls,25,25,trajectory,place,forecast,10,Longer horizon enemy prediction
+team_spread,Team Spatial Spread,coordination,Estimate team spatial spread (std of positions),high,improve,regression,,1,trajectory,X_norm;Y_norm,nowcast,0,Std dev of teammate positions
+team_centroid,Team Centroid Location,coordination,Predict team centroid normalized coordinates,high,improve,regression,,3,trajectory,X_norm;Y_norm;Z_norm,nowcast,0,Mean of 5 team member positions
+teammate_alive_count,Teammate Alive Count,coordination,Count number of alive teammates,high,improve,multi_cls,5,5,trajectory,health,nowcast,0,Classes 0-4 teammates alive
+enemy_alive_count,Enemy Alive Count,coordination,Count number of alive enemies,medium,neutral,multi_cls,6,6,trajectory,health,nowcast,0,Classes 0-5 enemies alive
+teammate_proximity,Nearest Teammate Distance,coordination,Predict distance to nearest teammate,high,improve,regression,,1,trajectory,X_norm;Y_norm;Z_norm,nowcast,0,Euclidean distance in normalized coords
+team_movement_dir,Team Movement Direction,coordination,Predict aggregate team movement direction,high,improve,multi_cls,9,9,trajectory,X_norm;Y_norm,nowcast,0,8 directions + stationary; requires delta computation
+imminent_kill_3s,Imminent Kill 3s,combat,Will any kill happen in next 3 seconds,medium,neutral,binary_cls,2,1,kills,tick,forecast,3,Binary prediction from kills.csv timing
+imminent_kill_5s,Imminent Kill 5s,combat,Will any kill happen in next 5 seconds,medium,neutral,binary_cls,2,1,kills,tick,forecast,5,Wider window for kill prediction
+imminent_death_self_3s,Self Death 3s,combat,Will POV player die in next 3 seconds,low,neutral,binary_cls,2,1,kills,victim_steamid,forecast,3,Individual survival prediction
+imminent_death_self_5s,Self Death 5s,combat,Will POV player die in next 5 seconds,low,neutral,binary_cls,2,1,kills,victim_steamid,forecast,5,Individual survival wider window
+imminent_damage_3s,Imminent Damage 3s,combat,Will any damage occur in next 3 seconds,medium,neutral,binary_cls,2,1,damages,tick,forecast,3,Combat engagement prediction
+team_in_combat,Team In Combat,combat,Is any teammate currently in combat,high,improve,binary_cls,2,1,damages,attacker_steamid;victim_steamid,nowcast,0,Recent damage involving team within 2s window
+pov_in_combat,POV In Combat,combat,Is POV player currently in combat,low,neutral,binary_cls,2,1,damages,attacker_steamid;victim_steamid,nowcast,0,Recent damage involving POV player
+headshot_next_kill,Next Kill Headshot,combat,Will next kill be a headshot,low,neutral,binary_cls,2,1,kills,headshot,forecast,0,Skill-based prediction
+bomb_planted,Bomb Planted State,bomb,Is bomb currently planted,medium,neutral,binary_cls,2,1,bomb,event,nowcast,0,Game state from bomb plant/defuse/explode events
+bomb_site_prediction,Bomb Site Prediction,bomb,Predict which site bomb will be planted (A vs B),medium,improve,binary_cls,2,1,bomb;rounds,bomb_site,forecast,0,Strategic prediction; only for T-side pre-plant
+time_to_plant,Time To Plant,bomb,Estimate seconds until bomb plant,medium,neutral,regression,,1,bomb,tick,forecast,0,Only valid for T-side pre-plant segments
+bomb_carrier_dist,Bomb Carrier Distance,bomb,Distance to bomb carrier,medium,neutral,regression,,1,bomb;trajectory,X;Y;Z,nowcast,0,Requires tracking bomb holder position
+post_plant_outcome,Post Plant Outcome,bomb,After plant predict explode vs defuse,medium,neutral,binary_cls,2,1,bomb,event,forecast,0,Only valid for post-plant segments
+round_winner,Round Winner Prediction,round,Predict which team wins the round,medium,neutral,binary_cls,2,1,rounds,winner,forecast,0,Win probability from current state
+round_outcome_reason,Round Outcome Reason,round,Predict how round will end,medium,neutral,multi_cls,4,4,rounds,reason,forecast,0,t_killed;ct_killed;bomb_exploded;bomb_defused
+pov_place_cls,POV Place Classification,spatial,Classify POV player current location,low,neutral,multi_cls,25,25,trajectory,place,nowcast,0,Self-localization baseline
+pov_movement_dir,POV Movement Direction,spatial,Predict POV player movement direction,low,neutral,multi_cls,9,9,trajectory,X_norm;Y_norm,nowcast,0,8 directions + stationary
+pov_speed,POV Speed Estimation,spatial,Estimate POV player movement speed,low,neutral,regression,,1,trajectory,X_norm;Y_norm;Z_norm,nowcast,0,Magnitude of velocity vector
+area_control_mid,Mid Area Control,spatial,Which team controls mid area,medium,neutral,binary_cls,2,1,trajectory,X_norm;Y_norm,nowcast,0,Based on player positions in mid region
+imminent_shot_self_2s,Self Shot 2s,action,Will POV player fire in next 2 seconds,low,neutral,binary_cls,2,1,shots,player_steamid,forecast,2,Individual action prediction
+weapon_in_use,Weapon In Use,action,Classify weapon POV player is using,low,neutral,multi_cls,20,20,shots;damages,weapon,nowcast,0,Equipment state from recent shots/damages
+team_executing,Team Executing,action,Is team executing a site take,high,improve,binary_cls,2,1,trajectory,X_norm;Y_norm,nowcast,0,Inferred from coordinated movement toward site
+team_rotating,Team Rotating,action,Is team rotating between sites,high,improve,binary_cls,2,1,trajectory,X_norm;Y_norm,nowcast,0,Inferred from lateral movement pattern

@@ -35,10 +35,10 @@ def inspect_trajectory_data(csv_path: str, h5_path: str, num_samples: int = 3):
     df = pd.read_csv(csv_path)
     print(f"\nTotal segments: {len(df)}")
     print(f"\nCSV columns: {list(df.columns)}")
-    print(f"\nPartition distribution:")
+    print("\nPartition distribution:")
     print(df['partition'].value_counts())
     
-    print(f"\nFirst few rows:")
+    print("\nFirst few rows:")
     print(df.head())
     
     # Load H5 trajectory data
@@ -55,7 +55,7 @@ def inspect_trajectory_data(csv_path: str, h5_path: str, num_samples: int = 3):
         print(f"  Dimension 2 (timepoints): {trajectories.shape[2]}")
         print(f"  Dimension 3 (coords): {trajectories.shape[3]}")
         
-        print(f"\nH5 attributes:")
+        print("\nH5 attributes:")
         for key, value in trajectories.attrs.items():
             print(f"  {key}: {value}")
         
@@ -79,7 +79,7 @@ def inspect_trajectory_data(csv_path: str, h5_path: str, num_samples: int = 3):
             print(f"Trajectory: {row['start_seconds']:.2f}s - {row['trajectory_end_seconds']:.2f}s")
             print(f"Trajectory shape: {traj.shape}")
             
-            print(f"\nPlayer information:")
+            print("\nPlayer information:")
             for p in range(10):
                 player_id = row[f'player_{p}_id']
                 player_side = row[f'player_{p}_side']
@@ -204,7 +204,7 @@ def plot_trajectories(csv_path: str, h5_path: str, max_segments: int = None):
                  fontsize=16, fontweight='bold')
     plt.tight_layout()
     
-    print(f"Displaying plot...")
+    print("Displaying plot...")
     plt.show()
 
 
@@ -250,11 +250,11 @@ def main():
     print("=" * 80)
     
     all_trajectories = preload_all_trajectories(str(h5_path))
-    print(f"Preloaded all trajectories")
+    print("Preloaded all trajectories")
     print(f"Shape: {all_trajectories.shape}")
     print(f"Memory size: {all_trajectories.nbytes / (1024**2):.2f} MB")
-    print(f"\nThis array can now be indexed directly for fast access:")
-    print(f"  all_trajectories[segment_idx] -> (10, 60, 2)")
+    print("\nThis array can now be indexed directly for fast access:")
+    print("  all_trajectories[segment_idx] -> (10, 60, 2)")
     
     # Plot trajectories
     plot_trajectories(str(csv_path), str(h5_path))

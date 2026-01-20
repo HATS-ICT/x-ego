@@ -11,7 +11,7 @@ Creates labels for:
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 import sys
 
 sys.path.append(str(Path(__file__).parent.parent.parent))

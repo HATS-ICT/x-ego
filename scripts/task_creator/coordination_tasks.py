@@ -10,7 +10,6 @@ Creates labels for:
 """
 
 import pandas as pd
-import numpy as np
 from pathlib import Path
 from typing import Dict, List, Any
 import sys
@@ -18,7 +17,6 @@ import sys
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from scripts.task_creator.base_task_creator import TaskCreatorBase
-from scripts.task_creator.task_definitions import NUM_DIRECTIONS
 
 
 class TeamSpreadCreator(TaskCreatorBase):

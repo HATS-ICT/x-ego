@@ -1,7 +1,6 @@
 from pathlib import Path
 import subprocess
 import json
-import os
 from multiprocessing import Pool, cpu_count
 
 def get_video_duration(video_info):

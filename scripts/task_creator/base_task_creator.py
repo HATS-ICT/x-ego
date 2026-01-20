@@ -548,7 +548,7 @@ class TaskCreatorBase(ABC):
             filtered_partition_df = filtered_partition_df.sample(frac=1, random_state=self.seed).reset_index(drop=True)
             print("  Shuffled match-rounds for diversity")
         
-        print(f"\nExtracting segments...")
+        print("\nExtracting segments...")
         
         all_segments = []
         early_stopped = False

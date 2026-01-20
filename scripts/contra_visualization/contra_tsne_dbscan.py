@@ -34,7 +34,6 @@ from models.cross_ego_video_location_net import CrossEgoVideoLocationNet
 from data_module.enemy_location_forecast import EnemyLocationForecastDataModule
 from data_module.enemy_location_nowcast import EnemyLocationNowcastDataModule
 from data_module.teammate_location_forecast import TeammateLocationForecastDataModule
-from utils.config_utils import load_cfg
 from utils.env_utils import get_output_base_path
 
 

@@ -260,7 +260,7 @@ def process_task(task_name: str, project_root: Path):
     print(f"Unique locations: {len(location_counts)}")
     
     if len(location_counts) == 0:
-        print(f"\nERROR: No location labels found. Check column names in the CSV file.")
+        print("\nERROR: No location labels found. Check column names in the CSV file.")
         return
     
     # Compute weights using different methods

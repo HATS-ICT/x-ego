@@ -73,7 +73,7 @@ def analyze_buttons_distribution(df):
     print(f"Most common value: {buttons.mode()[0]} ({percentages[buttons.mode()[0]]:.2f}%)")
     
     # Statistics
-    print(f"\nBasic Statistics:")
+    print("\nBasic Statistics:")
     print(f"  Min: {buttons.min()}")
     print(f"  Max: {buttons.max()}")
     print(f"  Mean: {buttons.mean():.2f}")

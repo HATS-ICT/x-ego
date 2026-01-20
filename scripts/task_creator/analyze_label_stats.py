@@ -11,17 +11,16 @@ Usage:
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, Any, Optional
 import argparse
 import json
-from collections import Counter
 import pandas as pd
 import numpy as np
 from dotenv import load_dotenv
 
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
-from scripts.task_creator.task_definitions import load_task_definitions, MLForm
+from scripts.task_creator.task_definitions import load_task_definitions
 
 
 def analyze_binary_cls(df: pd.DataFrame, label_col: str) -> Dict[str, Any]:
@@ -155,7 +154,7 @@ def analyze_regression(df: pd.DataFrame, label_col: str) -> Dict[str, Any]:
         label_cols = [c for c in df.columns if c.startswith('label_')]
     
     if not label_cols:
-        return {"error": f"No label columns found"}
+        return {"error": "No label columns found"}
     
     total = len(df)
     if total == 0:

@@ -16,7 +16,7 @@ Task Categories:
 Usage:
     from scripts.task_creator import (
         load_task_definitions,
-        get_high_relevance_tasks,
+        get_implemented_tasks,
         TeammateLocationNowcastCreator,
         TeamSpreadCreator,
         ImminentKillCreator,
@@ -26,8 +26,8 @@ Usage:
     # Load all task definitions
     tasks = load_task_definitions()
     
-    # Get tasks expected to improve with team contrastive
-    high_rel_tasks = get_high_relevance_tasks(tasks)
+    # Get tasks that are implemented
+    impl_tasks = get_implemented_tasks(tasks)
     
     # Create labels for a specific task
     creator = TeammateLocationNowcastCreator(
@@ -44,8 +44,6 @@ Usage:
 from scripts.task_creator.task_definitions import (
     TaskCategory,
     MLForm,
-    TeamAlignmentRelevance,
-    ExpectedEffect,
     TemporalType,
     DataSource,
     TaskDefinition,
@@ -64,8 +62,7 @@ from scripts.task_creator.task_definitions import (
     NUM_WEAPONS,
     load_task_definitions,
     get_tasks_by_category,
-    get_tasks_by_relevance,
-    get_high_relevance_tasks,
+    get_implemented_tasks,
     get_classification_tasks,
     get_regression_tasks,
 )
@@ -116,8 +113,6 @@ __all__ = [
     # Enums and types
     'TaskCategory',
     'MLForm',
-    'TeamAlignmentRelevance',
-    'ExpectedEffect',
     'TemporalType',
     'DataSource',
     'TaskDefinition',
@@ -140,8 +135,7 @@ __all__ = [
     # Utility functions
     'load_task_definitions',
     'get_tasks_by_category',
-    'get_tasks_by_relevance',
-    'get_high_relevance_tasks',
+    'get_implemented_tasks',
     'get_classification_tasks',
     'get_regression_tasks',
     

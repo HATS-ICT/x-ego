@@ -217,7 +217,7 @@ def main():
     print(f"  - {len(MODELS)} models")
     print(f"  - {len(TASKS)} tasks")
     print(f"  - {len(NUM_POV_AGENTS)} num_pov_agents values")
-    print(f"  - 2 contrastive settings (with/without)")
+    print("  - 2 contrastive settings (with/without)")
     print(f"  - {NUM_SEEDS} seeds per configuration")
     print(f"  - Total runs: {total_runs}")
     print(f"  - Script files: {len(all_job_files)} (one per model-task combination)")

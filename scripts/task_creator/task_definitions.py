@@ -31,22 +31,6 @@ class MLForm(str, Enum):
     REGRESSION = "regression"
 
 
-class TeamAlignmentRelevance(str, Enum):
-    """Expected relevance to team POV alignment."""
-    HIGH = "high"      # Likely to improve with team contrastive
-    MEDIUM = "medium"  # May improve moderately
-    LOW = "low"        # Unlikely to improve
-    NEGATIVE = "negative"  # May actually degrade
-
-
-class ExpectedEffect(str, Enum):
-    """Expected effect of team contrastive learning."""
-    IMPROVE = "improve"
-    NEUTRAL = "neutral"
-    DEGRADE = "degrade"
-    UNKNOWN = "unknown"
-
-
 class TemporalType(str, Enum):
     """Temporal type of prediction."""
     NOWCAST = "nowcast"   # Predict current state
@@ -71,8 +55,6 @@ class TaskDefinition:
     task_name: str
     category: TaskCategory
     description: str
-    relevance_to_team_alignment: TeamAlignmentRelevance
-    expected_effect: ExpectedEffect
     ml_form: MLForm
     num_classes: Optional[int]  # None for regression
     output_dim: int
@@ -81,6 +63,7 @@ class TaskDefinition:
     temporal_type: TemporalType
     horizon_sec: float
     feasibility_notes: str
+    implemented: bool
     
     @property
     def is_classification(self) -> bool:
@@ -96,11 +79,6 @@ class TaskDefinition:
     def is_forecast(self) -> bool:
         """Check if task is a forecast (future prediction) task."""
         return self.temporal_type == TemporalType.FORECAST
-    
-    @property
-    def is_high_relevance(self) -> bool:
-        """Check if task has high relevance to team alignment."""
-        return self.relevance_to_team_alignment == TeamAlignmentRelevance.HIGH
 
 
 # Map places on de_mirage to indices (actual places found in dataset)
@@ -170,8 +148,6 @@ def load_task_definitions(csv_path: Optional[Path] = None) -> List[TaskDefinitio
             task_name=row['task_name'],
             category=TaskCategory(row['category']),
             description=row['description'],
-            relevance_to_team_alignment=TeamAlignmentRelevance(row['relevance_to_team_alignment']),
-            expected_effect=ExpectedEffect(row['expected_effect']),
             ml_form=MLForm(row['ml_form']),
             num_classes=int(row['num_classes']) if pd.notna(row['num_classes']) else None,
             output_dim=int(row['output_dim']),
@@ -179,7 +155,8 @@ def load_task_definitions(csv_path: Optional[Path] = None) -> List[TaskDefinitio
             label_field=row['label_field'],
             temporal_type=TemporalType(row['temporal_type']),
             horizon_sec=float(row['horizon_sec']),
-            feasibility_notes=row['feasibility_notes']
+            feasibility_notes=row['feasibility_notes'],
+            implemented=row['implemented'] == 'yes'
         )
         tasks.append(task)
     
@@ -191,15 +168,9 @@ def get_tasks_by_category(tasks: List[TaskDefinition], category: TaskCategory) -
     return [t for t in tasks if t.category == category]
 
 
-def get_tasks_by_relevance(tasks: List[TaskDefinition], 
-                           relevance: TeamAlignmentRelevance) -> List[TaskDefinition]:
-    """Filter tasks by team alignment relevance."""
-    return [t for t in tasks if t.relevance_to_team_alignment == relevance]
-
-
-def get_high_relevance_tasks(tasks: List[TaskDefinition]) -> List[TaskDefinition]:
-    """Get tasks with high relevance to team alignment."""
-    return get_tasks_by_relevance(tasks, TeamAlignmentRelevance.HIGH)
+def get_implemented_tasks(tasks: List[TaskDefinition]) -> List[TaskDefinition]:
+    """Get tasks that are implemented."""
+    return [t for t in tasks if t.implemented]
 
 
 def get_classification_tasks(tasks: List[TaskDefinition]) -> List[TaskDefinition]:
@@ -223,6 +194,6 @@ if __name__ == "__main__":
         print(f"{category.value}: {len(cat_tasks)} tasks")
     
     print()
-    print(f"High relevance tasks: {len(get_high_relevance_tasks(tasks))}")
+    print(f"Implemented tasks: {len(get_implemented_tasks(tasks))}")
     print(f"Classification tasks: {len(get_classification_tasks(tasks))}")
     print(f"Regression tasks: {len(get_regression_tasks(tasks))}")

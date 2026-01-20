@@ -182,13 +182,13 @@ def print_and_save_metrics(metrics_before, metrics_after, output_path):
             
             if metric_type in metrics_before:
                 m_before = metrics_before[metric_type]
-                print(f"  BEFORE Contrastive:")
+                print("  BEFORE Contrastive:")
                 print(f"    Avg same-{metric_type} distance: {m_before['avg_same_dist']:.6f}")
                 print(f"    Avg diff-{metric_type} distance: {m_before['avg_diff_dist']:.6f}")
                 print(f"    Separation ratio: {m_before['separation_ratio']:.6f}")
                 print(f"    Number of {metric_type}s: {m_before['num_labels']}")
                 
-                f.write(f"BEFORE Contrastive:\n")
+                f.write("BEFORE Contrastive:\n")
                 f.write(f"  Avg same-{metric_type} distance: {m_before['avg_same_dist']:.6f}\n")
                 f.write(f"  Avg diff-{metric_type} distance: {m_before['avg_diff_dist']:.6f}\n")
                 f.write(f"  Separation ratio: {m_before['separation_ratio']:.6f}\n")
@@ -196,13 +196,13 @@ def print_and_save_metrics(metrics_before, metrics_after, output_path):
             
             if metric_type in metrics_after:
                 m_after = metrics_after[metric_type]
-                print(f"  AFTER Contrastive:")
+                print("  AFTER Contrastive:")
                 print(f"    Avg same-{metric_type} distance: {m_after['avg_same_dist']:.6f}")
                 print(f"    Avg diff-{metric_type} distance: {m_after['avg_diff_dist']:.6f}")
                 print(f"    Separation ratio: {m_after['separation_ratio']:.6f}")
                 print(f"    Number of {metric_type}s: {m_after['num_labels']}")
                 
-                f.write(f"AFTER Contrastive:\n")
+                f.write("AFTER Contrastive:\n")
                 f.write(f"  Avg same-{metric_type} distance: {m_after['avg_same_dist']:.6f}\n")
                 f.write(f"  Avg diff-{metric_type} distance: {m_after['avg_diff_dist']:.6f}\n")
                 f.write(f"  Separation ratio: {m_after['separation_ratio']:.6f}\n")

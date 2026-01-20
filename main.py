@@ -149,7 +149,7 @@ def main():
                 "meta.resume_exp=enemy-nowcast-clip-250930-032609-1uqe"
             )
         
-        print(f"=== TEST MODE: Loading configuration from saved experiment ===")
+        print("=== TEST MODE: Loading configuration from saved experiment ===")
         
         # Create minimal config with just the resume_exp
         cfg = OmegaConf.create({'meta': {'resume_exp': resume_exp_from_overrides}})

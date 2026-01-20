@@ -2,7 +2,6 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
-from collections import Counter
 
 def extract_places_from_row(row, prefix='player', num_agents=10):
     places = []
@@ -101,7 +100,7 @@ def plot_distribution(multihot_vectors, place_names, title, output_path):
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     print(f"Saved plot to {output_path}")
     
-    print(f"\nStatistics:")
+    print("\nStatistics:")
     print(f"Total samples: {len(multihot_vectors)}")
     print(f"Total unique places: {len(place_names)}")
     print(f"Mean occupied places per sample: {num_active_per_sample.mean():.2f}")

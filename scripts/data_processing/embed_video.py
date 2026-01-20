@@ -425,8 +425,8 @@ def main():
     
     print("\nTo use pre-computed embeddings during training:")
     print(f"  python main.py --mode train --task {args.task} \\")
-    print(f"    data.use_precomputed_embeddings=true \\")
-    print(f"    data.precomputed_embeddings_encoder=<encoder_name>")
+    print("    data.use_precomputed_embeddings=true \\")
+    print("    data.precomputed_embeddings_encoder=<encoder_name>")
 
 
 if __name__ == "__main__":

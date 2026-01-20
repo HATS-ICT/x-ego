@@ -15,7 +15,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 from sklearn.manifold import TSNE
-import seaborn as sns
 
 
 def parse_args():

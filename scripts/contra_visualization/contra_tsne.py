@@ -22,7 +22,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 from sklearn.manifold import TSNE
-import seaborn as sns
 from omegaconf import OmegaConf
 import sys
 import pathlib
@@ -45,7 +44,6 @@ from models.cross_ego_video_location_net import CrossEgoVideoLocationNet
 from data_module.enemy_location_forecast import EnemyLocationForecastDataModule
 from data_module.enemy_location_nowcast import EnemyLocationNowcastDataModule
 from data_module.teammate_location_forecast import TeammateLocationForecastDataModule
-from utils.config_utils import load_cfg
 from utils.env_utils import get_output_base_path
 
 
@@ -352,7 +350,7 @@ def balance_data(embeddings_before, embeddings_after, team_sides, places, times,
             print(f"  Bin {i}: [{bin_min:.2f}s, {bin_max:.2f}s] - {bin_mask.sum()} samples")
     
     # Create stratified bins: location × time
-    print(f"\nCreating location × time stratification...")
+    print("\nCreating location × time stratification...")
     strata = {}
     for i in range(len(embeddings_before)):
         key = (places[i], time_labels[i])
@@ -392,7 +390,7 @@ def balance_data(embeddings_before, embeddings_after, team_sides, places, times,
     print(f"  Reduction: {len(embeddings_before) - len(balanced_indices)} samples ({(1 - len(balanced_indices)/len(embeddings_before))*100:.1f}%)")
     
     # Print balanced distribution
-    print(f"\nBalanced distribution:")
+    print("\nBalanced distribution:")
     for place in sorted(unique_places):
         place_mask = places_balanced == place
         if place_mask.sum() > 0:
@@ -525,11 +523,11 @@ def main():
     print(f"Number of batches: {args.num_batches}")
     print(f"t-SNE perplexity: {args.perplexity}")
     if args.balance_data:
-        print(f"Data balancing: ENABLED")
+        print("Data balancing: ENABLED")
         print(f"  Time bins: {args.num_time_bins}")
         print(f"  Samples per bin: {args.samples_per_bin}")
     else:
-        print(f"Data balancing: DISABLED")
+        print("Data balancing: DISABLED")
     print()
     
     # Load config
@@ -576,9 +574,9 @@ def main():
         embeddings_before, embeddings_after, team_sides, places, times = load_embeddings(embeddings_cache_path)
     else:
         if args.recompute and embeddings_cache_path.exists():
-            print(f"\nRecomputing embeddings (--recompute flag set)")
+            print("\nRecomputing embeddings (--recompute flag set)")
         else:
-            print(f"\nNo cached embeddings found, extracting from test set...")
+            print("\nNo cached embeddings found, extracting from test set...")
         
         # If balancing is enabled, we need to extract from all test data
         num_batches_to_extract = len(test_dataloader) if args.balance_data else args.num_batches

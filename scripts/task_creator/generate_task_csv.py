@@ -28,8 +28,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'Teammate Location Nowcast',
         'category': 'location',
         'description': 'Predict 4 teammates current locations (places)',
-        'relevance_to_team_alignment': 'high',
-        'expected_effect': 'improve',
         'ml_form': 'multi_label_cls',
         'num_classes': 25,
         'output_dim': 25,
@@ -37,7 +35,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'place',
         'temporal_type': 'nowcast',
         'horizon_sec': 0,
-        'feasibility_notes': 'Uses place field from trajectory; 25 unique places on de_mirage'
+        'feasibility_notes': 'Uses place field from trajectory; 25 unique places on de_mirage',
+        'implemented': 'yes'
     })
     
     # Teammate Coordinate Nowcast
@@ -46,8 +45,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'Teammate Coordinate Nowcast',
         'category': 'location',
         'description': 'Predict 4 teammates normalized XYZ coordinates',
-        'relevance_to_team_alignment': 'high',
-        'expected_effect': 'improve',
         'ml_form': 'regression',
         'num_classes': None,
         'output_dim': 12,
@@ -55,7 +52,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'X_norm;Y_norm;Z_norm',
         'temporal_type': 'nowcast',
         'horizon_sec': 0,
-        'feasibility_notes': '4 teammates x 3 coordinates = 12 output dims'
+        'feasibility_notes': '4 teammates x 3 coordinates = 12 output dims',
+        'implemented': 'yes'
     })
     
     # Enemy Location Nowcast
@@ -64,8 +62,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'Enemy Location Nowcast',
         'category': 'location',
         'description': 'Predict 5 enemies current locations (places)',
-        'relevance_to_team_alignment': 'low',
-        'expected_effect': 'neutral',
         'ml_form': 'multi_label_cls',
         'num_classes': 25,
         'output_dim': 25,
@@ -73,7 +69,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'place',
         'temporal_type': 'nowcast',
         'horizon_sec': 0,
-        'feasibility_notes': 'Enemies not in contrastive set; baseline task'
+        'feasibility_notes': 'Enemies not in contrastive set; baseline task',
+        'implemented': 'yes'
     })
     
     # Enemy Coordinate Nowcast
@@ -82,8 +79,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'Enemy Coordinate Nowcast',
         'category': 'location',
         'description': 'Predict 5 enemies normalized XYZ coordinates',
-        'relevance_to_team_alignment': 'low',
-        'expected_effect': 'neutral',
         'ml_form': 'regression',
         'num_classes': None,
         'output_dim': 15,
@@ -91,7 +86,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'X_norm;Y_norm;Z_norm',
         'temporal_type': 'nowcast',
         'horizon_sec': 0,
-        'feasibility_notes': '5 enemies x 3 coordinates = 15 output dims'
+        'feasibility_notes': '5 enemies x 3 coordinates = 15 output dims',
+        'implemented': 'no'
     })
     
     # Self Location Forecast 5s
@@ -100,8 +96,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'Self Location Forecast 5s',
         'category': 'location',
         'description': 'Predict own location 5 seconds ahead',
-        'relevance_to_team_alignment': 'medium',
-        'expected_effect': 'neutral',
         'ml_form': 'multi_cls',
         'num_classes': 25,
         'output_dim': 25,
@@ -109,7 +103,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'place',
         'temporal_type': 'forecast',
         'horizon_sec': 5,
-        'feasibility_notes': 'Own future intent; medium team relevance'
+        'feasibility_notes': 'Own future intent; medium team relevance',
+        'implemented': 'yes'
     })
     
     # Self Location Forecast 10s
@@ -118,8 +113,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'Self Location Forecast 10s',
         'category': 'location',
         'description': 'Predict own location 10 seconds ahead',
-        'relevance_to_team_alignment': 'medium',
-        'expected_effect': 'neutral',
         'ml_form': 'multi_cls',
         'num_classes': 25,
         'output_dim': 25,
@@ -127,7 +120,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'place',
         'temporal_type': 'forecast',
         'horizon_sec': 10,
-        'feasibility_notes': 'Longer horizon self prediction'
+        'feasibility_notes': 'Longer horizon self prediction',
+        'implemented': 'yes'
     })
     
     # Teammate Location Forecast 5s
@@ -136,8 +130,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'Teammate Location Forecast 5s',
         'category': 'location',
         'description': 'Predict 4 teammates locations 5 seconds ahead',
-        'relevance_to_team_alignment': 'high',
-        'expected_effect': 'improve',
         'ml_form': 'multi_label_cls',
         'num_classes': 25,
         'output_dim': 25,
@@ -145,7 +137,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'place',
         'temporal_type': 'forecast',
         'horizon_sec': 5,
-        'feasibility_notes': 'Team coordination prediction'
+        'feasibility_notes': 'Team coordination prediction',
+        'implemented': 'yes'
     })
     
     # Teammate Location Forecast 10s
@@ -154,8 +147,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'Teammate Location Forecast 10s',
         'category': 'location',
         'description': 'Predict 4 teammates locations 10 seconds ahead',
-        'relevance_to_team_alignment': 'high',
-        'expected_effect': 'improve',
         'ml_form': 'multi_label_cls',
         'num_classes': 25,
         'output_dim': 25,
@@ -163,7 +154,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'place',
         'temporal_type': 'forecast',
         'horizon_sec': 10,
-        'feasibility_notes': 'Longer horizon team prediction'
+        'feasibility_notes': 'Longer horizon team prediction',
+        'implemented': 'yes'
     })
     
     # Enemy Location Forecast 5s
@@ -172,8 +164,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'Enemy Location Forecast 5s',
         'category': 'location',
         'description': 'Predict 5 enemies locations 5 seconds ahead',
-        'relevance_to_team_alignment': 'low',
-        'expected_effect': 'neutral',
         'ml_form': 'multi_label_cls',
         'num_classes': 25,
         'output_dim': 25,
@@ -181,7 +171,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'place',
         'temporal_type': 'forecast',
         'horizon_sec': 5,
-        'feasibility_notes': 'Enemy prediction baseline'
+        'feasibility_notes': 'Enemy prediction baseline',
+        'implemented': 'yes'
     })
     
     # Enemy Location Forecast 10s
@@ -190,8 +181,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'Enemy Location Forecast 10s',
         'category': 'location',
         'description': 'Predict 5 enemies locations 10 seconds ahead',
-        'relevance_to_team_alignment': 'low',
-        'expected_effect': 'neutral',
         'ml_form': 'multi_label_cls',
         'num_classes': 25,
         'output_dim': 25,
@@ -199,7 +188,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'place',
         'temporal_type': 'forecast',
         'horizon_sec': 10,
-        'feasibility_notes': 'Longer horizon enemy prediction'
+        'feasibility_notes': 'Longer horizon enemy prediction',
+        'implemented': 'yes'
     })
     
     # ========== Category: Coordination ==========
@@ -210,8 +200,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'Team Spatial Spread',
         'category': 'coordination',
         'description': 'Estimate team spatial spread (std of positions)',
-        'relevance_to_team_alignment': 'high',
-        'expected_effect': 'improve',
         'ml_form': 'regression',
         'num_classes': None,
         'output_dim': 1,
@@ -219,7 +207,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'X_norm;Y_norm',
         'temporal_type': 'nowcast',
         'horizon_sec': 0,
-        'feasibility_notes': 'Std dev of teammate positions'
+        'feasibility_notes': 'Std dev of teammate positions',
+        'implemented': 'yes'
     })
     
     # Team Centroid
@@ -228,8 +217,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'Team Centroid Location',
         'category': 'coordination',
         'description': 'Predict team centroid normalized coordinates',
-        'relevance_to_team_alignment': 'high',
-        'expected_effect': 'improve',
         'ml_form': 'regression',
         'num_classes': None,
         'output_dim': 3,
@@ -237,7 +224,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'X_norm;Y_norm;Z_norm',
         'temporal_type': 'nowcast',
         'horizon_sec': 0,
-        'feasibility_notes': 'Mean of 5 team member positions'
+        'feasibility_notes': 'Mean of 5 team member positions',
+        'implemented': 'yes'
     })
     
     # Teammate Alive Count
@@ -246,8 +234,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'Teammate Alive Count',
         'category': 'coordination',
         'description': 'Count number of alive teammates',
-        'relevance_to_team_alignment': 'high',
-        'expected_effect': 'improve',
         'ml_form': 'multi_cls',
         'num_classes': 5,
         'output_dim': 5,
@@ -255,7 +241,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'health',
         'temporal_type': 'nowcast',
         'horizon_sec': 0,
-        'feasibility_notes': 'Classes 0-4 teammates alive'
+        'feasibility_notes': 'Classes 0-4 teammates alive',
+        'implemented': 'yes'
     })
     
     # Enemy Alive Count
@@ -264,8 +251,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'Enemy Alive Count',
         'category': 'coordination',
         'description': 'Count number of alive enemies',
-        'relevance_to_team_alignment': 'medium',
-        'expected_effect': 'neutral',
         'ml_form': 'multi_cls',
         'num_classes': 6,
         'output_dim': 6,
@@ -273,7 +258,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'health',
         'temporal_type': 'nowcast',
         'horizon_sec': 0,
-        'feasibility_notes': 'Classes 0-5 enemies alive'
+        'feasibility_notes': 'Classes 0-5 enemies alive',
+        'implemented': 'yes'
     })
     
     # Teammate Proximity
@@ -282,8 +268,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'Nearest Teammate Distance',
         'category': 'coordination',
         'description': 'Predict distance to nearest teammate',
-        'relevance_to_team_alignment': 'high',
-        'expected_effect': 'improve',
         'ml_form': 'regression',
         'num_classes': None,
         'output_dim': 1,
@@ -291,7 +275,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'X_norm;Y_norm;Z_norm',
         'temporal_type': 'nowcast',
         'horizon_sec': 0,
-        'feasibility_notes': 'Euclidean distance in normalized coords'
+        'feasibility_notes': 'Euclidean distance in normalized coords',
+        'implemented': 'yes'
     })
     
     # Team Movement Direction
@@ -300,8 +285,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'Team Movement Direction',
         'category': 'coordination',
         'description': 'Predict aggregate team movement direction',
-        'relevance_to_team_alignment': 'high',
-        'expected_effect': 'improve',
         'ml_form': 'multi_cls',
         'num_classes': 9,
         'output_dim': 9,
@@ -309,7 +292,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'X_norm;Y_norm',
         'temporal_type': 'nowcast',
         'horizon_sec': 0,
-        'feasibility_notes': '8 directions + stationary; requires delta computation'
+        'feasibility_notes': '8 directions + stationary; requires delta computation',
+        'implemented': 'yes'
     })
     
     # ========== Category: Combat ==========
@@ -320,8 +304,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'Imminent Kill 3s',
         'category': 'combat',
         'description': 'Will any kill happen in next 3 seconds',
-        'relevance_to_team_alignment': 'medium',
-        'expected_effect': 'neutral',
         'ml_form': 'binary_cls',
         'num_classes': 2,
         'output_dim': 1,
@@ -329,7 +311,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'tick',
         'temporal_type': 'forecast',
         'horizon_sec': 3,
-        'feasibility_notes': 'Binary prediction from kills.csv timing'
+        'feasibility_notes': 'Binary prediction from kills.csv timing',
+        'implemented': 'yes'
     })
     
     # Imminent Kill 5s
@@ -338,8 +321,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'Imminent Kill 5s',
         'category': 'combat',
         'description': 'Will any kill happen in next 5 seconds',
-        'relevance_to_team_alignment': 'medium',
-        'expected_effect': 'neutral',
         'ml_form': 'binary_cls',
         'num_classes': 2,
         'output_dim': 1,
@@ -347,7 +328,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'tick',
         'temporal_type': 'forecast',
         'horizon_sec': 5,
-        'feasibility_notes': 'Wider window for kill prediction'
+        'feasibility_notes': 'Wider window for kill prediction',
+        'implemented': 'yes'
     })
     
     # Imminent Death Self 3s
@@ -356,8 +338,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'Self Death 3s',
         'category': 'combat',
         'description': 'Will POV player die in next 3 seconds',
-        'relevance_to_team_alignment': 'low',
-        'expected_effect': 'neutral',
         'ml_form': 'binary_cls',
         'num_classes': 2,
         'output_dim': 1,
@@ -365,7 +345,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'victim_steamid',
         'temporal_type': 'forecast',
         'horizon_sec': 3,
-        'feasibility_notes': 'Individual survival prediction'
+        'feasibility_notes': 'Individual survival prediction',
+        'implemented': 'yes'
     })
     
     # Imminent Death Self 5s
@@ -374,8 +355,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'Self Death 5s',
         'category': 'combat',
         'description': 'Will POV player die in next 5 seconds',
-        'relevance_to_team_alignment': 'low',
-        'expected_effect': 'neutral',
         'ml_form': 'binary_cls',
         'num_classes': 2,
         'output_dim': 1,
@@ -383,7 +362,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'victim_steamid',
         'temporal_type': 'forecast',
         'horizon_sec': 5,
-        'feasibility_notes': 'Individual survival wider window'
+        'feasibility_notes': 'Individual survival wider window',
+        'implemented': 'yes'
     })
     
     # Imminent Damage 3s
@@ -392,8 +372,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'Imminent Damage 3s',
         'category': 'combat',
         'description': 'Will any damage occur in next 3 seconds',
-        'relevance_to_team_alignment': 'medium',
-        'expected_effect': 'neutral',
         'ml_form': 'binary_cls',
         'num_classes': 2,
         'output_dim': 1,
@@ -401,7 +379,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'tick',
         'temporal_type': 'forecast',
         'horizon_sec': 3,
-        'feasibility_notes': 'Combat engagement prediction'
+        'feasibility_notes': 'Combat engagement prediction',
+        'implemented': 'yes'
     })
     
     # Team In Combat
@@ -410,8 +389,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'Team In Combat',
         'category': 'combat',
         'description': 'Is any teammate currently in combat',
-        'relevance_to_team_alignment': 'high',
-        'expected_effect': 'improve',
         'ml_form': 'binary_cls',
         'num_classes': 2,
         'output_dim': 1,
@@ -419,7 +396,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'attacker_steamid;victim_steamid',
         'temporal_type': 'nowcast',
         'horizon_sec': 0,
-        'feasibility_notes': 'Recent damage involving team within 2s window'
+        'feasibility_notes': 'Recent damage involving team within 2s window',
+        'implemented': 'yes'
     })
     
     # POV In Combat
@@ -428,8 +406,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'POV In Combat',
         'category': 'combat',
         'description': 'Is POV player currently in combat',
-        'relevance_to_team_alignment': 'low',
-        'expected_effect': 'neutral',
         'ml_form': 'binary_cls',
         'num_classes': 2,
         'output_dim': 1,
@@ -437,7 +413,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'attacker_steamid;victim_steamid',
         'temporal_type': 'nowcast',
         'horizon_sec': 0,
-        'feasibility_notes': 'Recent damage involving POV player'
+        'feasibility_notes': 'Recent damage involving POV player',
+        'implemented': 'yes'
     })
     
     # ========== Category: Bomb ==========
@@ -448,8 +425,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'Bomb Planted State',
         'category': 'bomb',
         'description': 'Is bomb currently planted',
-        'relevance_to_team_alignment': 'medium',
-        'expected_effect': 'neutral',
         'ml_form': 'binary_cls',
         'num_classes': 2,
         'output_dim': 1,
@@ -457,7 +432,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'event',
         'temporal_type': 'nowcast',
         'horizon_sec': 0,
-        'feasibility_notes': 'Game state from bomb plant/defuse/explode events'
+        'feasibility_notes': 'Game state from bomb plant/defuse/explode events',
+        'implemented': 'yes'
     })
     
     # Bomb Site Prediction
@@ -466,8 +442,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'Bomb Site Prediction',
         'category': 'bomb',
         'description': 'Predict which site bomb will be planted (A vs B)',
-        'relevance_to_team_alignment': 'medium',
-        'expected_effect': 'improve',
         'ml_form': 'binary_cls',
         'num_classes': 2,
         'output_dim': 1,
@@ -475,7 +449,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'bomb_site',
         'temporal_type': 'forecast',
         'horizon_sec': 0,
-        'feasibility_notes': 'Strategic prediction; only for T-side pre-plant'
+        'feasibility_notes': 'Strategic prediction; only for T-side pre-plant',
+        'implemented': 'yes'
     })
     
     # Post Plant Outcome
@@ -484,8 +459,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'Post Plant Outcome',
         'category': 'bomb',
         'description': 'After plant predict explode vs defuse',
-        'relevance_to_team_alignment': 'medium',
-        'expected_effect': 'neutral',
         'ml_form': 'binary_cls',
         'num_classes': 2,
         'output_dim': 1,
@@ -493,7 +466,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'event',
         'temporal_type': 'forecast',
         'horizon_sec': 0,
-        'feasibility_notes': 'Only valid for post-plant segments'
+        'feasibility_notes': 'Only valid for post-plant segments',
+        'implemented': 'yes'
     })
     
     # ========== Category: Round ==========
@@ -504,8 +478,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'Round Winner Prediction',
         'category': 'round',
         'description': 'Predict which team wins the round',
-        'relevance_to_team_alignment': 'medium',
-        'expected_effect': 'neutral',
         'ml_form': 'binary_cls',
         'num_classes': 2,
         'output_dim': 1,
@@ -513,7 +485,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'winner',
         'temporal_type': 'forecast',
         'horizon_sec': 0,
-        'feasibility_notes': 'Win probability from current state'
+        'feasibility_notes': 'Win probability from current state',
+        'implemented': 'yes'
     })
     
     # Round Outcome Reason
@@ -522,8 +495,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'Round Outcome Reason',
         'category': 'round',
         'description': 'Predict how round will end',
-        'relevance_to_team_alignment': 'medium',
-        'expected_effect': 'neutral',
         'ml_form': 'multi_cls',
         'num_classes': 4,
         'output_dim': 4,
@@ -531,7 +502,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'reason',
         'temporal_type': 'forecast',
         'horizon_sec': 0,
-        'feasibility_notes': 't_killed;ct_killed;bomb_exploded;bomb_defused'
+        'feasibility_notes': 't_killed;ct_killed;bomb_exploded;bomb_defused',
+        'implemented': 'no'
     })
     
     # ========== Category: Spatial ==========
@@ -542,8 +514,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'POV Place Classification',
         'category': 'spatial',
         'description': 'Classify POV player current location',
-        'relevance_to_team_alignment': 'low',
-        'expected_effect': 'neutral',
         'ml_form': 'multi_cls',
         'num_classes': 25,
         'output_dim': 25,
@@ -551,7 +521,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'place',
         'temporal_type': 'nowcast',
         'horizon_sec': 0,
-        'feasibility_notes': 'Self-localization baseline'
+        'feasibility_notes': 'Self-localization baseline',
+        'implemented': 'no'
     })
     
     # POV Movement Direction
@@ -560,8 +531,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'POV Movement Direction',
         'category': 'spatial',
         'description': 'Predict POV player movement direction',
-        'relevance_to_team_alignment': 'low',
-        'expected_effect': 'neutral',
         'ml_form': 'multi_cls',
         'num_classes': 9,
         'output_dim': 9,
@@ -569,7 +538,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'X_norm;Y_norm',
         'temporal_type': 'nowcast',
         'horizon_sec': 0,
-        'feasibility_notes': '8 directions + stationary'
+        'feasibility_notes': '8 directions + stationary',
+        'implemented': 'no'
     })
     
     # POV Speed
@@ -578,8 +548,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'POV Speed Estimation',
         'category': 'spatial',
         'description': 'Estimate POV player movement speed',
-        'relevance_to_team_alignment': 'low',
-        'expected_effect': 'neutral',
         'ml_form': 'regression',
         'num_classes': None,
         'output_dim': 1,
@@ -587,7 +555,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'X_norm;Y_norm;Z_norm',
         'temporal_type': 'nowcast',
         'horizon_sec': 0,
-        'feasibility_notes': 'Magnitude of velocity vector'
+        'feasibility_notes': 'Magnitude of velocity vector',
+        'implemented': 'no'
     })
     
     # ========== Category: Action ==========
@@ -598,8 +567,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'Team Executing',
         'category': 'action',
         'description': 'Is team executing a site take',
-        'relevance_to_team_alignment': 'high',
-        'expected_effect': 'improve',
         'ml_form': 'binary_cls',
         'num_classes': 2,
         'output_dim': 1,
@@ -607,7 +574,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'X_norm;Y_norm',
         'temporal_type': 'nowcast',
         'horizon_sec': 0,
-        'feasibility_notes': 'Inferred from coordinated movement toward site'
+        'feasibility_notes': 'Inferred from coordinated movement toward site',
+        'implemented': 'no'
     })
     
     # Team Rotating
@@ -616,8 +584,6 @@ def generate_task_definitions() -> pd.DataFrame:
         'task_name': 'Team Rotating',
         'category': 'action',
         'description': 'Is team rotating between sites',
-        'relevance_to_team_alignment': 'high',
-        'expected_effect': 'improve',
         'ml_form': 'binary_cls',
         'num_classes': 2,
         'output_dim': 1,
@@ -625,7 +591,8 @@ def generate_task_definitions() -> pd.DataFrame:
         'label_field': 'X_norm;Y_norm',
         'temporal_type': 'nowcast',
         'horizon_sec': 0,
-        'feasibility_notes': 'Inferred from lateral movement pattern'
+        'feasibility_notes': 'Inferred from lateral movement pattern',
+        'implemented': 'no'
     })
     
     return pd.DataFrame(tasks)
@@ -649,10 +616,10 @@ def main():
         count = len(df[df['category'] == category])
         print(f"  {category}: {count} tasks")
     
-    print("\nSummary by relevance:")
-    for rel in df['relevance_to_team_alignment'].unique():
-        count = len(df[df['relevance_to_team_alignment'] == rel])
-        print(f"  {rel}: {count} tasks")
+    print("\nSummary by implementation status:")
+    for impl in df['implemented'].unique():
+        count = len(df[df['implemented'] == impl])
+        print(f"  {impl}: {count} tasks")
     
     print("\nSummary by ML form:")
     for form in df['ml_form'].unique():

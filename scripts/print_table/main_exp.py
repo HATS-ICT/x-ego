@@ -1,7 +1,6 @@
 import json
 from pathlib import Path
 from collections import defaultdict
-import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import seaborn as sns

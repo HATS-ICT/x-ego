@@ -249,9 +249,9 @@ def main():
     print("\nConfiguration:")
     print(f"  - model: {MODEL}")
     print(f"  - task_form: {TASK_FORM}")
-    print(f"  - num_pov_agents: 1")
-    print(f"  - num_workers: 24")
-    print(f"  - contrastive.enable: true")
+    print("  - num_pov_agents: 1")
+    print("  - num_workers: 24")
+    print("  - contrastive.enable: true")
     print(f"  - max_epochs: {MAX_EPOCHS}")
     print("\nContrastive configurations:")
     for i, config in enumerate(CONTRASTIVE_CONFIGS, 1):

@@ -68,7 +68,7 @@ def fit_and_save_scaler(coords, save_path: Path):
     scaler = MinMaxScaler(feature_range=(0, 1))
     scaler.fit(coords)
     
-    print(f"Scaler fitted:")
+    print("Scaler fitted:")
     print(f"  data_min_: {scaler.data_min_}")
     print(f"  data_max_: {scaler.data_max_}")
     print(f"  scale_: {scaler.scale_}")
@@ -144,7 +144,7 @@ def main():
         print(f"\nScaler already exists at: {scaler_save_path}")
         print("Loading existing scaler...")
         scaler = joblib.load(scaler_save_path)
-        print(f"Scaler loaded:")
+        print("Scaler loaded:")
         print(f"  data_min_: {scaler.data_min_}")
         print(f"  data_max_: {scaler.data_max_}")
         print(f"  scale_: {scaler.scale_}")
@@ -162,7 +162,7 @@ def main():
     print("All done! Summary:")
     print(f"  - Processed {len(csv_files)} CSV files")
     print(f"  - Scaler saved to: {scaler_save_path}")
-    print(f"  - Added columns: X_norm, Y_norm, Z_norm")
+    print("  - Added columns: X_norm, Y_norm, Z_norm")
     print("="*60)
 
 

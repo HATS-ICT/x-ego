@@ -193,7 +193,7 @@ def main():
     print(f"  - Total: {len(TASKS)} × {len(MODELS)} × {len(NUM_POV_AGENTS)} = {len(all_jobs)} jobs")
     print("\nConfiguration:")
     print(f"  - task_form: {TASK_FORM}")
-    print(f"  - contrastive.enable: false")
+    print("  - contrastive.enable: false")
     print(f"  - num_pov_agents: {NUM_POV_AGENTS}")
     print("\nTo submit all jobs to SLURM, run:")
     print(f"  bash {sbatch_all_path}")

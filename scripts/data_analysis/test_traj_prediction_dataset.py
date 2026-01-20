@@ -43,23 +43,23 @@ def test_dataset():
     label_path = Path(cfg.path.data) / cfg.data.labels_folder / cfg.data.labels_filename
     cfg.data.label_path = str(label_path)
     
-    print(f"\nConfiguration:")
+    print("\nConfiguration:")
     print(f"  Label path: {cfg.data.labels_filename}")
     print(f"  Video length: {cfg.data.video_length_sec}s")
     print(f"  Trajectory length: {cfg.data.total_trajectory_sec}s at {cfg.data.trajectory_sample_rate}Hz")
     print(f"  POV agents: {cfg.data.num_pov_agents}")
-    print(f"  POV-Target sampling: random")
+    print("  POV-Target sampling: random")
     
     # Create dataset
-    print(f"\nCreating dataset...")
+    print("\nCreating dataset...")
     dataset = TeammateOpponentTrajPredictionDataset(cfg)
     
-    print(f"\nDataset created successfully!")
+    print("\nDataset created successfully!")
     print(f"  Total samples: {len(dataset)}")
     print(f"  Trajectory shape: {dataset.trajectories.shape}")
     
     # Test sampling a few items
-    print(f"\nTesting sample retrieval...")
+    print("\nTesting sample retrieval...")
     
     for i in range(3):
         print(f"\n--- Sample {i} ---")
@@ -105,23 +105,23 @@ def test_datamodule():
     label_path = Path(cfg.path.data) / cfg.data.labels_folder / cfg.data.labels_filename
     cfg.data.label_path = str(label_path)
     
-    print(f"\nCreating data module...")
+    print("\nCreating data module...")
     data_module = TeammateOpponentTrajPredictionDataModule(cfg)
     
     # Prepare data
-    print(f"\nPreparing data...")
+    print("\nPreparing data...")
     data_module.prepare_data()
     
     # Setup for training
-    print(f"\nSetting up for training...")
+    print("\nSetting up for training...")
     data_module.setup(stage='fit')
     
-    print(f"\nDataModule setup completed!")
+    print("\nDataModule setup completed!")
     print(f"  Train dataset: {len(data_module.train_dataset)} samples")
     print(f"  Val dataset: {len(data_module.val_dataset)} samples")
     
     # Test dataloader
-    print(f"\nTesting train dataloader...")
+    print("\nTesting train dataloader...")
     train_loader = data_module.train_dataloader()
     
     batch = next(iter(train_loader))
@@ -165,7 +165,7 @@ def test_random_sampling():
     dataset = TeammateOpponentTrajPredictionDataset(cfg)
     
     # Sample 20 items and count combinations
-    print(f"\nSampling 20 random items to verify all combinations are possible...")
+    print("\nSampling 20 random items to verify all combinations are possible...")
     combinations = {}
     for i in range(20):
         sample = dataset[i % len(dataset)]
@@ -174,7 +174,7 @@ def test_random_sampling():
         key = f"{pov}->{target}"
         combinations[key] = combinations.get(key, 0) + 1
     
-    print(f"\nPOV-Target combinations (20 samples):")
+    print("\nPOV-Target combinations (20 samples):")
     for key, count in sorted(combinations.items()):
         print(f"  {key}: {count}")
     
@@ -182,7 +182,7 @@ def test_random_sampling():
     if len(combinations) > 1:
         print(f"\n✓ Random sampling is working (got {len(combinations)} different combinations)")
     else:
-        print(f"\n⚠ Warning: Only got 1 combination, might need more samples")
+        print("\n⚠ Warning: Only got 1 combination, might need more samples")
     
     print("\n" + "=" * 80)
     print("Random sampling test completed successfully!")

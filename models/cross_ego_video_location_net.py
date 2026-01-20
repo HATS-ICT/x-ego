@@ -23,7 +23,6 @@ from models.prediction_losses import LossComputer
 from models.prediction_metrics import MetricsCalculator
 from models.architecture_utils import ACT2CLS, build_mlp
 from models.test_analyzer import TestAnalyzer
-from pathlib import Path
 
 try:
     from video_encoder import VideoEncoder, get_embed_dim_for_model_type
@@ -64,7 +63,7 @@ class CrossEgoVideoLocationNet(L.LightningModule):
             # Get embed_dim without initializing the full encoder (saves memory)
             video_embed_dim = get_embed_dim_for_model_type(cfg.model.encoder.video.model_type)
             self.video_encoder = None  # Don't initialize encoder when using precomputed embeddings
-            print(f"[Memory Optimization] Video encoder NOT initialized (using precomputed embeddings)")
+            print("[Memory Optimization] Video encoder NOT initialized (using precomputed embeddings)")
             print(f"[Memory Optimization] Using {cfg.model.encoder.video.model_type} embed_dim: {video_embed_dim}")
         else:
             # Initialize full video encoder

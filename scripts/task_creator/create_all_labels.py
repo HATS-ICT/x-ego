@@ -48,6 +48,51 @@ from scripts.task_creator.task_creator_helper import (
 )
 
 
+# Oversampling multipliers for each task based on their imbalance ratios
+# Higher multiplier = collect more samples before balanced downsampling
+TASK_OVERSAMPLE_MULTIPLIERS: Dict[str, int] = {
+    # Binary tasks with high imbalance
+    'global_bombPlanted': 10,
+    'global_teamInCombat': 15,
+    'self_inCombat': 15,
+    'self_death_5s': 11,
+    'self_kill_5s': 21,
+    'self_kill_10s': 10,
+    'global_anyKill_20s': 8,
+    
+    # Binary tasks with moderate imbalance
+    'self_death_10s': 6,
+    'self_kill_20s': 6,
+    'self_death_20s': 3,
+    'global_anyKill_10s': 3,
+    
+    # Binary tasks with low imbalance
+    'global_anyKill_5s': 3,
+    'global_bombSite': 3,
+    'global_postPlantOutcome': 3,
+    'global_roundWinner': 3,
+    'global_willPlant': 3,
+    
+    # Multi-class tasks with high imbalance
+    'self_location': 80,
+    'self_location_5s': 18,
+    'self_location_10s': 18,
+    'self_location_20s': 18,
+    
+    # Multi-class tasks with moderate imbalance
+    'global_roundOutcome': 6,
+    'enemy_aliveCount': 4,
+    'teammate_aliveCount': 4,
+    'self_movementDir': 4,
+    
+    # Multi-class tasks with low/no imbalance
+    'global_teamMovementDir': 3,
+    'self_weapon': 3,
+    
+    # Default for other tasks
+    'default': 3,
+}
+
 # Task configurations: (task_id, creator_class, config_overrides, output_filename)
 TASK_CONFIGS: List[Tuple[str, type, Dict[str, Any], str]] = [
     # ============= LOCATION TASKS =============
@@ -251,14 +296,24 @@ def create_task_labels(
                 stride_sec=stride_sec
             )
             
+            # Get task-specific oversample multiplier
+            oversample_mult = TASK_OVERSAMPLE_MULTIPLIERS.get(
+                task_id, 
+                TASK_OVERSAMPLE_MULTIPLIERS['default']
+            )
+            
             # Build config
             config = {
                 "segment_length_sec": segment_length_sec,
                 "output_file_name": filename,
                 "partition": partitions,
                 "max_samples": max_samples,
+                "oversample_multiplier": oversample_mult,
                 **config_overrides
             }
+            
+            if verbose and max_samples:
+                print(f"  Oversample multiplier: {oversample_mult}x")
             
             # Process segments with early stopping
             df = creator.process_segments(config)

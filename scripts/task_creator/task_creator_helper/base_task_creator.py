@@ -502,6 +502,76 @@ class TaskCreatorBase(ABC):
         """
         pass
     
+    # ========== Balanced Sampling ==========
+    
+    def _balanced_downsample(self, segments: List[Dict], max_samples: int, 
+                            label_field: str = 'label') -> List[Dict]:
+        """
+        Downsample segments while maintaining class balance.
+        
+        Args:
+            segments: List of segment dictionaries
+            max_samples: Target number of samples
+            label_field: Field name containing the label
+        
+        Returns:
+            Downsampled list of segments with balanced classes
+        """
+        if len(segments) <= max_samples:
+            return segments
+        
+        # Group segments by label
+        label_groups = {}
+        for seg in segments:
+            label = seg.get(label_field)
+            if label is None:
+                # For regression or multi-label tasks, skip balancing
+                random.seed(self.seed)
+                return random.sample(segments, max_samples)
+            
+            # Convert to hashable type
+            if isinstance(label, (list, np.ndarray)):
+                label_key = tuple(label) if isinstance(label, list) else tuple(label.tolist())
+            else:
+                label_key = label
+            
+            if label_key not in label_groups:
+                label_groups[label_key] = []
+            label_groups[label_key].append(seg)
+        
+        num_classes = len(label_groups)
+        if num_classes == 0:
+            return segments
+        
+        # Calculate samples per class (aim for equal distribution)
+        samples_per_class = max_samples // num_classes
+        remainder = max_samples % num_classes
+        
+        balanced_segments = []
+        random.seed(self.seed)
+        
+        for i, (label_key, group) in enumerate(sorted(label_groups.items())):
+            # Distribute remainder among first few classes
+            target = samples_per_class + (1 if i < remainder else 0)
+            
+            # Sample from this class
+            if len(group) >= target:
+                sampled = random.sample(group, target)
+            else:
+                # If not enough samples, take all and warn
+                sampled = group
+                print(f"  Warning: Class {label_key} has only {len(group)} samples (target: {target})")
+            
+            balanced_segments.extend(sampled)
+        
+        # Shuffle the final balanced set
+        random.shuffle(balanced_segments)
+        
+        print(f"  Balanced downsampling: {len(segments)} -> {len(balanced_segments)} samples")
+        print(f"  Target per class: ~{samples_per_class} (from {num_classes} classes)")
+        
+        return balanced_segments
+    
     # ========== Main Processing ==========
     
     def process_segments(self, config: Dict[str, Any]) -> pd.DataFrame:
@@ -513,6 +583,7 @@ class TaskCreatorBase(ABC):
                 - output_file_name: Name of the output CSV file
                 - segment_length_sec: Length of segments in seconds
                 - partition: List of partitions to include ['train', 'val', 'test']
+                - oversample_multiplier: Multiplier for oversampling before balanced downsample (default: 3)
                 - Additional parameters specific to each task
         
         Returns:
@@ -524,14 +595,15 @@ class TaskCreatorBase(ABC):
                 raise ValueError(f"Missing required configuration key: {key}")
         
         max_samples = config.get('max_samples')
-        # Collect 3x target for diversity, then downsample
-        collection_target = max_samples * 3 if max_samples else None
+        oversample_mult = config.get('oversample_multiplier', 3)
+        # Collect Nx target for diversity, then downsample with balancing
+        collection_target = max_samples * oversample_mult if max_samples else None
         
         print("Processing segments with configuration:")
         print(f"  Segment length: {config['segment_length_sec']} seconds")
         print(f"  Partitions: {config['partition']}")
         if max_samples:
-            print(f"  Max samples: {max_samples} (collecting up to {collection_target}, then downsample)")
+            print(f"  Max samples: {max_samples} (collecting up to {collection_target} with {oversample_mult}x, then balanced downsample)")
         
         filtered_partition_df = self.partition_df[
             self.partition_df['split'].isin(config['partition'])
@@ -588,12 +660,9 @@ class TaskCreatorBase(ABC):
             print("No valid segments found. Exiting.")
             return pd.DataFrame()
         
-        # Downsample if we collected more than max_samples
+        # Downsample if we collected more than max_samples (with balancing)
         if max_samples and len(all_segments) > max_samples:
-            import random
-            random.seed(self.seed)
-            all_segments = random.sample(all_segments, max_samples)
-            print(f"Downsampled to {len(all_segments)} segments")
+            all_segments = self._balanced_downsample(all_segments, max_samples)
         
         print("\nCreating output CSV...")
         df = self._create_output_csv(all_segments, config)

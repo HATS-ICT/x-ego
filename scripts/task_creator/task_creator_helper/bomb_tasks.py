@@ -634,8 +634,8 @@ class RoundOutcomeReasonCreator(TaskCreatorBase):
     """
     Creates labeled segments for round outcome reason prediction.
     
-    Predicts how the round will end (t_killed, ct_killed, bomb_exploded, bomb_defused).
-    Output: Multi-class classification (4 classes).
+    Predicts how the round will end (t_killed, ct_killed, bomb_exploded, bomb_defused, time_ran_out).
+    Output: Multi-class classification (5 classes).
     """
     
     def _extract_segments_from_round(self, match_id: str, round_num: int,
@@ -657,12 +657,13 @@ class RoundOutcomeReasonCreator(TaskCreatorBase):
         reason = round_info.iloc[0].get('reason', '')
         
         # Map reason to label index
-        # Expected reasons: t_killed, ct_killed, bomb_exploded, bomb_defused
+        # Expected reasons: t_killed, ct_killed, bomb_exploded, bomb_defused, time_ran_out
         reason_mapping = {
             't_killed': 0,       # T team eliminated
             'ct_killed': 1,      # CT team eliminated  
             'bomb_exploded': 2,  # Bomb exploded
             'bomb_defused': 3,   # Bomb defused
+            'time_ran_out': 4,   # Time ran out
         }
         
         if reason not in reason_mapping:

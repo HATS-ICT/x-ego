@@ -33,7 +33,7 @@ global_bombSite,Bomb Site Prediction,bomb,Predict which site bomb will be plante
 global_willPlant,Will Plant Prediction,bomb,Predict if bomb will be planted in the round,binary_cls,2,1,bomb;rounds,event,forecast,0,Only valid for T-side pre-plant segments,yes
 global_postPlantOutcome,Post Plant Outcome,bomb,After plant predict explode vs defuse,binary_cls,2,1,bomb,event,forecast,0,Only valid for post-plant segments,yes
 global_roundWinner,Round Winner Prediction,round,Predict which team wins the round,binary_cls,2,1,rounds,winner,forecast,0,Win probability from current state,yes
-global_roundOutcome,Round Outcome Reason,round,Predict how round will end,multi_cls,4,4,rounds,reason,forecast,0,t_killed;ct_killed;bomb_exploded;bomb_defused,yes
+global_roundOutcome,Round Outcome Reason,round,Predict how round will end,multi_cls,5,5,rounds,reason,forecast,0,t_killed;ct_killed;bomb_exploded;bomb_defused;time_ran_out,yes
 self_movementDir,Self Movement Direction,spatial,Predict POV player movement direction,multi_cls,9,9,trajectory,X_norm;Y_norm,nowcast,0,8 directions + stationary,yes
 self_speed,Self Speed Estimation,spatial,Estimate POV player movement speed,regression,,1,trajectory,X_norm;Y_norm;Z_norm,nowcast,0,Magnitude of velocity vector,yes
 self_weapon,Self Weapon In Use,action,Classify weapon POV player is using,multi_cls,56,56,shots;damages,weapon,nowcast,0,Equipment state from recent shots/damages,yes

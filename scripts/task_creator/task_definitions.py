@@ -102,7 +102,7 @@ DIRECTION_TO_IDX = {d: i for i, d in enumerate(MOVEMENT_DIRECTIONS)}
 NUM_DIRECTIONS = len(MOVEMENT_DIRECTIONS)
 
 # Round outcome reasons
-ROUND_OUTCOMES = ["t_killed", "ct_killed", "bomb_exploded", "bomb_defused"]
+ROUND_OUTCOMES = ["t_killed", "ct_killed", "bomb_exploded", "bomb_defused", "time_ran_out"]
 OUTCOME_TO_IDX = {o: i for i, o in enumerate(ROUND_OUTCOMES)}
 NUM_OUTCOMES = len(ROUND_OUTCOMES)
 

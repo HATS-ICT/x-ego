@@ -18,7 +18,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def linear_probe_collate_fn(batch):
+def downstream_collate_fn(batch):
     """
     Collate function for linear probing dataset.
     

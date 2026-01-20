@@ -27,13 +27,9 @@ from torchmetrics.classification import (
 try:
     from video_encoder import get_embed_dim_for_model_type
     from architecture_utils import build_mlp
-    from agent_fuser import AgentFuser
-    from architecture_utils import ACT2CLS
 except ImportError:
     from .video_encoder import get_embed_dim_for_model_type
     from .architecture_utils import build_mlp
-    from .agent_fuser import AgentFuser
-    from .architecture_utils import ACT2CLS
 
 
 class LinearProbeHead(nn.Module):
@@ -107,20 +103,9 @@ class LinearProbeModel(L.LightningModule):
             activation=cfg.model.activation
         )
         
-        # Agent fuser
-        self.num_agents = cfg.data.num_pov_agents
-        self.agent_fuser = AgentFuser(
-            embed_dim=proj_dim,
-            num_agents=self.num_agents,
-            fusion_cfg=cfg.model.agent_fusion,
-            activation_fn=ACT2CLS[cfg.model.activation],
-            dropout=cfg.model.dropout
-        )
-        fused_dim = cfg.model.agent_fusion.fused_agent_dim
-        
-        # Linear probe head
+        # Linear probe head (directly on mean-pooled embeddings)
         self.head = LinearProbeHead(
-            input_dim=fused_dim,
+            input_dim=proj_dim,
             ml_form=self.ml_form,
             output_dim=self.output_dim,
             num_classes=self.num_classes
@@ -205,11 +190,11 @@ class LinearProbeModel(L.LightningModule):
         projected = self.video_projector(flat_video)
         projected = projected.view(B, A, -1)
         
-        # Fuse agents
-        fused = self.agent_fuser(projected)  # [B, fused_dim]
+        # Mean pool over agents
+        pooled = projected.mean(dim=1)  # [B, proj_dim]
         
         # Linear head
-        logits = self.head(fused)
+        logits = self.head(pooled)
         
         return logits
     

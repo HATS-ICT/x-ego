@@ -56,8 +56,7 @@ class ContrastiveDataModule(BaseDataModule):
     
     def _copy_dataset_attributes(self, base_dataset, partition_dataset):
         """Copy dataset attributes."""
-        attrs = ['allow_variable_agents', 'min_agents', 'use_precomputed_embeddings',
-                 'embeddings_h5', 'embeddings_encoder', 'video_processor',
+        attrs = ['allow_variable_agents', 'min_agents', 'video_processor',
                  'cfg', 'data_cfg', 'path_cfg', 'data_root', 
                  'target_fps', 'fixed_duration_seconds', 'mask_minimap', 'time_jitter_max_seconds']
         for attr in attrs:

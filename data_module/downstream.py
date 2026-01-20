@@ -16,9 +16,9 @@ except ImportError:
     from base import BaseDataModule
 
 try:
-    from ..dataset.linear_probe import LinearProbeDataset, linear_probe_collate_fn
+    from ..dataset.downstream import LinearProbeDataset, downstream_collate_fn
 except ImportError:
-    from dataset.linear_probe import LinearProbeDataset, linear_probe_collate_fn
+    from dataset.downstream import LinearProbeDataset, downstream_collate_fn
 
 
 class LinearProbeDataModule(BaseDataModule):
@@ -46,7 +46,7 @@ class LinearProbeDataModule(BaseDataModule):
     
     def _get_collate_fn(self):
         """Get collate function."""
-        return linear_probe_collate_fn
+        return downstream_collate_fn
     
     def _copy_dataset_attributes(self, base_dataset, partition_dataset):
         """Copy dataset attributes."""

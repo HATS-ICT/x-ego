@@ -11,12 +11,8 @@ from utils.experiment_utils import create_experiment_dir, save_hyperparameters, 
 from train.run_tasks import (
     train_contrastive,
     test_contrastive,
-    train_linear_probe,
-    test_linear_probe,
-    train_enemy_location_nowcast,
-    train_teammate_location_nowcast,
-    test_enemy_location_nowcast,
-    test_teammate_location_nowcast,
+    train_downstream,
+    test_downstream,
 )
 from utils.env_utils import get_src_base_path, get_data_base_path, get_output_base_path
 
@@ -42,11 +38,11 @@ def setup_argument_parser():
 Every settings in config file can be overridden. Examples:
   
   Training mode (includes testing after training):
-    python main.py --mode train --task enemy_location_nowcast meta.seed=123
-    python main.py --mode dev --task teammate_location_nowcast training.devices=[0,1] data.num_workers=8
+    python main.py --mode train --task contrastive meta.seed=123
+    python main.py --mode dev --task downstream training.devices=[0,1] data.num_workers=8
   
   Test-only mode (requires resume_exp):
-    python main.py --mode test --task enemy_location_nowcast meta.resume_exp=enemy-nowcast-clip-250930-032609-1uqe
+    python main.py --mode test --task downstream meta.resume_exp=probe-self_location-siglip-260120-152532-pe8y
         """
     )
     
@@ -57,11 +53,9 @@ Every settings in config file can be overridden. Examples:
     
     parser.add_argument('--task',
                        choices=['contrastive',
-                                'linear_probe',
-                                'enemy_location_nowcast', 
-                                'teammate_location_nowcast'],
+                                'downstream'],
                        default='contrastive',
-                       help='Task to run: contrastive (stage 1), linear_probe (stage 2), or legacy tasks')
+                       help='Task to run: contrastive (stage 1) or downstream (stage 2)')
     
     parser.add_argument('--config', 
                        type=str,
@@ -151,8 +145,8 @@ def main():
         if not resume_exp_from_overrides:
             raise ValueError(
                 "Test mode requires 'meta.resume_exp' to be set to the experiment name.\n"
-                "Example: python main.py --mode test --task enemy_location_nowcast "
-                "meta.resume_exp=enemy-nowcast-clip-250930-032609-1uqe"
+                "Example: python main.py --mode test --task downstream "
+                "meta.resume_exp=probe-self_location-siglip-260120-152532-pe8y"
             )
         
         print("=== TEST MODE: Loading configuration from saved experiment ===")
@@ -162,7 +156,6 @@ def main():
         cfg = setup_base_pathing(cfg)
         
         # Load saved hyperparameters from the experiment
-        output_dir = cfg.path.output
         saved_cfg, exp_path = load_experiment_cfg(resume_exp_from_overrides)
         
         print(f"Loaded saved hyperparameters from: {exp_path / 'hparam.yaml'}")
@@ -181,20 +174,14 @@ def main():
     # Train/dev mode: load config files as usual
     else:
         if args.config is None:
-            # Load configs in order: global.yaml -> train/{task}.yaml -> dev/{task}.yaml (if dev mode)
-            global_cfg_path = 'configs/global.yaml'
+            # Load task-specific config, then apply dev overrides if in dev mode
             train_cfg_path = f'configs/train/{args.task}.yaml'
             
-            # 1. Load global config first
-            print(f"Loading global config from: {global_cfg_path}")
-            cfg = load_cfg(global_cfg_path)
+            # 1. Load task-specific train config
+            print(f"Loading config from: {train_cfg_path}")
+            cfg = load_cfg(train_cfg_path)
             
-            # 2. Merge with task-specific train config
-            print(f"Applying task-specific config from: {train_cfg_path}")
-            train_cfg = load_cfg(train_cfg_path)
-            cfg = OmegaConf.merge(cfg, train_cfg)
-            
-            # 3. If dev mode, apply dev overrides
+            # 2. If dev mode, apply dev overrides
             if args.mode == 'dev':
                 dev_cfg_path = f'configs/dev/{args.task}.yaml'
                 print(f"Applying dev overrides from: {dev_cfg_path}")
@@ -217,24 +204,16 @@ def main():
         # Test-only mode
         if args.task == 'contrastive':
             test_contrastive(cfg)
-        elif args.task == 'linear_probe':
-            test_linear_probe(cfg)
-        elif args.task == 'enemy_location_nowcast':
-            test_enemy_location_nowcast(cfg)
-        elif args.task == 'teammate_location_nowcast':
-            test_teammate_location_nowcast(cfg)
+        elif args.task == 'downstream':
+            test_downstream(cfg)
         else:
             raise ValueError(f"Unknown task: {args.task}")
     else:
         # Train mode (includes validation and testing after training)
         if args.task == 'contrastive':
             train_contrastive(cfg)
-        elif args.task == 'linear_probe':
-            train_linear_probe(cfg)
-        elif args.task == 'enemy_location_nowcast':
-            train_enemy_location_nowcast(cfg)
-        elif args.task == 'teammate_location_nowcast':
-            train_teammate_location_nowcast(cfg)
+        elif args.task == 'downstream':
+            train_downstream(cfg)
         else:
             raise ValueError(f"Unknown task: {args.task}")
 

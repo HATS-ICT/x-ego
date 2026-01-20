@@ -327,7 +327,7 @@ def print_task_info(cfg, datamodule, task_name):
         print(f"Contrastive temperature init: {cfg.model.contrastive.logit_scale_init}")
         print(f"Contrastive bias init: {cfg.model.contrastive.logit_bias_init}")
     # Linear probing task
-    elif task_name == 'linear_probe':
+    elif task_name == 'downstream':
         print(f"Task ID: {cfg.task.task_id}")
         print(f"ML form: {cfg.task.ml_form}")
         print(f"Num classes: {cfg.task.num_classes}")

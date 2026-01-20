@@ -1,11 +1,11 @@
 # Local imports
 from models.cross_ego_video_location_net import CrossEgoVideoLocationNet
 from models.contrastive_model import ContrastiveModel
-from models.linear_probe import LinearProbeModel
+from models.downstream import LinearProbeModel
 from data_module.enemy_location_nowcast import EnemyLocationNowcastDataModule
 from data_module.teammate_location_nowcast import TeammateLocationNowcastDataModule
 from data_module.contrastive import ContrastiveDataModule
-from data_module.linear_probe import LinearProbeDataModule
+from data_module.downstream import LinearProbeDataModule
 from train.train_pipeline import run_training_pipeline
 from train.test_pipeline import run_test_only_pipeline
 
@@ -44,7 +44,7 @@ def test_contrastive(cfg):
 # Stage 2: Linear Probing on Downstream Tasks
 # ============================================================================
 
-def train_linear_probe(cfg):
+def train_downstream(cfg):
     """
     Stage 2: Train linear probe on a downstream task.
     
@@ -58,18 +58,18 @@ def train_linear_probe(cfg):
         cfg=cfg,
         model_class=LinearProbeModel,
         datamodule_class=LinearProbeDataModule,
-        task_name="linear_probe",
+        task_name="downstream",
         print_header=f"=== STAGE 2: LINEAR PROBING - {task_id} ({ml_form}) ==="
     )
 
 
-def test_linear_probe(cfg):
+def test_downstream(cfg):
     """Test-only mode for linear probe model."""
     run_test_only_pipeline(
         cfg=cfg,
         model_class=LinearProbeModel,
         datamodule_class=LinearProbeDataModule,
-        task_name="linear_probe"
+        task_name="downstream"
     )
 
 

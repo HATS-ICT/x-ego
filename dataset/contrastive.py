@@ -159,30 +159,8 @@ class ContrastiveDataset(Dataset):
             # No filtering, original index = current index
             self.df['original_csv_idx'] = self.df.index
         
-        # Pre-computed embeddings configuration
-        self.use_precomputed_embeddings = self.data_cfg.use_precomputed_embeddings
-        if self.use_precomputed_embeddings:
-            self.embeddings_encoder = self.data_cfg.precomputed_embeddings_encoder
-            
-            # Build embedding file path
-            csv_filename = self.data_cfg.labels_filename
-            csv_name_without_ext = Path(csv_filename).stem
-            embeddings_filename = f"{csv_name_without_ext}_{self.embeddings_encoder}.h5"
-            embeddings_file = self.data_root / "video_544x306_30fps_embed" / embeddings_filename
-            
-            if not embeddings_file.exists():
-                raise FileNotFoundError(
-                    f"Pre-computed embeddings file not found: {embeddings_file}\n"
-                    f"Expected format: {{csv_filename}}_{{encoder}}.h5\n"
-                    f"Run: python scripts/data_processing/embed_video.py --encoders {self.embeddings_encoder} "
-                    f"--config configs/train/contrastive.yaml"
-                )
-            
-            self.embeddings_h5 = h5py.File(embeddings_file, 'r')
-            logger.info(f"Using pre-computed {self.embeddings_encoder} embeddings from: {embeddings_file}")
-        else:
-            self.embeddings_h5 = None
-            self._init_video_processor()
+        # Initialize video processor
+        self._init_video_processor()
         
         # Filter out samples with too few agents if allow_variable_agents is True
         if self.allow_variable_agents:
@@ -337,37 +315,21 @@ class ContrastiveDataset(Dataset):
             # Not enough agents - return minimal sample that will be masked
             return self._create_minimal_sample(pov_team_side)
         
-        # Load videos or embeddings
+        # Load videos
         agent_videos = []
         agent_ids = []
         
-        if self.use_precomputed_embeddings:
-            for agent in alive_agents:
-                agent_position = agent['position']
-                try:
-                    embedding = self._load_embedding(original_csv_idx, agent_position)
-                    agent_videos.append(embedding)
-                    agent_ids.append(agent['id'])
-                except Exception as e:
-                    logger.warning(f"Failed to load embedding for agent {agent['id']}: {e}")
-                    continue
-            
-            if len(agent_videos) < self.min_agents:
-                return self._create_minimal_sample(pov_team_side)
-            
-            multi_agent_video = torch.stack(agent_videos, dim=0)  # [A, embed_dim]
-        else:
-            for agent in alive_agents:
-                video_path = self._construct_video_path(match_id, agent['id'], round_num)
-                video_clip = self._load_video_clip(video_path, start_seconds, end_seconds)
-                video_features = self._transform_video(video_clip)
-                agent_videos.append(video_features)
-                agent_ids.append(agent['id'])
-            
-            if len(agent_videos) < self.min_agents:
-                return self._create_minimal_sample(pov_team_side)
-            
-            multi_agent_video = torch.stack(agent_videos, dim=0)  # [A, T, C, H, W]
+        for agent in alive_agents:
+            video_path = self._construct_video_path(match_id, agent['id'], round_num)
+            video_clip = self._load_video_clip(video_path, start_seconds, end_seconds)
+            video_features = self._transform_video(video_clip)
+            agent_videos.append(video_features)
+            agent_ids.append(agent['id'])
+        
+        if len(agent_videos) < self.min_agents:
+            return self._create_minimal_sample(pov_team_side)
+        
+        multi_agent_video = torch.stack(agent_videos, dim=0)  # [A, T, C, H, W]
         
         # Encode team side
         pov_team_side_encoded = 1 if pov_team_side == 'CT' else 0
@@ -385,13 +347,8 @@ class ContrastiveDataset(Dataset):
         """Create a minimal sample for edge cases (not enough agents)."""
         pov_team_side_encoded = 1 if pov_team_side == 'CT' else 0
         
-        if self.use_precomputed_embeddings:
-            from models.video_encoder import get_embed_dim_for_model_type
-            embed_dim = get_embed_dim_for_model_type(self.cfg.model.encoder.video.model_type)
-            video = torch.zeros(1, embed_dim)
-        else:
-            num_frames = int(self.fixed_duration_seconds * self.target_fps)
-            video = torch.zeros(1, num_frames, 3, 224, 224)
+        num_frames = int(self.fixed_duration_seconds * self.target_fps)
+        video = torch.zeros(1, num_frames, 3, 224, 224)
         
         return {
             'video': video,

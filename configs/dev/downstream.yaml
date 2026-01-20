@@ -3,7 +3,6 @@
 data:
   batch_size: 4
   num_workers: 0
-  use_precomputed_embeddings: false
 
 training:
   max_epochs: 2

@@ -1,17 +1,17 @@
-# Stage 1: Contrastive Learning Only (Team Alignment)
+# Stage 2: Linear Probing on Downstream Tasks
 
 meta:
   seed: 42
-  run_name: contrastive-${model.encoder.video.model_type}
+  run_name: probe-${task.task_id}-${model.encoder.video.model_type}
   fast_dev_run: false
   resume_exp: null
 
 task:
-  task_id: null
-  ml_form: null
-  num_classes: null
-  output_dim: null
-  label_column: null
+  task_id: self_location
+  ml_form: multi_cls
+  num_classes: 23
+  output_dim: 23
+  label_column: place
 
 data:
   partition: all
@@ -31,8 +31,9 @@ data:
   num_pov_agents: 5
   mask_minimap: true
   time_jitter_max_seconds: 0.3
-  labels_filename: contrastive.csv
-  allow_variable_agents: true
+  precomputed_embeddings_encoder: ${model.encoder.video.model_type}
+  labels_filename: downstream_labels.csv
+  allow_variable_agents: false
   min_agents: 2
 
 model:
@@ -58,7 +59,6 @@ model:
     logit_bias_init: -3
     turn_off_bias: false
     loss_weight: 1.0
-    mode: contrastive_only
 
 training:
   max_epochs: 20
@@ -83,8 +83,8 @@ training:
   limit_test_batches: 1.0
 
 optimization:
-  lr: 0.0003
-  weight_decay: 0.01
+  lr: 0.001
+  weight_decay: 0.0
   fused_optimizer: true
 
 wandb:
@@ -98,8 +98,8 @@ wandb:
 
 checkpoint:
   epoch:
-    filename: ${meta.run_name}-e{epoch:02d}-s{step:06d}-l{val/contrastive_loss:.4f}
-    monitor: 'val/contrastive_loss'
+    filename: ${meta.run_name}-e{epoch:02d}-l{val/loss:.4f}
+    monitor: 'val/loss'
     mode: min
     save_top_k: 1
     save_last: true

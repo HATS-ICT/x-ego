@@ -13,17 +13,16 @@ Key features:
 """
 
 import torch
-import torch.nn as nn
 import lightning as L
 from torch.optim import AdamW
 import torch._dynamo
 
 try:
-    from video_encoder import VideoEncoder, get_embed_dim_for_model_type
+    from video_encoder import VideoEncoder
     from cross_ego_contrastive import CrossEgoContrastive
     from architecture_utils import build_mlp
 except ImportError:
-    from .video_encoder import VideoEncoder, get_embed_dim_for_model_type
+    from .video_encoder import VideoEncoder
     from .cross_ego_contrastive import CrossEgoContrastive
     from .architecture_utils import build_mlp
 
@@ -50,16 +49,9 @@ class ContrastiveModel(L.LightningModule):
         self.cfg = cfg
         
         # Video encoder setup
-        self.use_precomputed_embeddings = cfg.data.use_precomputed_embeddings
-        
-        if self.use_precomputed_embeddings:
-            video_embed_dim = get_embed_dim_for_model_type(cfg.model.encoder.video.model_type)
-            self.video_encoder = None
-            print(f"[Memory Opt] Using precomputed {cfg.model.encoder.video.model_type} embeddings (dim: {video_embed_dim})")
-        else:
-            self.video_encoder = VideoEncoder(cfg.model.encoder.video)
-            video_embed_dim = self.video_encoder.embed_dim
-            print(f"[Model Init] Video encoder: {cfg.model.encoder.video.model_type} (dim: {video_embed_dim})")
+        self.video_encoder = VideoEncoder(cfg.model.encoder.video)
+        video_embed_dim = self.video_encoder.embed_dim
+        print(f"[Model Init] Video encoder: {cfg.model.encoder.video.model_type} (dim: {video_embed_dim})")
         
         # Video projector
         proj_dim = cfg.model.encoder.proj_dim
@@ -107,9 +99,6 @@ class ContrastiveModel(L.LightningModule):
             labels: [total_valid_agents, total_valid_agents] alignment matrix
                    1 for same-sample pairs, 0 otherwise
         """
-        # Get total valid agents and their batch indices
-        total_agents = agent_mask.sum().item()
-        
         # Create batch assignment for each valid agent
         batch_indices = []
         for b in range(batch_size):
@@ -129,7 +118,7 @@ class ContrastiveModel(L.LightningModule):
         
         Args:
             batch: Dictionary containing:
-                - video: [B, max_A, ...] video features (padded)
+                - video: [B, max_A, T, C, H, W] video tensors (padded)
                 - agent_mask: [B, max_A] boolean mask for valid agents
                 - num_agents: [B] number of valid agents per sample
                 
@@ -146,20 +135,13 @@ class ContrastiveModel(L.LightningModule):
         B, max_A = agent_mask.shape
         device = video.device
         
-        # Process videos/embeddings
-        if len(video.shape) == 3:
-            # Precomputed embeddings: [B, max_A, embed_dim]
-            embed_dim = video.shape[-1]
-            flat_video = video.view(B * max_A, embed_dim)
-        elif len(video.shape) == 6:
-            # Raw videos: [B, max_A, T, C, H, W]
-            if self.video_encoder is None:
-                raise RuntimeError("Got raw video but encoder not initialized")
-            T, C, H, W = video.shape[2:]
-            flat_video = video.view(B * max_A, T, C, H, W)
-            flat_video = self.video_encoder(flat_video)  # [B*max_A, embed_dim]
-        else:
-            raise ValueError(f"Unexpected video shape: {video.shape}")
+        # Process videos: [B, max_A, T, C, H, W]
+        if len(video.shape) != 6:
+            raise ValueError(f"Expected video shape [B, max_A, T, C, H, W], got {video.shape}")
+        
+        T, C, H, W = video.shape[2:]
+        flat_video = video.view(B * max_A, T, C, H, W)
+        flat_video = self.video_encoder(flat_video)  # [B*max_A, embed_dim]
         
         # Project embeddings
         flat_projected = self.video_projector(flat_video)  # [B*max_A, proj_dim]
@@ -382,12 +364,10 @@ class ContrastiveModel(L.LightningModule):
             - contrastive module
         """
         state = {
+            'video_encoder': self.video_encoder.state_dict(),
             'video_projector': self.video_projector.state_dict(),
             'contrastive': self.contrastive.state_dict(),
         }
-        
-        if self.video_encoder is not None:
-            state['video_encoder'] = self.video_encoder.state_dict()
         
         return state
     

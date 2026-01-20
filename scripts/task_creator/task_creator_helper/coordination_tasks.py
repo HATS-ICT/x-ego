@@ -12,11 +12,8 @@ Creates labels for:
 import pandas as pd
 from pathlib import Path
 from typing import Dict, List, Any
-import sys
 
-sys.path.append(str(Path(__file__).parent.parent.parent))
-
-from scripts.task_creator.base_task_creator import TaskCreatorBase
+from .base_task_creator import TaskCreatorBase
 
 
 class TeamSpreadCreator(TaskCreatorBase):
@@ -743,31 +740,3 @@ class TeamMovementDirectionCreator(TaskCreatorBase):
             df['idx'] = range(len(df))
         
         return df
-
-
-if __name__ == "__main__":
-    import os
-    from dotenv import load_dotenv
-    
-    load_dotenv()
-    
-    DATA_BASE_PATH = os.getenv('DATA_BASE_PATH')
-    if not DATA_BASE_PATH:
-        print("DATA_BASE_PATH not set")
-        exit(1)
-    
-    OUTPUT_DIR = os.path.join(DATA_BASE_PATH, 'labels', 'task_creator_test')
-    PARTITION_CSV = os.path.join(DATA_BASE_PATH, 'match_round_partitioned.csv')
-    
-    # Test team spread
-    print("Testing TeamSpreadCreator...")
-    creator = TeamSpreadCreator(
-        DATA_BASE_PATH, OUTPUT_DIR, PARTITION_CSV,
-        stride_sec=5.0
-    )
-    
-    creator.process_segments({
-        'output_file_name': 'test_team_spread.csv',
-        'segment_length_sec': 5,
-        'partition': ['test']
-    })

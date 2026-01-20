@@ -18,30 +18,27 @@ from dotenv import load_dotenv
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 # Import all task creators
-from scripts.task_creator.location_tasks import (
+from scripts.task_creator.task_creator_helper import (
     TeammateLocationNowcastCreator,
     EnemyLocationNowcastCreator,
-    TeammateCoordinateNowcastCreator,
     LocationForecastCreator,
-)
-from scripts.task_creator.coordination_tasks import (
     TeamSpreadCreator,
     TeamCentroidCreator,
     AliveCountCreator,
     NearestTeammateDistanceCreator,
     TeamMovementDirectionCreator,
-)
-from scripts.task_creator.combat_tasks import (
     ImminentKillCreator,
     ImminentDeathSelfCreator,
-    ImminentDamageCreator,
+    ImminentKillSelfCreator,
     InCombatCreator,
-)
-from scripts.task_creator.bomb_tasks import (
     BombPlantedStateCreator,
     BombSitePredictionCreator,
     PostPlantOutcomeCreator,
     RoundWinnerCreator,
+    RoundOutcomeReasonCreator,
+    POVMovementDirectionCreator,
+    POVSpeedCreator,
+    WeaponInUseCreator,
 )
 
 
@@ -54,26 +51,29 @@ TASK_CONFIGS: List[Tuple[str, type, Dict[str, Any], str]] = [
     # Enemy location nowcast
     ("enemy_loc_now", EnemyLocationNowcastCreator, {}, "enemy_loc_now.csv"),
     
-    # Teammate coordinate nowcast
-    ("teammate_coord_now", TeammateCoordinateNowcastCreator, {}, "teammate_coord_now.csv"),
-    
-    # Self location forecast (5s and 10s)
+    # Self location forecast (5s, 10s, 20s)
     ("self_loc_forecast_5s", LocationForecastCreator, 
      {"forecast_horizon_sec": 5.0, "target_type": "self"}, "self_loc_forecast_5s.csv"),
     ("self_loc_forecast_10s", LocationForecastCreator, 
      {"forecast_horizon_sec": 10.0, "target_type": "self"}, "self_loc_forecast_10s.csv"),
+    ("self_loc_forecast_20s", LocationForecastCreator, 
+     {"forecast_horizon_sec": 20.0, "target_type": "self"}, "self_loc_forecast_20s.csv"),
     
-    # Teammate location forecast (5s and 10s)
+    # Teammate location forecast (5s, 10s, 20s)
     ("teammate_loc_forecast_5s", LocationForecastCreator, 
      {"forecast_horizon_sec": 5.0, "target_type": "teammate"}, "teammate_loc_forecast_5s.csv"),
     ("teammate_loc_forecast_10s", LocationForecastCreator, 
      {"forecast_horizon_sec": 10.0, "target_type": "teammate"}, "teammate_loc_forecast_10s.csv"),
+    ("teammate_loc_forecast_20s", LocationForecastCreator, 
+     {"forecast_horizon_sec": 20.0, "target_type": "teammate"}, "teammate_loc_forecast_20s.csv"),
     
-    # Enemy location forecast (5s and 10s)
+    # Enemy location forecast (5s, 10s, 20s)
     ("enemy_loc_forecast_5s", LocationForecastCreator, 
      {"forecast_horizon_sec": 5.0, "target_type": "enemy"}, "enemy_loc_forecast_5s.csv"),
     ("enemy_loc_forecast_10s", LocationForecastCreator, 
      {"forecast_horizon_sec": 10.0, "target_type": "enemy"}, "enemy_loc_forecast_10s.csv"),
+    ("enemy_loc_forecast_20s", LocationForecastCreator, 
+     {"forecast_horizon_sec": 20.0, "target_type": "enemy"}, "enemy_loc_forecast_20s.csv"),
     
     # ============= COORDINATION TASKS =============
     # Team spread
@@ -95,21 +95,29 @@ TASK_CONFIGS: List[Tuple[str, type, Dict[str, Any], str]] = [
     ("team_movement_dir", TeamMovementDirectionCreator, {}, "team_movement_dir.csv"),
     
     # ============= COMBAT TASKS =============
-    # Imminent kill (3s and 5s)
-    ("imminent_kill_3s", ImminentKillCreator, 
-     {"horizon_sec": 3.0}, "imminent_kill_3s.csv"),
+    # Imminent kill (5s, 10s, 20s)
     ("imminent_kill_5s", ImminentKillCreator, 
      {"horizon_sec": 5.0}, "imminent_kill_5s.csv"),
+    ("imminent_kill_10s", ImminentKillCreator, 
+     {"horizon_sec": 10.0}, "imminent_kill_10s.csv"),
+    ("imminent_kill_20s", ImminentKillCreator, 
+     {"horizon_sec": 20.0}, "imminent_kill_20s.csv"),
     
-    # Imminent death self (3s and 5s)
-    ("imminent_death_self_3s", ImminentDeathSelfCreator, 
-     {"horizon_sec": 3.0}, "imminent_death_self_3s.csv"),
+    # Imminent death self (5s, 10s, 20s)
     ("imminent_death_self_5s", ImminentDeathSelfCreator, 
      {"horizon_sec": 5.0}, "imminent_death_self_5s.csv"),
+    ("imminent_death_self_10s", ImminentDeathSelfCreator, 
+     {"horizon_sec": 10.0}, "imminent_death_self_10s.csv"),
+    ("imminent_death_self_20s", ImminentDeathSelfCreator, 
+     {"horizon_sec": 20.0}, "imminent_death_self_20s.csv"),
     
-    # Imminent damage (3s)
-    ("imminent_damage_3s", ImminentDamageCreator, 
-     {"horizon_sec": 3.0}, "imminent_damage_3s.csv"),
+    # POV player gets a kill (5s, 10s, 20s)
+    ("imminent_kill_self_5s", ImminentKillSelfCreator, 
+     {"horizon_sec": 5.0}, "imminent_kill_self_5s.csv"),
+    ("imminent_kill_self_10s", ImminentKillSelfCreator, 
+     {"horizon_sec": 10.0}, "imminent_kill_self_10s.csv"),
+    ("imminent_kill_self_20s", ImminentKillSelfCreator, 
+     {"horizon_sec": 20.0}, "imminent_kill_self_20s.csv"),
     
     # In combat detection
     ("team_in_combat", InCombatCreator, 
@@ -129,21 +137,30 @@ TASK_CONFIGS: List[Tuple[str, type, Dict[str, Any], str]] = [
     
     # Round winner
     ("round_winner", RoundWinnerCreator, {}, "round_winner.csv"),
+    
+    # Round outcome reason (multi-class)
+    ("round_outcome_reason", RoundOutcomeReasonCreator, {}, "round_outcome_reason.csv"),
+    
+    # ============= SPATIAL TASKS =============
+    # POV movement direction
+    ("pov_movement_dir", POVMovementDirectionCreator, {}, "pov_movement_dir.csv"),
+    
+    # POV speed estimation
+    ("pov_speed", POVSpeedCreator, {}, "pov_speed.csv"),
+    
+    # ============= ACTION TASKS =============
+    # Weapon in use
+    ("weapon_in_use", WeaponInUseCreator, {}, "weapon_in_use.csv"),
 ]
 
 # Tasks that are defined but not yet implemented
 NOT_IMPLEMENTED_TASKS = [
-    "enemy_coord_now",       # Need to extend TeammateCoordinateNowcastCreator
     "headshot_next_kill",    # Needs new creator
     "time_to_plant",         # Needs new creator
     "bomb_carrier_dist",     # Needs new creator
-    "round_outcome_reason",  # Needs new creator (multi-class version of round winner)
     "pov_place_cls",         # POV self-location classification
-    "pov_movement_dir",      # POV movement direction
-    "pov_speed",             # POV speed estimation
     "area_control_mid",      # Area control detection
     "imminent_shot_self_2s", # Shot prediction
-    "weapon_in_use",         # Weapon classification
     "team_executing",        # Site take detection
     "team_rotating",         # Rotation detection
 ]
@@ -249,7 +266,7 @@ def main():
     parser = argparse.ArgumentParser(description="Create all task labels for linear probing")
     parser.add_argument("--output_dir", type=str, default=None,
                         help="Output directory (default: DATA_BASE_PATH/labels/all_tasks)")
-    parser.add_argument("--stride", type=float, default=1.0,
+    parser.add_argument("--stride", type=float, default=5.0,
                         help="Stride between segments in seconds (default: 1.0)")
     parser.add_argument("--segment_length", type=float, default=5.0,
                         help="Segment length in seconds (default: 5.0)")

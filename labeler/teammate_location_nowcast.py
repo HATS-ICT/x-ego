@@ -215,7 +215,7 @@ def main():
         OUTPUT_DIR, 
         PARTITION_CSV_PATH,
         cpu_usage=0.9,
-        stride_sec=1.0  # 1 second stride by default
+        stride_sec=5.0  # 1 second stride by default
     )
     
     # Process segments

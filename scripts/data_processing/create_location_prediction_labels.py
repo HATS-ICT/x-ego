@@ -51,7 +51,7 @@ def main():
             OUTPUT_DIR,
             PARTITION_CSV_PATH,
             cpu_usage=0.9,  # High CPU usage for production
-            stride_sec=1.0  # 1 second stride
+            stride_sec=5.0  # 1 second stride
         )
         
         enemy_nowcast.process_segments({

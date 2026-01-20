@@ -67,40 +67,36 @@ from scripts.task_creator.task_definitions import (
     get_regression_tasks,
 )
 
-# Base class
-from scripts.task_creator.base_task_creator import TaskCreatorBase
-
-# Location task creators
-from scripts.task_creator.location_tasks import (
+# Base class and task creators from helper module
+from scripts.task_creator.task_creator_helper import (
+    TaskCreatorBase,
+    # Location creators
     TeammateLocationNowcastCreator,
     EnemyLocationNowcastCreator,
-    TeammateCoordinateNowcastCreator,
     LocationForecastCreator,
-)
-
-# Coordination task creators
-from scripts.task_creator.coordination_tasks import (
+    # Coordination creators
     TeamSpreadCreator,
     TeamCentroidCreator,
     AliveCountCreator,
     NearestTeammateDistanceCreator,
     TeamMovementDirectionCreator,
-)
-
-# Combat task creators
-from scripts.task_creator.combat_tasks import (
+    # Combat creators
     ImminentKillCreator,
     ImminentDeathSelfCreator,
+    ImminentKillSelfCreator,
     ImminentDamageCreator,
     InCombatCreator,
-)
-
-# Bomb task creators
-from scripts.task_creator.bomb_tasks import (
+    # Bomb/Round creators
     BombPlantedStateCreator,
     BombSitePredictionCreator,
     PostPlantOutcomeCreator,
     RoundWinnerCreator,
+    RoundOutcomeReasonCreator,
+    # Spatial creators
+    POVMovementDirectionCreator,
+    POVSpeedCreator,
+    # Action creators
+    WeaponInUseCreator,
 )
 
 # Note: create_all_labels and analyze_label_stats are standalone scripts
@@ -145,7 +141,6 @@ __all__ = [
     # Location creators
     'TeammateLocationNowcastCreator',
     'EnemyLocationNowcastCreator',
-    'TeammateCoordinateNowcastCreator',
     'LocationForecastCreator',
     
     # Coordination creators
@@ -158,12 +153,21 @@ __all__ = [
     # Combat creators
     'ImminentKillCreator',
     'ImminentDeathSelfCreator',
+    'ImminentKillSelfCreator',
     'ImminentDamageCreator',
     'InCombatCreator',
     
-    # Bomb creators
+    # Bomb/Round creators
     'BombPlantedStateCreator',
     'BombSitePredictionCreator',
     'PostPlantOutcomeCreator',
     'RoundWinnerCreator',
+    'RoundOutcomeReasonCreator',
+    
+    # Spatial creators
+    'POVMovementDirectionCreator',
+    'POVSpeedCreator',
+    
+    # Action creators
+    'WeaponInUseCreator',
 ]

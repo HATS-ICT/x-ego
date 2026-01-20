@@ -268,3 +268,8 @@ class POVSpeedCreator(TaskCreatorBase):
             df['idx'] = range(len(df))
         
         return df
+
+
+# Aliases for renamed tasks (self instead of pov)
+SelfMovementDirectionCreator = POVMovementDirectionCreator
+SelfSpeedCreator = POVSpeedCreator

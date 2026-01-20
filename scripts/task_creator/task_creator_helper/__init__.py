@@ -10,6 +10,9 @@ from .location_tasks import (
     EnemyLocationNowcastCreator,
     LocationForecastCreator,
 )
+from .location_tasks_addon import (
+    SelfLocationNowcastCreator,
+)
 from .coordination_tasks import (
     TeamSpreadCreator,
     TeamCentroidCreator,
@@ -27,6 +30,7 @@ from .combat_tasks import (
     ImminentDeathSelfCreator,
     ImminentDamageCreator,
     InCombatCreator,
+    SelfInCombatCreator,
     ImminentKillSelfCreator,
 )
 from .bomb_tasks import (
@@ -42,15 +46,19 @@ from .bomb_tasks_addon import (
 from .spatial_tasks import (
     POVMovementDirectionCreator,
     POVSpeedCreator,
+    SelfMovementDirectionCreator,
+    SelfSpeedCreator,
 )
 from .action_tasks import (
     WeaponInUseCreator,
+    SelfWeaponCreator,
 )
 
 __all__ = [
     # Base
     "TaskCreatorBase",
     # Location
+    "SelfLocationNowcastCreator",
     "TeammateLocationNowcastCreator",
     "EnemyLocationNowcastCreator",
     "LocationForecastCreator",
@@ -68,6 +76,7 @@ __all__ = [
     "ImminentDeathSelfCreator",
     "ImminentDamageCreator",
     "InCombatCreator",
+    "SelfInCombatCreator",
     "ImminentKillSelfCreator",
     # Bomb/Round
     "BombPlantedStateCreator",
@@ -79,6 +88,9 @@ __all__ = [
     # Spatial
     "POVMovementDirectionCreator",
     "POVSpeedCreator",
+    "SelfMovementDirectionCreator",
+    "SelfSpeedCreator",
     # Action
     "WeaponInUseCreator",
+    "SelfWeaponCreator",
 ]

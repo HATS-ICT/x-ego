@@ -1,44 +1,39 @@
 """
-Action/equipment task creators.
+Additional location prediction task creator.
 
 Creates labels for:
-- Weapon in use classification
+- Self location nowcast
 """
 
 import pandas as pd
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 
 from .base_task_creator import TaskCreatorBase
-from ..task_definitions import WEAPON_TO_IDX, NUM_WEAPONS
+from ..task_definitions import PLACE_TO_IDX, NUM_PLACES
 
 
-class WeaponInUseCreator(TaskCreatorBase):
+class SelfLocationNowcastCreator(TaskCreatorBase):
     """
-    Creates labeled segments for weapon in use classification task.
+    Creates labeled segments for self location nowcast task.
     
-    Classifies the weapon the POV player is currently using based on
-    recent shots or damage events.
-    Output: Multi-class classification (NUM_WEAPONS classes).
+    For each POV player, predicts their own current location (place).
+    Output: Multi-class classification over NUM_PLACES places.
     """
     
     def _extract_segments_from_round(self, match_id: str, round_num: int,
                                      config: Dict[str, Any]) -> List[Dict]:
-        """Extract segments for weapon in use classification."""
+        """Extract segments for self location nowcast."""
         segment_length_sec = config['segment_length_sec']
-        lookback_sec = config.get('lookback_sec', 2.0)  # Look back 2 seconds for weapon info
-        
         player_trajectories = self._load_player_trajectories(match_id, round_num)
-        shots_df = self._load_shots(match_id, round_num)
-        damages_df = self._load_damages(match_id, round_num)
         
         if len(player_trajectories) < 1:
             return []
         
         segments = []
         segment_ticks = segment_length_sec * self.tick_rate
-        lookback_ticks = int(lookback_sec * self.tick_rate)
         stride_ticks = int(self.stride_sec * self.tick_rate)
+        stride_ticks = max(1, stride_ticks)
         
         # Get global tick range
         all_min_ticks = []
@@ -58,11 +53,12 @@ class WeaponInUseCreator(TaskCreatorBase):
                 map_name = df.iloc[0]['map_name']
                 break
         
-        # For each player as POV
+        # For each player as POV, create segments while they are alive
         for pov_steamid, pov_df in player_trajectories.items():
             if pov_df.empty:
                 continue
             
+            # Find death tick for POV player
             death_tick = self._find_player_death_tick(pov_df)
             if death_tick is None:
                 death_tick = pov_df['tick'].max()
@@ -76,26 +72,25 @@ class WeaponInUseCreator(TaskCreatorBase):
                 end_tick = current_tick + segment_ticks
                 middle_tick = current_tick + segment_ticks // 2
                 
-                # Verify POV player is alive
+                # Verify POV player is alive throughout segment
                 segment_data = pov_df[(pov_df['tick'] >= current_tick) & (pov_df['tick'] <= end_tick)]
                 if segment_data.empty or (segment_data['health'] <= 0).any():
                     current_tick += stride_ticks
                     continue
                 
-                # Look for weapon info in recent window
-                window_start = middle_tick - lookback_ticks
-                window_end = middle_tick + lookback_ticks
-                
-                weapon = self._get_pov_weapon(
-                    pov_steamid, shots_df, damages_df, window_start, window_end
-                )
-                
-                # Skip if no weapon info found
-                if weapon is None or weapon not in WEAPON_TO_IDX:
+                # Get POV player data at middle tick
+                pov_data = self._extract_player_data_at_tick(pov_df, middle_tick)
+                if not pov_data:
                     current_tick += stride_ticks
                     continue
                 
-                weapon_idx = WEAPON_TO_IDX[weapon]
+                # Get POV player's place
+                place = pov_data.get('place', None)
+                if not place or place not in PLACE_TO_IDX:
+                    current_tick += stride_ticks
+                    continue
+                
+                place_idx = PLACE_TO_IDX[place]
                 
                 segment_info = {
                     'start_tick': current_tick - global_min_tick,
@@ -105,8 +100,8 @@ class WeaponInUseCreator(TaskCreatorBase):
                     'map_name': map_name,
                     'pov_steamid': pov_steamid,
                     'pov_side': pov_side,
-                    'weapon': weapon,
-                    'weapon_idx': weapon_idx
+                    'place': place,
+                    'place_idx': place_idx
                 }
                 segments.append(segment_info)
                 
@@ -114,40 +109,8 @@ class WeaponInUseCreator(TaskCreatorBase):
         
         return segments
     
-    def _get_pov_weapon(self, pov_steamid: str, shots_df: pd.DataFrame, 
-                        damages_df: pd.DataFrame, start_tick: int, end_tick: int) -> Optional[str]:
-        """Get the weapon used by POV player in the given tick window."""
-        # First try shots (more reliable for weapon detection)
-        if not shots_df.empty:
-            pov_shots = shots_df[
-                (shots_df['player_steamid'].astype(str) == str(pov_steamid)) &
-                (shots_df['tick'] >= start_tick) &
-                (shots_df['tick'] <= end_tick)
-            ]
-            if not pov_shots.empty:
-                # Get most recent shot's weapon
-                most_recent = pov_shots.sort_values('tick', ascending=False).iloc[0]
-                weapon = most_recent.get('weapon', None)
-                if weapon and pd.notna(weapon):
-                    return str(weapon).lower()
-        
-        # Fall back to damages (attacker weapon)
-        if not damages_df.empty:
-            pov_damages = damages_df[
-                (damages_df['attacker_steamid'].astype(str) == str(pov_steamid)) &
-                (damages_df['tick'] >= start_tick) &
-                (damages_df['tick'] <= end_tick)
-            ]
-            if not pov_damages.empty:
-                most_recent = pov_damages.sort_values('tick', ascending=False).iloc[0]
-                weapon = most_recent.get('weapon', None)
-                if weapon and pd.notna(weapon):
-                    return str(weapon).lower()
-        
-        return None
-    
     def _create_output_csv(self, all_segments: List[Dict], config: Dict[str, Any]) -> pd.DataFrame:
-        """Create output CSV for weapon in use classification."""
+        """Create output CSV for self location nowcast."""
         output_rows = []
         idx = 0
         
@@ -164,8 +127,8 @@ class WeaponInUseCreator(TaskCreatorBase):
                 'match_id': segment['match_id'],
                 'round_num': segment['round_num'],
                 'map_name': segment['map_name'],
-                'weapon_name': segment['weapon'],
-                'label_weapon': segment['weapon_idx']
+                'place_name': segment['place'],
+                'label_place': segment['place_idx']
             }
             output_rows.append(row)
             idx += 1
@@ -177,7 +140,3 @@ class WeaponInUseCreator(TaskCreatorBase):
             df['idx'] = range(len(df))
         
         return df
-
-
-# Alias for renamed task (self instead of weapon_in_use)
-SelfWeaponCreator = WeaponInUseCreator

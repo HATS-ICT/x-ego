@@ -697,3 +697,6 @@ class ImminentKillSelfCreator(TaskCreatorBase):
             df['idx'] = range(len(df))
         
         return df
+
+# Alias for renamed task (self instead of pov)
+SelfInCombatCreator = InCombatCreator

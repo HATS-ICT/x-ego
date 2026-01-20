@@ -19,6 +19,7 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 
 # Import all task creators
 from scripts.task_creator.task_creator_helper import (
+    SelfLocationNowcastCreator,
     TeammateLocationNowcastCreator,
     EnemyLocationNowcastCreator,
     LocationForecastCreator,
@@ -34,21 +35,25 @@ from scripts.task_creator.task_creator_helper import (
     ImminentDeathSelfCreator,
     ImminentKillSelfCreator,
     InCombatCreator,
+    SelfInCombatCreator,
     BombPlantedStateCreator,
     BombSitePredictionCreator,
     WillPlantPredictionCreator,
     PostPlantOutcomeCreator,
     RoundWinnerCreator,
     RoundOutcomeReasonCreator,
-    POVMovementDirectionCreator,
-    POVSpeedCreator,
-    WeaponInUseCreator,
+    SelfMovementDirectionCreator,
+    SelfSpeedCreator,
+    SelfWeaponCreator,
 )
 
 
 # Task configurations: (task_id, creator_class, config_overrides, output_filename)
 TASK_CONFIGS: List[Tuple[str, type, Dict[str, Any], str]] = [
     # ============= LOCATION TASKS =============
+    # Self location nowcast
+    ("self_loc_now", SelfLocationNowcastCreator, {}, "self_loc_now.csv"),
+    
     # Teammate location nowcast
     ("teammate_loc_now", TeammateLocationNowcastCreator, {}, "teammate_loc_now.csv"),
     
@@ -135,8 +140,8 @@ TASK_CONFIGS: List[Tuple[str, type, Dict[str, Any], str]] = [
     # In combat detection
     ("team_in_combat", InCombatCreator, 
      {"combat_type": "team"}, "team_in_combat.csv"),
-    ("pov_in_combat", InCombatCreator, 
-     {"combat_type": "pov"}, "pov_in_combat.csv"),
+    ("self_in_combat", SelfInCombatCreator, 
+     {"combat_type": "pov"}, "self_in_combat.csv"),
     
     # ============= BOMB TASKS =============
     # Bomb planted state
@@ -158,15 +163,15 @@ TASK_CONFIGS: List[Tuple[str, type, Dict[str, Any], str]] = [
     ("round_outcome_reason", RoundOutcomeReasonCreator, {}, "round_outcome_reason.csv"),
     
     # ============= SPATIAL TASKS =============
-    # POV movement direction
-    ("pov_movement_dir", POVMovementDirectionCreator, {}, "pov_movement_dir.csv"),
+    # Self movement direction
+    ("self_movement_dir", SelfMovementDirectionCreator, {}, "self_movement_dir.csv"),
     
-    # POV speed estimation
-    ("pov_speed", POVSpeedCreator, {}, "pov_speed.csv"),
+    # Self speed estimation
+    ("self_speed", SelfSpeedCreator, {}, "self_speed.csv"),
     
     # ============= ACTION TASKS =============
-    # Weapon in use
-    ("weapon_in_use", WeaponInUseCreator, {}, "weapon_in_use.csv"),
+    # Self weapon in use
+    ("self_weapon", SelfWeaponCreator, {}, "self_weapon.csv"),
 ]
 
 # Tasks that are defined but not yet implemented

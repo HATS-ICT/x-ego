@@ -12,9 +12,12 @@ Example:
 """
 
 import argparse
+import os
 import subprocess
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from dotenv import load_dotenv
 from tqdm import tqdm
 
 
@@ -95,12 +98,15 @@ def main():
     )
     args = parser.parse_args()
     
-    # Determine paths
+    # Load environment variables from .env file
     project_root = Path(__file__).parent.parent.parent
+    load_dotenv(project_root / ".env")
+    
+    # Determine paths
     if args.data_dir:
         data_dir = Path(args.data_dir)
     else:
-        data_dir = project_root / "data"
+        data_dir = Path(os.environ["DATA_BASE_PATH"])
     
     src_dir = data_dir / "video_544x306_30fps"
     dst_dir = data_dir / "video_544x306_4fps"

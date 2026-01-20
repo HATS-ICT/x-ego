@@ -30,11 +30,13 @@ team_in_combat,Team In Combat,combat,Is any teammate currently in combat,binary_
 pov_in_combat,POV In Combat,combat,Is POV player currently in combat,binary_cls,2,1,damages,attacker_steamid;victim_steamid,nowcast,0,Recent damage involving POV player,yes
 bomb_planted,Bomb Planted State,bomb,Is bomb currently planted,binary_cls,2,1,bomb,event,nowcast,0,Game state from bomb plant/defuse/explode events,yes
 bomb_site_prediction,Bomb Site Prediction,bomb,Predict which site bomb will be planted (A vs B),binary_cls,2,1,bomb;rounds,bomb_site,forecast,0,Strategic prediction; only for T-side pre-plant,yes
-time_to_plant,Time To Plant,bomb,Estimate seconds until bomb plant,regression,,1,bomb,tick,forecast,0,Only valid for T-side pre-plant segments,no
+will_plant,Will Plant Prediction,bomb,Predict if bomb will be planted in the round,binary_cls,2,1,bomb;rounds,event,forecast,0,Only valid for T-side pre-plant segments,yes
 post_plant_outcome,Post Plant Outcome,bomb,After plant predict explode vs defuse,binary_cls,2,1,bomb,event,forecast,0,Only valid for post-plant segments,yes
 round_winner,Round Winner Prediction,round,Predict which team wins the round,binary_cls,2,1,rounds,winner,forecast,0,Win probability from current state,yes
 round_outcome_reason,Round Outcome Reason,round,Predict how round will end,multi_cls,4,4,rounds,reason,forecast,0,t_killed;ct_killed;bomb_exploded;bomb_defused,yes
 pov_movement_dir,POV Movement Direction,spatial,Predict POV player movement direction,multi_cls,9,9,trajectory,X_norm;Y_norm,nowcast,0,8 directions + stationary,yes
 pov_speed,POV Speed Estimation,spatial,Estimate POV player movement speed,regression,,1,trajectory,X_norm;Y_norm;Z_norm,nowcast,0,Magnitude of velocity vector,yes
-imminent_shot_self_2s,Self Shot 2s,action,Will POV player fire in next 2 seconds,binary_cls,2,1,shots,player_steamid,forecast,2,Individual action prediction,no
 weapon_in_use,Weapon In Use,action,Classify weapon POV player is using,multi_cls,56,56,shots;damages,weapon,nowcast,0,Equipment state from recent shots/damages,yes
+teammate_movement_dir,Teammate Movement Direction,coordination,Predict 4 teammates movement directions,multi_label_cls,9,9,trajectory,X_norm;Y_norm,nowcast,0,8 directions + stationary per teammate,yes
+teammate_speed,Teammate Speed Estimation,coordination,Estimate 4 teammates movement speeds,regression,,4,trajectory,X_norm;Y_norm;Z_norm,nowcast,0,Speed values for each teammate,yes
+teammate_weapon,Teammate Weapon In Use,coordination,Classify weapons 4 teammates are using,multi_label_cls,56,56,shots;damages,weapon,nowcast,0,Weapon classification per teammate,yes

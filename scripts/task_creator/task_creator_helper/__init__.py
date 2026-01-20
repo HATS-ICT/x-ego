@@ -17,6 +17,11 @@ from .coordination_tasks import (
     NearestTeammateDistanceCreator,
     TeamMovementDirectionCreator,
 )
+from .coordination_tasks_addon import (
+    TeammateMovementDirectionCreator,
+    TeammateSpeedCreator,
+    TeammateWeaponCreator,
+)
 from .combat_tasks import (
     ImminentKillCreator,
     ImminentDeathSelfCreator,
@@ -30,6 +35,9 @@ from .bomb_tasks import (
     PostPlantOutcomeCreator,
     RoundWinnerCreator,
     RoundOutcomeReasonCreator,
+)
+from .bomb_tasks_addon import (
+    WillPlantPredictionCreator,
 )
 from .spatial_tasks import (
     POVMovementDirectionCreator,
@@ -52,6 +60,9 @@ __all__ = [
     "AliveCountCreator",
     "NearestTeammateDistanceCreator",
     "TeamMovementDirectionCreator",
+    "TeammateMovementDirectionCreator",
+    "TeammateSpeedCreator",
+    "TeammateWeaponCreator",
     # Combat
     "ImminentKillCreator",
     "ImminentDeathSelfCreator",
@@ -61,6 +72,7 @@ __all__ = [
     # Bomb/Round
     "BombPlantedStateCreator",
     "BombSitePredictionCreator",
+    "WillPlantPredictionCreator",
     "PostPlantOutcomeCreator",
     "RoundWinnerCreator",
     "RoundOutcomeReasonCreator",

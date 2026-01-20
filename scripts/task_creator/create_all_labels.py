@@ -27,12 +27,16 @@ from scripts.task_creator.task_creator_helper import (
     AliveCountCreator,
     NearestTeammateDistanceCreator,
     TeamMovementDirectionCreator,
+    TeammateMovementDirectionCreator,
+    TeammateSpeedCreator,
+    TeammateWeaponCreator,
     ImminentKillCreator,
     ImminentDeathSelfCreator,
     ImminentKillSelfCreator,
     InCombatCreator,
     BombPlantedStateCreator,
     BombSitePredictionCreator,
+    WillPlantPredictionCreator,
     PostPlantOutcomeCreator,
     RoundWinnerCreator,
     RoundOutcomeReasonCreator,
@@ -94,6 +98,15 @@ TASK_CONFIGS: List[Tuple[str, type, Dict[str, Any], str]] = [
     # Team movement direction
     ("team_movement_dir", TeamMovementDirectionCreator, {}, "team_movement_dir.csv"),
     
+    # Teammate movement direction
+    ("teammate_movement_dir", TeammateMovementDirectionCreator, {}, "teammate_movement_dir.csv"),
+    
+    # Teammate speed
+    ("teammate_speed", TeammateSpeedCreator, {}, "teammate_speed.csv"),
+    
+    # Teammate weapon
+    ("teammate_weapon", TeammateWeaponCreator, {}, "teammate_weapon.csv"),
+    
     # ============= COMBAT TASKS =============
     # Imminent kill (5s, 10s, 20s)
     ("imminent_kill_5s", ImminentKillCreator, 
@@ -132,6 +145,9 @@ TASK_CONFIGS: List[Tuple[str, type, Dict[str, Any], str]] = [
     # Bomb site prediction
     ("bomb_site_prediction", BombSitePredictionCreator, {}, "bomb_site_prediction.csv"),
     
+    # Will plant prediction
+    ("will_plant", WillPlantPredictionCreator, {}, "will_plant.csv"),
+    
     # Post plant outcome
     ("post_plant_outcome", PostPlantOutcomeCreator, {}, "post_plant_outcome.csv"),
     
@@ -156,7 +172,6 @@ TASK_CONFIGS: List[Tuple[str, type, Dict[str, Any], str]] = [
 # Tasks that are defined but not yet implemented
 NOT_IMPLEMENTED_TASKS = [
     "headshot_next_kill",    # Needs new creator
-    "time_to_plant",         # Needs new creator
     "bomb_carrier_dist",     # Needs new creator
     "pov_place_cls",         # POV self-location classification
     "area_control_mid",      # Area control detection

@@ -7,13 +7,18 @@ Creates labels for:
 - Teammate/enemy alive count
 - Nearest teammate distance
 - Team movement direction
+- Teammate movement direction (per teammate)
+- Teammate speed (per teammate)
+- Teammate weapon (per teammate)
 """
 
 import pandas as pd
+import numpy as np
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 from .base_task_creator import TaskCreatorBase
+from ..task_definitions import WEAPON_TO_IDX, NUM_WEAPONS
 
 
 class TeamSpreadCreator(TaskCreatorBase):

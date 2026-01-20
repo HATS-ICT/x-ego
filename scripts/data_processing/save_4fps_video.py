@@ -52,7 +52,7 @@ def convert_video(src_path: Path, dst_path: Path, dry_run: bool = False) -> tupl
         "-r", "4",
         "-c:v", "libx264",
         "-crf", "18",
-        "-preset", "fast",
+        "-preset", "slow",
         "-an",
         "-y",  # overwrite output file if exists
         str(dst_path)

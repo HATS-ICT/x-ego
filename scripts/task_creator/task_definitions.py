@@ -103,13 +103,13 @@ class TaskDefinition:
         return self.relevance_to_team_alignment == TeamAlignmentRelevance.HIGH
 
 
-# Map places on de_mirage to indices
+# Map places on de_mirage to indices (actual places found in dataset)
 MIRAGE_PLACES = [
-    "TSpawn", "CTSpawn", "TopofMid", "Catwalk", "Ladder",
-    "BombsiteA", "BombsiteB", "Palace", "PalaceAlley", "PalaceInterior",
-    "Ramp", "TRamp", "Apartments", "BackAlley", "House",
-    "Jungle", "Connector", "Shop", "SnipersNest", "Scaffolding",
-    "Kitchen", "SideAlley", "Market", "Underpass", "Window"
+    "Apartments", "BackAlley", "BombsiteA", "BombsiteB", "CTSpawn",
+    "Catwalk", "Connector", "House", "Jungle", "Ladder",
+    "Middle", "PalaceAlley", "PalaceInterior", "Scaffolding", "Shop",
+    "SideAlley", "SnipersNest", "Stairs", "TRamp", "TSpawn",
+    "TopofMid", "Truck", "Underpass"
 ]
 
 PLACE_TO_IDX = {place: idx for idx, place in enumerate(MIRAGE_PLACES)}
@@ -128,11 +128,18 @@ ROUND_OUTCOMES = ["t_killed", "ct_killed", "bomb_exploded", "bomb_defused"]
 OUTCOME_TO_IDX = {o: i for i, o in enumerate(ROUND_OUTCOMES)}
 NUM_OUTCOMES = len(ROUND_OUTCOMES)
 
-# Common weapon categories
+# Weapons (actual weapons found in dataset, sorted alphabetically)
 WEAPONS = [
-    "glock", "usp_silencer", "hkp2000", "p250", "deagle", "fiveseven", "tec9",
-    "ak47", "m4a1", "m4a1_silencer", "awp", "sg556", "aug", "famas", "galil",
-    "mac10", "mp9", "ump45", "p90", "nova"
+    "ak47", "aug", "awp", "bayonet", "bizon", "cz75a", "deagle", "elite",
+    "famas", "fiveseven", "galilar", "glock", "hegrenade", "hkp2000",
+    "incgrenade", "inferno", "knife", "knife_butterfly", "knife_canis",
+    "knife_cord", "knife_falchion", "knife_flip", "knife_gut",
+    "knife_gypsy_jackknife", "knife_karambit", "knife_kukri", "knife_m9_bayonet",
+    "knife_outdoor", "knife_push", "knife_skeleton", "knife_stiletto",
+    "knife_survival_bowie", "knife_t", "knife_tactical", "knife_ursus",
+    "knife_widowmaker", "m4a1", "m4a1_silencer", "mac10", "mag7", "molotov",
+    "mp5sd", "mp7", "mp9", "nova", "p250", "p90", "revolver", "scar20",
+    "sg556", "ssg08", "taser", "tec9", "ump45", "usp_silencer", "xm1014"
 ]
 WEAPON_TO_IDX = {w: i for i, w in enumerate(WEAPONS)}
 NUM_WEAPONS = len(WEAPONS)

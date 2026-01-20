@@ -52,59 +52,59 @@ from scripts.task_creator.task_creator_helper import (
 TASK_CONFIGS: List[Tuple[str, type, Dict[str, Any], str]] = [
     # ============= LOCATION TASKS =============
     # Self location nowcast
-    ("self_loc_now", SelfLocationNowcastCreator, {}, "self_loc_now.csv"),
+    ("self_location", SelfLocationNowcastCreator, {}, "self_location.csv"),
     
     # Teammate location nowcast
-    ("teammate_loc_now", TeammateLocationNowcastCreator, {}, "teammate_loc_now.csv"),
+    ("teammate_location", TeammateLocationNowcastCreator, {}, "teammate_location.csv"),
     
     # Enemy location nowcast
-    ("enemy_loc_now", EnemyLocationNowcastCreator, {}, "enemy_loc_now.csv"),
+    ("enemy_location", EnemyLocationNowcastCreator, {}, "enemy_location.csv"),
     
     # Self location forecast (5s, 10s, 20s)
-    ("self_loc_forecast_5s", LocationForecastCreator, 
-     {"forecast_horizon_sec": 5.0, "target_type": "self"}, "self_loc_forecast_5s.csv"),
-    ("self_loc_forecast_10s", LocationForecastCreator, 
-     {"forecast_horizon_sec": 10.0, "target_type": "self"}, "self_loc_forecast_10s.csv"),
-    ("self_loc_forecast_20s", LocationForecastCreator, 
-     {"forecast_horizon_sec": 20.0, "target_type": "self"}, "self_loc_forecast_20s.csv"),
+    ("self_location_5s", LocationForecastCreator, 
+     {"forecast_horizon_sec": 5.0, "target_type": "self"}, "self_location_5s.csv"),
+    ("self_location_10s", LocationForecastCreator, 
+     {"forecast_horizon_sec": 10.0, "target_type": "self"}, "self_location_10s.csv"),
+    ("self_location_20s", LocationForecastCreator, 
+     {"forecast_horizon_sec": 20.0, "target_type": "self"}, "self_location_20s.csv"),
     
     # Teammate location forecast (5s, 10s, 20s)
-    ("teammate_loc_forecast_5s", LocationForecastCreator, 
-     {"forecast_horizon_sec": 5.0, "target_type": "teammate"}, "teammate_loc_forecast_5s.csv"),
-    ("teammate_loc_forecast_10s", LocationForecastCreator, 
-     {"forecast_horizon_sec": 10.0, "target_type": "teammate"}, "teammate_loc_forecast_10s.csv"),
-    ("teammate_loc_forecast_20s", LocationForecastCreator, 
-     {"forecast_horizon_sec": 20.0, "target_type": "teammate"}, "teammate_loc_forecast_20s.csv"),
+    ("teammate_location_5s", LocationForecastCreator, 
+     {"forecast_horizon_sec": 5.0, "target_type": "teammate"}, "teammate_location_5s.csv"),
+    ("teammate_location_10s", LocationForecastCreator, 
+     {"forecast_horizon_sec": 10.0, "target_type": "teammate"}, "teammate_location_10s.csv"),
+    ("teammate_location_20s", LocationForecastCreator, 
+     {"forecast_horizon_sec": 20.0, "target_type": "teammate"}, "teammate_location_20s.csv"),
     
     # Enemy location forecast (5s, 10s, 20s)
-    ("enemy_loc_forecast_5s", LocationForecastCreator, 
-     {"forecast_horizon_sec": 5.0, "target_type": "enemy"}, "enemy_loc_forecast_5s.csv"),
-    ("enemy_loc_forecast_10s", LocationForecastCreator, 
-     {"forecast_horizon_sec": 10.0, "target_type": "enemy"}, "enemy_loc_forecast_10s.csv"),
-    ("enemy_loc_forecast_20s", LocationForecastCreator, 
-     {"forecast_horizon_sec": 20.0, "target_type": "enemy"}, "enemy_loc_forecast_20s.csv"),
+    ("enemy_location_5s", LocationForecastCreator, 
+     {"forecast_horizon_sec": 5.0, "target_type": "enemy"}, "enemy_location_5s.csv"),
+    ("enemy_location_10s", LocationForecastCreator, 
+     {"forecast_horizon_sec": 10.0, "target_type": "enemy"}, "enemy_location_10s.csv"),
+    ("enemy_location_20s", LocationForecastCreator, 
+     {"forecast_horizon_sec": 20.0, "target_type": "enemy"}, "enemy_location_20s.csv"),
     
     # ============= COORDINATION TASKS =============
     # Team spread
-    ("team_spread", TeamSpreadCreator, {}, "team_spread.csv"),
+    ("global_teamSpread", TeamSpreadCreator, {}, "global_teamSpread.csv"),
     
     # Team centroid
-    ("team_centroid", TeamCentroidCreator, {}, "team_centroid.csv"),
+    ("global_teamCentroid", TeamCentroidCreator, {}, "global_teamCentroid.csv"),
     
     # Alive counts
-    ("teammate_alive_count", AliveCountCreator, 
-     {"count_type": "teammate"}, "teammate_alive_count.csv"),
-    ("enemy_alive_count", AliveCountCreator, 
-     {"count_type": "enemy"}, "enemy_alive_count.csv"),
+    ("teammate_aliveCount", AliveCountCreator, 
+     {"count_type": "teammate"}, "teammate_aliveCount.csv"),
+    ("enemy_aliveCount", AliveCountCreator, 
+     {"count_type": "enemy"}, "enemy_aliveCount.csv"),
     
     # Nearest teammate distance
-    ("teammate_proximity", NearestTeammateDistanceCreator, {}, "teammate_proximity.csv"),
+    ("self_teammateProximity", NearestTeammateDistanceCreator, {}, "self_teammateProximity.csv"),
     
     # Team movement direction
-    ("team_movement_dir", TeamMovementDirectionCreator, {}, "team_movement_dir.csv"),
+    ("global_teamMovementDir", TeamMovementDirectionCreator, {}, "global_teamMovementDir.csv"),
     
     # Teammate movement direction
-    ("teammate_movement_dir", TeammateMovementDirectionCreator, {}, "teammate_movement_dir.csv"),
+    ("teammate_movementDir", TeammateMovementDirectionCreator, {}, "teammate_movementDir.csv"),
     
     # Teammate speed
     ("teammate_speed", TeammateSpeedCreator, {}, "teammate_speed.csv"),
@@ -114,57 +114,57 @@ TASK_CONFIGS: List[Tuple[str, type, Dict[str, Any], str]] = [
     
     # ============= COMBAT TASKS =============
     # Imminent kill (5s, 10s, 20s)
-    ("imminent_kill_5s", ImminentKillCreator, 
-     {"horizon_sec": 5.0}, "imminent_kill_5s.csv"),
-    ("imminent_kill_10s", ImminentKillCreator, 
-     {"horizon_sec": 10.0}, "imminent_kill_10s.csv"),
-    ("imminent_kill_20s", ImminentKillCreator, 
-     {"horizon_sec": 20.0}, "imminent_kill_20s.csv"),
+    ("global_anyKill_5s", ImminentKillCreator, 
+     {"horizon_sec": 5.0}, "global_anyKill_5s.csv"),
+    ("global_anyKill_10s", ImminentKillCreator, 
+     {"horizon_sec": 10.0}, "global_anyKill_10s.csv"),
+    ("global_anyKill_20s", ImminentKillCreator, 
+     {"horizon_sec": 20.0}, "global_anyKill_20s.csv"),
     
     # Imminent death self (5s, 10s, 20s)
-    ("imminent_death_self_5s", ImminentDeathSelfCreator, 
-     {"horizon_sec": 5.0}, "imminent_death_self_5s.csv"),
-    ("imminent_death_self_10s", ImminentDeathSelfCreator, 
-     {"horizon_sec": 10.0}, "imminent_death_self_10s.csv"),
-    ("imminent_death_self_20s", ImminentDeathSelfCreator, 
-     {"horizon_sec": 20.0}, "imminent_death_self_20s.csv"),
+    ("self_death_5s", ImminentDeathSelfCreator, 
+     {"horizon_sec": 5.0}, "self_death_5s.csv"),
+    ("self_death_10s", ImminentDeathSelfCreator, 
+     {"horizon_sec": 10.0}, "self_death_10s.csv"),
+    ("self_death_20s", ImminentDeathSelfCreator, 
+     {"horizon_sec": 20.0}, "self_death_20s.csv"),
     
     # POV player gets a kill (5s, 10s, 20s)
-    ("imminent_kill_self_5s", ImminentKillSelfCreator, 
-     {"horizon_sec": 5.0}, "imminent_kill_self_5s.csv"),
-    ("imminent_kill_self_10s", ImminentKillSelfCreator, 
-     {"horizon_sec": 10.0}, "imminent_kill_self_10s.csv"),
-    ("imminent_kill_self_20s", ImminentKillSelfCreator, 
-     {"horizon_sec": 20.0}, "imminent_kill_self_20s.csv"),
+    ("self_kill_5s", ImminentKillSelfCreator, 
+     {"horizon_sec": 5.0}, "self_kill_5s.csv"),
+    ("self_kill_10s", ImminentKillSelfCreator, 
+     {"horizon_sec": 10.0}, "self_kill_10s.csv"),
+    ("self_kill_20s", ImminentKillSelfCreator, 
+     {"horizon_sec": 20.0}, "self_kill_20s.csv"),
     
     # In combat detection
-    ("team_in_combat", InCombatCreator, 
-     {"combat_type": "team"}, "team_in_combat.csv"),
-    ("self_in_combat", SelfInCombatCreator, 
-     {"combat_type": "pov"}, "self_in_combat.csv"),
+    ("global_teamInCombat", InCombatCreator, 
+     {"combat_type": "team"}, "global_teamInCombat.csv"),
+    ("self_inCombat", SelfInCombatCreator, 
+     {"combat_type": "pov"}, "self_inCombat.csv"),
     
     # ============= BOMB TASKS =============
     # Bomb planted state
-    ("bomb_planted", BombPlantedStateCreator, {}, "bomb_planted.csv"),
+    ("global_bombPlanted", BombPlantedStateCreator, {}, "global_bombPlanted.csv"),
     
     # Bomb site prediction
-    ("bomb_site_prediction", BombSitePredictionCreator, {}, "bomb_site_prediction.csv"),
+    ("global_bombSite", BombSitePredictionCreator, {}, "global_bombSite.csv"),
     
     # Will plant prediction
-    ("will_plant", WillPlantPredictionCreator, {}, "will_plant.csv"),
+    ("global_willPlant", WillPlantPredictionCreator, {}, "global_willPlant.csv"),
     
     # Post plant outcome
-    ("post_plant_outcome", PostPlantOutcomeCreator, {}, "post_plant_outcome.csv"),
+    ("global_postPlantOutcome", PostPlantOutcomeCreator, {}, "global_postPlantOutcome.csv"),
     
     # Round winner
-    ("round_winner", RoundWinnerCreator, {}, "round_winner.csv"),
+    ("global_roundWinner", RoundWinnerCreator, {}, "global_roundWinner.csv"),
     
     # Round outcome reason (multi-class)
-    ("round_outcome_reason", RoundOutcomeReasonCreator, {}, "round_outcome_reason.csv"),
+    ("global_roundOutcome", RoundOutcomeReasonCreator, {}, "global_roundOutcome.csv"),
     
     # ============= SPATIAL TASKS =============
     # Self movement direction
-    ("self_movement_dir", SelfMovementDirectionCreator, {}, "self_movement_dir.csv"),
+    ("self_movementDir", SelfMovementDirectionCreator, {}, "self_movementDir.csv"),
     
     # Self speed estimation
     ("self_speed", SelfSpeedCreator, {}, "self_speed.csv"),

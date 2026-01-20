@@ -30,7 +30,6 @@ from scripts.task_creator.task_creator_helper import (
     TeamMovementDirectionCreator,
     TeammateMovementDirectionCreator,
     TeammateSpeedCreator,
-    TeammateWeaponCreator,
     ImminentKillCreator,
     ImminentDeathSelfCreator,
     ImminentKillSelfCreator,
@@ -44,7 +43,6 @@ from scripts.task_creator.task_creator_helper import (
     RoundOutcomeReasonCreator,
     SelfMovementDirectionCreator,
     SelfSpeedCreator,
-    SelfWeaponCreator,
 )
 
 
@@ -95,7 +93,6 @@ TASK_OVERSAMPLE_MULTIPLIERS: Dict[str, int] = {
     
     # ===== Multi-class tasks with low/no imbalance =====
     'global_teamMovementDir': 3,  # 1.0:1 (but only 1 class observed - data issue?)
-    'self_weapon': 3,             # 1.0:1 (only 22 samples - data issue?)
     
     # ===== Multi-label tasks (use moderate multiplier for coverage) =====
     'enemy_location': 4,          # Multi-label: 0.2%-31.5% positive rates
@@ -180,9 +177,6 @@ TASK_CONFIGS: List[Tuple[str, type, Dict[str, Any], str]] = [
     # Teammate speed
     ("teammate_speed", TeammateSpeedCreator, {}, "teammate_speed.csv"),
     
-    # Teammate weapon
-    ("teammate_weapon", TeammateWeaponCreator, {}, "teammate_weapon.csv"),
-    
     # ============= COMBAT TASKS =============
     # Imminent kill (5s, 10s, 20s)
     ("global_anyKill_5s", ImminentKillCreator, 
@@ -240,9 +234,6 @@ TASK_CONFIGS: List[Tuple[str, type, Dict[str, Any], str]] = [
     # Self speed estimation
     ("self_speed", SelfSpeedCreator, {}, "self_speed.csv"),
     
-    # ============= ACTION TASKS =============
-    # Self weapon in use
-    ("self_weapon", SelfWeaponCreator, {}, "self_weapon.csv"),
 ]
 
 # Tasks that are defined but not yet implemented

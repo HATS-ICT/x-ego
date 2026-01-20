@@ -95,8 +95,6 @@ from scripts.task_creator.task_creator_helper import (
     # Spatial creators
     POVMovementDirectionCreator,
     POVSpeedCreator,
-    # Action creators
-    WeaponInUseCreator,
 )
 
 # Note: create_all_labels and analyze_label_stats are standalone scripts
@@ -167,7 +165,4 @@ __all__ = [
     # Spatial creators
     'POVMovementDirectionCreator',
     'POVSpeedCreator',
-    
-    # Action creators
-    'WeaponInUseCreator',
 ]

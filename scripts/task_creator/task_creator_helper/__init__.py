@@ -23,7 +23,6 @@ from .coordination_tasks import (
 from .coordination_tasks_addon import (
     TeammateMovementDirectionCreator,
     TeammateSpeedCreator,
-    TeammateWeaponCreator,
 )
 from .combat_tasks import (
     ImminentKillCreator,
@@ -49,10 +48,6 @@ from .spatial_tasks import (
     SelfMovementDirectionCreator,
     SelfSpeedCreator,
 )
-from .action_tasks import (
-    WeaponInUseCreator,
-    SelfWeaponCreator,
-)
 
 __all__ = [
     # Base
@@ -70,7 +65,6 @@ __all__ = [
     "TeamMovementDirectionCreator",
     "TeammateMovementDirectionCreator",
     "TeammateSpeedCreator",
-    "TeammateWeaponCreator",
     # Combat
     "ImminentKillCreator",
     "ImminentDeathSelfCreator",
@@ -90,7 +84,4 @@ __all__ = [
     "POVSpeedCreator",
     "SelfMovementDirectionCreator",
     "SelfSpeedCreator",
-    # Action
-    "WeaponInUseCreator",
-    "SelfWeaponCreator",
 ]

@@ -36,7 +36,5 @@ global_roundWinner,Round Winner Prediction,round,Predict which team wins the rou
 global_roundOutcome,Round Outcome Reason,round,Predict how round will end,multi_cls,5,5,rounds,reason,forecast,0,t_killed;ct_killed;bomb_exploded;bomb_defused;time_ran_out,yes
 self_movementDir,Self Movement Direction,spatial,Predict POV player movement direction,multi_cls,9,9,trajectory,X_norm;Y_norm,nowcast,0,8 directions + stationary,yes
 self_speed,Self Speed Estimation,spatial,Estimate POV player movement speed,regression,,1,trajectory,X_norm;Y_norm;Z_norm,nowcast,0,Magnitude of velocity vector,yes
-self_weapon,Self Weapon In Use,action,Classify weapon POV player is using,multi_cls,56,56,shots;damages,weapon,nowcast,0,Equipment state from recent shots/damages,yes
 teammate_movementDir,Teammate Movement Direction,coordination,Predict 4 teammates movement directions,multi_label_cls,9,9,trajectory,X_norm;Y_norm,nowcast,0,8 directions + stationary per teammate,yes
 teammate_speed,Teammate Speed Estimation,coordination,Estimate 4 teammates movement speeds,regression,,4,trajectory,X_norm;Y_norm;Z_norm,nowcast,0,Speed values for each teammate,yes
-teammate_weapon,Teammate Weapon In Use,coordination,Classify weapons 4 teammates are using,multi_label_cls,56,56,shots;damages,weapon,nowcast,0,Weapon classification per teammate,yes

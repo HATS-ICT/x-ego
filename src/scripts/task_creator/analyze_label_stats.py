@@ -18,9 +18,7 @@ import pandas as pd
 import numpy as np
 from dotenv import load_dotenv
 
-sys.path.append(str(Path(__file__).parent.parent.parent))
-
-from scripts.task_creator.task_definitions import load_task_definitions
+from .task_definitions import load_task_definitions
 
 
 def analyze_binary_cls(df: pd.DataFrame, label_col: str) -> Dict[str, Any]:
@@ -113,7 +111,6 @@ def analyze_multi_label_cls(df: pd.DataFrame, label_prefix: str, num_classes: in
         if col in df.columns:
             col_data = df[col].dropna()
             pos_count = (col_data == 1).sum()
-            neg_count = (col_data == 0).sum()
             
             label_stats[col] = {
                 "positive_count": int(pos_count),
@@ -182,29 +179,62 @@ def analyze_regression(df: pd.DataFrame, label_col: str) -> Dict[str, Any]:
 
 
 def detect_ml_form_from_columns(df: pd.DataFrame, task_id: str) -> str:
-    """Try to detect ML form from column patterns."""
+    """Try to detect ML form from column patterns and task_id naming."""
     cols = df.columns.tolist()
+    
+    # Check for 'label' column (single label tasks)
+    if 'label' in cols:
+        unique_vals = df['label'].dropna().unique()
+        
+        # Binary classification: only 0 and 1
+        if len(unique_vals) == 2 and set(unique_vals).issubset({0, 1, 0.0, 1.0}):
+            return "binary_cls"
+        
+        # Multi-class: integer values with reasonable number of classes
+        if len(unique_vals) > 2 and len(unique_vals) <= 50:
+            return "multi_cls"
+        
+        # Regression: float values with many unique values
+        if df['label'].dtype in [np.float64, np.float32] and len(unique_vals) > 50:
+            return "regression"
+    
+    # Check for label_ prefix columns (multi-output tasks)
     label_cols = [c for c in cols if c.startswith('label_')]
     
     if not label_cols:
         return "unknown"
     
-    # Check if multi-label (multiple label_ columns with place indices)
-    if len(label_cols) > 1 and any('place_' in c for c in label_cols):
-        return "multi_label_cls"
+    # Multiple label columns
+    if len(label_cols) > 1:
+        # Check first label column to determine type
+        first_label = label_cols[0]
+        unique_vals = df[first_label].dropna().unique()
+        
+        # Multi-label binary: each column is 0/1
+        if set(unique_vals).issubset({0, 1, 0.0, 1.0}):
+            return "multi_label_cls"
+        
+        # Multi-output regression: continuous values
+        if df[first_label].dtype in [np.float64, np.float32]:
+            return "regression"
+        
+        # Multi-output classification: integer class indices
+        if len(unique_vals) > 2 and len(unique_vals) <= 30:
+            return "multi_cls"
     
-    # Check first label column values
-    first_label = label_cols[0]
-    unique_vals = df[first_label].dropna().unique()
-    
-    if len(unique_vals) == 2 and set(unique_vals).issubset({0, 1, 0.0, 1.0}):
-        return "binary_cls"
-    
-    if df[first_label].dtype in [np.float64, np.float32] and len(unique_vals) > 10:
-        return "regression"
-    
-    if len(unique_vals) > 2 and len(unique_vals) <= 30:
-        return "multi_cls"
+    # Single label_ column
+    if len(label_cols) == 1:
+        first_label = label_cols[0]
+        unique_vals = df[first_label].dropna().unique()
+        
+        if len(unique_vals) == 2 and set(unique_vals).issubset({0, 1, 0.0, 1.0}):
+            return "binary_cls"
+        
+        if df[first_label].dtype in [np.float64, np.float32] and len(unique_vals) > 50:
+            return "regression"
+        
+        if len(unique_vals) > 2 and len(unique_vals) <= 50:
+            return "multi_cls"
     
     return "unknown"
 
@@ -229,20 +259,19 @@ def analyze_csv_file(csv_path: Path, task_def: Optional[Any] = None) -> Dict[str
     if task_def:
         ml_form = task_def.ml_form.value
         num_classes = task_def.num_classes
-        label_field = task_def.label_field
     else:
         ml_form = detect_ml_form_from_columns(df, csv_path.stem)
         num_classes = None
-        label_field = "label"
     
     result["ml_form"] = ml_form
     
     # Find the label column(s)
-    label_cols = [c for c in df.columns if c.startswith('label_')]
-    if label_cols:
-        primary_label = label_cols[0]
+    # First check for 'label' column, then 'label_' prefix columns
+    if 'label' in df.columns:
+        primary_label = 'label'
     else:
-        primary_label = None
+        label_cols = [c for c in df.columns if c.startswith('label_')]
+        primary_label = label_cols[0] if label_cols else None
     
     # Analyze based on ML form
     if ml_form == "binary_cls":

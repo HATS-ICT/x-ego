@@ -34,6 +34,7 @@ class POVMovementDirectionCreator(TaskCreatorBase):
         segments = []
         segment_ticks = segment_length_sec * self.tick_rate
         stride_ticks = int(self.stride_sec * self.tick_rate)
+        stride_ticks = max(1, stride_ticks)
         
         # Get global tick range
         all_min_ticks = []
@@ -74,6 +75,10 @@ class POVMovementDirectionCreator(TaskCreatorBase):
                 end_tick = current_tick + segment_ticks
                 middle_tick = current_tick + segment_ticks // 2
                 prev_tick = max(pov_min_tick, middle_tick - lookback_ticks)
+                
+                # Ensure prev_tick is before middle_tick
+                if prev_tick >= middle_tick:
+                    prev_tick = max(pov_min_tick, middle_tick - 1)
                 
                 # Verify POV player is alive
                 segment_data = pov_df[(pov_df['tick'] >= current_tick) & (pov_df['tick'] <= end_tick)]
@@ -159,6 +164,7 @@ class POVSpeedCreator(TaskCreatorBase):
         segments = []
         segment_ticks = segment_length_sec * self.tick_rate
         stride_ticks = int(self.stride_sec * self.tick_rate)
+        stride_ticks = max(1, stride_ticks)
         
         # Get global tick range
         all_min_ticks = []
@@ -200,6 +206,10 @@ class POVSpeedCreator(TaskCreatorBase):
                 end_tick = current_tick + segment_ticks
                 middle_tick = current_tick + segment_ticks // 2
                 prev_tick = max(pov_min_tick, middle_tick - lookback_ticks)
+                
+                # Ensure prev_tick is before middle_tick
+                if prev_tick >= middle_tick:
+                    prev_tick = max(pov_min_tick, middle_tick - 1)
                 
                 # Verify POV player is alive
                 segment_data = pov_df[(pov_df['tick'] >= current_tick) & (pov_df['tick'] <= end_tick)]

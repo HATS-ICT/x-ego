@@ -128,13 +128,24 @@ def load_task_definitions(csv_path: Optional[Path] = None) -> List[TaskDefinitio
     Load task definitions from CSV file.
     
     Args:
-        csv_path: Path to task_definitions.csv. If None, uses default location.
+        csv_path: Path to task_definitions.csv. If None, uses default location
+                  from DATA_BASE_PATH environment variable.
         
     Returns:
         List of TaskDefinition objects
     """
     if csv_path is None:
-        csv_path = Path(__file__).parent / "task_definitions.csv"
+        # Try to load from DATA_BASE_PATH/labels/task_definitions.csv
+        import os
+        from dotenv import load_dotenv
+        load_dotenv()
+        
+        data_base_path = os.getenv('DATA_BASE_PATH')
+        if data_base_path:
+            csv_path = Path(data_base_path) / "labels" / "task_definitions.csv"
+        else:
+            # Fallback to old location for backwards compatibility
+            csv_path = Path(__file__).parent / "task_definitions.csv"
     
     df = pd.read_csv(csv_path)
     tasks = []

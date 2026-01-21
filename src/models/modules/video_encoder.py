@@ -207,9 +207,9 @@ class VideoEncoderSigLIP2(nn.Module):
         frames = pixel_values.view(-1, channels, height, width)
         
         vision_outputs = self.vision_model(pixel_values=frames)
-        sequence_output = vision_outputs.last_hidden_state  # [batch_size * num_frames, seq_len, hidden_size]
+        sequence_output = vision_outputs.last_hidden_state  # [batch_size * num_frames, num_patches, hidden_size]
         
-        # Mean pooling over sequence (same as SigLIP)
+        # Mean pooling over patches (same as SigLIP)
         frame_features = torch.mean(sequence_output, dim=1)  # [batch_size * num_frames, hidden_size]
         frame_features = frame_features.view(batch_size, num_frames, -1)  # [batch_size, num_frames, hidden_size]
         

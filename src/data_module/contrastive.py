@@ -43,7 +43,6 @@ class ContrastiveDataModule(BaseDataModule):
         super().__init__(cfg)
         
         # Store contrastive-specific parameters
-        self.allow_variable_agents = cfg.data.allow_variable_agents
         self.min_agents = cfg.data.min_agents
     
     def _create_base_dataset(self):
@@ -56,9 +55,9 @@ class ContrastiveDataModule(BaseDataModule):
     
     def _copy_dataset_attributes(self, base_dataset, partition_dataset):
         """Copy dataset attributes."""
-        attrs = ['allow_variable_agents', 'min_agents', 'video_processor',
+        attrs = ['min_agents', 'video_processor',
                  'cfg', 'data_cfg', 'path_cfg', 'data_root', 
-                 'target_fps', 'fixed_duration_seconds', 'mask_minimap', 'time_jitter_max_seconds']
+                 'target_fps', 'fixed_duration_seconds', 'time_jitter_max_seconds']
         for attr in attrs:
             if hasattr(base_dataset, attr):
                 setattr(partition_dataset, attr, getattr(base_dataset, attr))
@@ -75,7 +74,6 @@ class ContrastiveDataModule(BaseDataModule):
     def _store_dataset_info(self, base_dataset):
         """Store dataset information."""
         logger.info(f"Full contrastive dataset: {len(base_dataset)} samples")
-        logger.info(f"Variable agents enabled: {self.allow_variable_agents}")
         logger.info(f"Minimum agents: {self.min_agents}")
     
     def _get_val_drop_last(self) -> bool:

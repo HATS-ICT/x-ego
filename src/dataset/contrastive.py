@@ -134,16 +134,14 @@ class ContrastiveDataset(Dataset):
         # Initialize video processor
         self._init_video_processor()
         
-        # Filter out samples with too few agents if allow_variable_agents is True
-        if self.cfg.data.allow_variable_agents:
-            # Check num_alive_teammates column if it exists
-            if 'num_alive_teammates' in self.df.columns:
-                initial_count = len(self.df)
-                self.df = self.df[self.df['num_alive_teammates'] >= self.cfg.data.min_agents].reset_index(drop=True)
-                logger.info(f"Filtered samples with <{self.cfg.data.min_agents} agents: {initial_count} -> {len(self.df)}")
+        # Filter out samples with too few agents
+        # Check num_alive_teammates column if it exists
+        if 'num_alive_teammates' in self.df.columns:
+            initial_count = len(self.df)
+            self.df = self.df[self.df['num_alive_teammates'] >= self.cfg.data.min_agents].reset_index(drop=True)
+            logger.info(f"Filtered samples with <{self.cfg.data.min_agents} agents: {initial_count} -> {len(self.df)}")
         
         logger.info(f"Contrastive dataset initialized with {len(self.df)} samples")
-        logger.info(f"Allow variable agents: {self.cfg.data.allow_variable_agents}")
         logger.info(f"Minimum agents: {self.cfg.data.min_agents}")
     
     def _init_video_processor(self):
@@ -225,8 +223,14 @@ class ContrastiveDataset(Dataset):
             video_clip = decoder.get_batch(frame_indices.tolist())
             video_clip = torch.from_numpy(video_clip.asnumpy()).permute(0, 3, 1, 2).half()
             
-            if self.cfg.data.mask_minimap:
+            # Apply UI masking based on configuration
+            ui_mask = self.cfg.data.ui_mask
+            if ui_mask == 'minimap_only':
                 video_clip = apply_minimap_mask(video_clip)
+            elif ui_mask == 'all':
+                # TODO: Implement full UI masking
+                raise NotImplementedError("ui_mask='all' is not yet implemented")
+            # elif ui_mask == 'none': no masking applied
             
             return video_clip
         except Exception as e:

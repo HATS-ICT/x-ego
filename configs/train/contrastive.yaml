@@ -27,10 +27,9 @@ data:
   target_fps: 4
   video_column_name: video_path
   num_pov_agents: 5
-  mask_minimap: true
+  ui_mask: minimap_only  # options: none, minimap_only, all (all not implemented yet)
   time_jitter_max_seconds: 0.3
   labels_filename: contrastive.csv
-  allow_variable_agents: true
   min_agents: 2
 
 model:

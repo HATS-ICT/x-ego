@@ -327,7 +327,6 @@ def print_task_info(cfg, datamodule, task_name):
     if task_name == 'contrastive':
         print(f"Video encoder: {cfg.model.encoder.video.model_type}")
         print(f"Projection dimension: {cfg.model.encoder.proj_dim}")
-        print(f"Allow variable agents: {cfg.data.allow_variable_agents}")
         print(f"Minimum agents: {cfg.data.min_agents}")
         print(f"Contrastive temperature init: {cfg.model.contrastive.logit_scale_init}")
         print(f"Contrastive bias init: {cfg.model.contrastive.logit_bias_init}")

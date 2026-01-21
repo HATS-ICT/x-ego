@@ -123,7 +123,7 @@ class ContrastiveModel(L.LightningModule):
                 - loss: Contrastive loss scalar
                 - metrics: Dictionary of contrastive metrics
         """
-        video = batch['video']  # [B, max_A, embed_dim] or [B, max_A, T, C, H, W]
+        video = batch['video']  # [B, max_A, T, C, H, W]
         agent_mask = batch['agent_mask']  # [B, max_A]
         num_agents = batch['num_agents']  # [B]
         
@@ -267,7 +267,12 @@ class ContrastiveModel(L.LightningModule):
         return self.log(*args, **kwargs)
     
     def training_step(self, batch, batch_idx):
-        """Training step."""
+        """Training step.
+        batch.video.shape: [B, max_A, T, C, H, W] e.g. [2, 5, 20, 3, 224, 224]
+        batch.agent_mask.shape: [B, max_A] e.g. [2, 5]
+        batch.num_agents.shape: [B] e.g. [2]
+        batch.pov_team_side_encoded.shape: [B] e.g. [2]
+        """
         outputs = self.forward(batch)
         loss = outputs['loss']
         metrics = outputs['metrics']

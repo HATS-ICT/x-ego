@@ -41,7 +41,7 @@ Usage:
 """
 
 # Task definitions and utilities
-from scripts.task_creator.task_definitions import (
+from .task_definitions import (
     TaskCategory,
     MLForm,
     TemporalType,
@@ -68,33 +68,35 @@ from scripts.task_creator.task_definitions import (
 )
 
 # Base class and task creators from helper module
-from scripts.task_creator.task_creator_helper import (
+from .task_creator_helper import (
     TaskCreatorBase,
     # Location creators
+    SelfLocationNowcastCreator,
     TeammateLocationNowcastCreator,
     EnemyLocationNowcastCreator,
     LocationForecastCreator,
     # Coordination creators
-    TeamSpreadCreator,
-    TeamCentroidCreator,
     AliveCountCreator,
-    NearestTeammateDistanceCreator,
-    TeamMovementDirectionCreator,
+    TeammateMovementDirectionCreator,
+    TeammateSpeedCreator,
     # Combat creators
     ImminentKillCreator,
     ImminentDeathSelfCreator,
     ImminentKillSelfCreator,
-    ImminentDamageCreator,
     InCombatCreator,
+    SelfInCombatCreator,
     # Bomb/Round creators
     BombPlantedStateCreator,
     BombSitePredictionCreator,
+    WillPlantPredictionCreator,
     PostPlantOutcomeCreator,
     RoundWinnerCreator,
     RoundOutcomeReasonCreator,
     # Spatial creators
     POVMovementDirectionCreator,
     POVSpeedCreator,
+    SelfMovementDirectionCreator,
+    SelfSpeedCreator,
 )
 
 # Note: create_all_labels and analyze_label_stats are standalone scripts
@@ -137,27 +139,27 @@ __all__ = [
     'TaskCreatorBase',
     
     # Location creators
+    'SelfLocationNowcastCreator',
     'TeammateLocationNowcastCreator',
     'EnemyLocationNowcastCreator',
     'LocationForecastCreator',
     
     # Coordination creators
-    'TeamSpreadCreator',
-    'TeamCentroidCreator',
     'AliveCountCreator',
-    'NearestTeammateDistanceCreator',
-    'TeamMovementDirectionCreator',
+    'TeammateMovementDirectionCreator',
+    'TeammateSpeedCreator',
     
     # Combat creators
     'ImminentKillCreator',
     'ImminentDeathSelfCreator',
     'ImminentKillSelfCreator',
-    'ImminentDamageCreator',
     'InCombatCreator',
+    'SelfInCombatCreator',
     
     # Bomb/Round creators
     'BombPlantedStateCreator',
     'BombSitePredictionCreator',
+    'WillPlantPredictionCreator',
     'PostPlantOutcomeCreator',
     'RoundWinnerCreator',
     'RoundOutcomeReasonCreator',
@@ -165,4 +167,6 @@ __all__ = [
     # Spatial creators
     'POVMovementDirectionCreator',
     'POVSpeedCreator',
+    'SelfMovementDirectionCreator',
+    'SelfSpeedCreator',
 ]

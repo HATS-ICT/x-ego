@@ -16,6 +16,35 @@ from abc import ABC, abstractmethod
 import json
 
 
+# Global variable to hold worker instance (one per process)
+_worker_instance = None
+
+
+def _init_worker(creator_class, init_args, init_kwargs):
+    """Initialize worker process with a TaskCreatorBase instance."""
+    global _worker_instance
+    _worker_instance = creator_class(*init_args, **init_kwargs)
+
+
+def _process_round_worker(args):
+    """Worker function to process a single round."""
+    global _worker_instance
+    match_id, round_num, partition, config = args
+    
+    try:
+        segments = _worker_instance._extract_segments_from_round(match_id, round_num, config)
+        
+        for segment in segments:
+            segment['partition'] = partition
+            segment['match_id'] = match_id
+            segment['round_num'] = round_num
+        
+        return segments
+    except Exception:
+        # Return empty list on error, print will happen in main process
+        return []
+
+
 class TaskCreatorBase(ABC):
     """
     Base class for creating task labels.
@@ -34,7 +63,8 @@ class TaskCreatorBase(ABC):
                  metadata_folder: str = "metadata",
                  video_folder: str = "video_544x306_30fps", 
                  tick_rate: int = 64, seed: int = 42, 
-                 cpu_usage: float = 0.9, stride_sec: float = 1.0):
+                 cpu_usage: float = 0.9, stride_sec: float = 1.0,
+                 verbose: bool = True):
         """
         Initialize the TaskCreatorBase.
         
@@ -50,6 +80,7 @@ class TaskCreatorBase(ABC):
             seed: Random seed for reproducibility
             cpu_usage: Fraction of CPU cores to use
             stride_sec: Step size in seconds between segments
+            verbose: Whether to print status messages (default: True)
         """
         self.data_dir = Path(data_dir)
         self.output_dir = Path(output_dir)
@@ -61,6 +92,7 @@ class TaskCreatorBase(ABC):
         self.tick_rate = tick_rate
         self.seed = seed
         self.cpu_usage = cpu_usage
+        self.verbose = verbose
         
         if stride_sec <= 0.0:
             raise ValueError("stride_sec must be > 0.0")
@@ -90,7 +122,8 @@ class TaskCreatorBase(ABC):
             raise FileNotFoundError(f"Partition CSV not found: {partition_path}")
         
         self.partition_df = pd.read_csv(partition_path)
-        print(f"Loaded {len(self.partition_df)} match-round entries from partition file")
+        if self.verbose:
+            print(f"Loaded {len(self.partition_df)} match-round entries from partition file")
     
     # ========== Trajectory Loading ==========
     
@@ -735,7 +768,7 @@ class TaskCreatorBase(ABC):
         
         else:
             # Unknown task type, fall back to random sampling
-            print(f"  Unknown task type, falling back to random sampling")
+            print("  Unknown task type, falling back to random sampling")
             random.seed(self.seed)
             return random.sample(segments, max_samples)
     
@@ -744,13 +777,14 @@ class TaskCreatorBase(ABC):
     def process_segments(self, config: Dict[str, Any]) -> pd.DataFrame:
         """
         Main method to process segments and create labeled data.
+        Uses multiprocessing for parallel extraction.
         
         Args:
             config: Configuration dictionary with keys:
                 - output_file_name: Name of the output CSV file
                 - segment_length_sec: Length of segments in seconds
                 - partition: List of partitions to include ['train', 'val', 'test']
-                - oversample_multiplier: Multiplier for oversampling before balanced downsample (default: 3)
+                - max_samples: Maximum samples to keep after balanced downsampling (optional)
                 - Additional parameters specific to each task
         
         Returns:
@@ -762,15 +796,13 @@ class TaskCreatorBase(ABC):
                 raise ValueError(f"Missing required configuration key: {key}")
         
         max_samples = config.get('max_samples')
-        oversample_mult = config.get('oversample_multiplier', 3)
-        # Collect Nx target for diversity, then downsample with balancing
-        collection_target = max_samples * oversample_mult if max_samples else None
         
         print("Processing segments with configuration:")
         print(f"  Segment length: {config['segment_length_sec']} seconds")
         print(f"  Partitions: {config['partition']}")
+        print(f"  Workers: {self.num_processes}")
         if max_samples:
-            print(f"  Max samples: {max_samples} (collecting up to {collection_target} with {oversample_mult}x, then balanced downsample)")
+            print(f"  Max samples: {max_samples} (will collect all, then balanced downsample)")
         
         filtered_partition_df = self.partition_df[
             self.partition_df['split'].isin(config['partition'])
@@ -782,46 +814,22 @@ class TaskCreatorBase(ABC):
             print("No match-round combinations found for specified partitions. Exiting.")
             return pd.DataFrame()
         
-        # Shuffle match-rounds for diversity when using max_samples
-        if max_samples:
-            filtered_partition_df = filtered_partition_df.sample(frac=1, random_state=self.seed).reset_index(drop=True)
-            print("  Shuffled match-rounds for diversity")
-        
         print("\nExtracting segments...")
         
-        all_segments = []
-        early_stopped = False
+        # Prepare work items
+        work_items = [
+            (row['match_id'], row['round_number'], row['split'], config)
+            for _, row in filtered_partition_df.iterrows()
+        ]
         
-        for _, row in tqdm(filtered_partition_df.iterrows(), 
-                          total=len(filtered_partition_df), 
-                          desc="Processing match-rounds"):
-            match_id = row['match_id']
-            round_num = row['round_number']
-            partition = row['split']
-            
-            try:
-                segments = self._extract_segments_from_round(match_id, round_num, config)
-                
-                for segment in segments:
-                    segment['partition'] = partition
-                    segment['match_id'] = match_id
-                    segment['round_num'] = round_num
-                
-                all_segments.extend(segments)
-                
-                # Early stopping if collection target reached
-                if collection_target and len(all_segments) >= collection_target:
-                    early_stopped = True
-                    break
-                
-            except Exception as e:
-                print(f"Error processing match {match_id}, round {round_num}: {e}")
-                continue
-        
-        if early_stopped:
-            print(f"Early stopped at {len(all_segments)} segments (collection_target={collection_target})")
+        # Use multiprocessing if more than 1 worker
+        if self.num_processes > 1:
+            all_segments = self._process_parallel(work_items)
         else:
-            print(f"Extracted {len(all_segments)} total segments")
+            # Single process fallback
+            all_segments = self._process_sequential(work_items)
+        
+        print(f"Extracted {len(all_segments)} total segments")
         
         if not all_segments:
             print("No valid segments found. Exiting.")
@@ -846,6 +854,64 @@ class TaskCreatorBase(ABC):
                 print(f"  {partition}: {len(partition_data)} segments")
         
         return df
+    
+    def _process_sequential(self, work_items: List[Tuple]) -> List[Dict]:
+        """Process work items sequentially (single process)."""
+        all_segments = []
+        
+        for match_id, round_num, partition, config in tqdm(work_items, desc="Processing match-rounds"):
+            try:
+                segments = self._extract_segments_from_round(match_id, round_num, config)
+                
+                for segment in segments:
+                    segment['partition'] = partition
+                    segment['match_id'] = match_id
+                    segment['round_num'] = round_num
+                
+                all_segments.extend(segments)
+                    
+            except Exception as e:
+                print(f"Error processing match {match_id}, round {round_num}: {e}")
+                continue
+        
+        return all_segments
+    
+    def _process_parallel(self, work_items: List[Tuple]) -> List[Dict]:
+        """Process work items in parallel using multiprocessing."""
+        all_segments = []
+        
+        # Prepare initializer arguments
+        init_args = (
+            str(self.data_dir),
+            str(self.output_dir),
+            self.partition_csv_path,
+        )
+        init_kwargs = {
+            'trajectory_folder': self.trajectory_folder,
+            'event_folder': self.event_folder,
+            'metadata_folder': self.metadata_folder,
+            'video_folder': self.video_folder,
+            'tick_rate': self.tick_rate,
+            'seed': self.seed,
+            'cpu_usage': 1.0 / self.num_processes,  # Each worker uses minimal CPU
+            'stride_sec': self.stride_sec,
+            'verbose': False,  # Suppress prints in worker processes
+        }
+        
+        with mp.Pool(
+            processes=self.num_processes,
+            initializer=_init_worker,
+            initargs=(self.__class__, init_args, init_kwargs)
+        ) as pool:
+            # Use imap_unordered with chunksize for efficiency
+            chunksize = max(1, len(work_items) // (self.num_processes * 4))
+            
+            with tqdm(total=len(work_items), desc="Processing match-rounds") as pbar:
+                for segments in pool.imap_unordered(_process_round_worker, work_items, chunksize=chunksize):
+                    all_segments.extend(segments)
+                    pbar.update(1)
+        
+        return all_segments
     
     def clear_cache(self):
         """Clear all cached data."""

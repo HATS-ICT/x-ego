@@ -2,11 +2,13 @@
 Combat/engagement task creators.
 
 Creates labels for:
-- Imminent kill prediction
+- Imminent kill prediction (any player in game)
 - Imminent death (self) prediction
-- Imminent damage prediction
-- In-combat detection (POV and team)
-- Headshot prediction
+- In-combat detection (POV and teammates)
+- POV kill prediction
+
+Label column naming convention:
+- binary_cls: label (single column, 0 or 1)
 """
 
 import pandas as pd
@@ -20,8 +22,10 @@ class ImminentKillCreator(TaskCreatorBase):
     """
     Creates labeled segments for imminent kill prediction task.
     
-    Predicts whether any kill will happen in the next N seconds.
+    Predicts whether any kill (any player in game) will happen in the next N seconds.
     Output: Binary classification.
+    
+    Label column: label (0 or 1)
     """
     
     def _extract_segments_from_round(self, match_id: str, round_num: int,
@@ -52,13 +56,6 @@ class ImminentKillCreator(TaskCreatorBase):
         
         global_min_tick = min(all_min_ticks)
         
-        # Get map name
-        map_name = 'de_mirage'
-        for df in player_trajectories.values():
-            if 'map_name' in df.columns and not df.empty:
-                map_name = df.iloc[0]['map_name']
-                break
-        
         # For each player as POV
         for pov_steamid, pov_df in player_trajectories.items():
             if pov_df.empty:
@@ -83,7 +80,7 @@ class ImminentKillCreator(TaskCreatorBase):
                     current_tick += stride_ticks
                     continue
                 
-                # Check for kills in forecast window
+                # Check for kills in forecast window (any player in game)
                 forecast_start = end_tick
                 forecast_end = end_tick + horizon_ticks
                 
@@ -92,18 +89,11 @@ class ImminentKillCreator(TaskCreatorBase):
                     has_kill = self._check_event_in_window(kills_df, forecast_start, forecast_end)
                 
                 segment_info = {
-                    'start_tick': current_tick - global_min_tick,  # Relative to round start
+                    'start_tick': current_tick - global_min_tick,
                     'end_tick': end_tick - global_min_tick,
                     'prediction_tick': middle_tick - global_min_tick,
                     'horizon_sec': horizon_sec,
-                    'start_seconds': current_tick / self.tick_rate,
-                    'end_seconds': end_tick / self.tick_rate,
-                    'prediction_seconds': middle_tick / self.tick_rate,
-                    'normalized_start_seconds': (current_tick - global_min_tick) / self.tick_rate,
-                    'normalized_end_seconds': (end_tick - global_min_tick) / self.tick_rate,
-                    'normalized_prediction_seconds': (middle_tick - global_min_tick) / self.tick_rate,
                     'duration_seconds': segment_length_sec,
-                    'map_name': map_name,
                     'pov_steamid': pov_steamid,
                     'pov_side': pov_side,
                     'has_kill': int(has_kill)
@@ -132,8 +122,7 @@ class ImminentKillCreator(TaskCreatorBase):
                 'prediction_tick': segment['prediction_tick'],
                 'match_id': segment['match_id'],
                 'round_num': segment['round_num'],
-                'map_name': segment['map_name'],
-                'label_has_kill': segment['has_kill']
+                'label': segment['has_kill']
             }
             output_rows.append(row)
             idx += 1
@@ -153,6 +142,8 @@ class ImminentDeathSelfCreator(TaskCreatorBase):
     
     Predicts whether the POV player will die in the next N seconds.
     Output: Binary classification.
+    
+    Label column: label (0 or 1)
     """
     
     def _extract_segments_from_round(self, match_id: str, round_num: int,
@@ -182,13 +173,6 @@ class ImminentDeathSelfCreator(TaskCreatorBase):
             return []
         
         global_min_tick = min(all_min_ticks)
-        
-        # Get map name
-        map_name = 'de_mirage'
-        for df in player_trajectories.values():
-            if 'map_name' in df.columns and not df.empty:
-                map_name = df.iloc[0]['map_name']
-                break
         
         # For each player as POV
         for pov_steamid, pov_df in player_trajectories.items():
@@ -225,18 +209,11 @@ class ImminentDeathSelfCreator(TaskCreatorBase):
                         pov_dies = (window_kills['victim_steamid'].astype(str) == str(pov_steamid)).any()
                 
                 segment_info = {
-                    'start_tick': current_tick - global_min_tick,  # Relative to round start
+                    'start_tick': current_tick - global_min_tick,
                     'end_tick': end_tick - global_min_tick,
                     'prediction_tick': middle_tick - global_min_tick,
                     'horizon_sec': horizon_sec,
-                    'start_seconds': current_tick / self.tick_rate,
-                    'end_seconds': end_tick / self.tick_rate,
-                    'prediction_seconds': middle_tick / self.tick_rate,
-                    'normalized_start_seconds': (current_tick - global_min_tick) / self.tick_rate,
-                    'normalized_end_seconds': (end_tick - global_min_tick) / self.tick_rate,
-                    'normalized_prediction_seconds': (middle_tick - global_min_tick) / self.tick_rate,
                     'duration_seconds': segment_length_sec,
-                    'map_name': map_name,
                     'pov_steamid': pov_steamid,
                     'pov_side': pov_side,
                     'pov_dies': int(pov_dies)
@@ -265,139 +242,7 @@ class ImminentDeathSelfCreator(TaskCreatorBase):
                 'prediction_tick': segment['prediction_tick'],
                 'match_id': segment['match_id'],
                 'round_num': segment['round_num'],
-                'map_name': segment['map_name'],
-                'label_pov_dies': segment['pov_dies']
-            }
-            output_rows.append(row)
-            idx += 1
-        
-        df = pd.DataFrame(output_rows)
-        if len(df) > 0:
-            df = df.sort_values(['partition', 'match_id', 'round_num'])
-            df = df.reset_index(drop=True)
-            df['idx'] = range(len(df))
-        
-        return df
-
-
-class ImminentDamageCreator(TaskCreatorBase):
-    """
-    Creates labeled segments for imminent damage prediction task.
-    
-    Predicts whether any damage will occur in the next N seconds.
-    Output: Binary classification.
-    """
-    
-    def _extract_segments_from_round(self, match_id: str, round_num: int,
-                                     config: Dict[str, Any]) -> List[Dict]:
-        """Extract segments for imminent damage prediction."""
-        segment_length_sec = config['segment_length_sec']
-        horizon_sec = config.get('horizon_sec', 3.0)
-        
-        player_trajectories = self._load_player_trajectories(match_id, round_num)
-        damages_df = self._load_damages(match_id, round_num)
-        
-        if len(player_trajectories) < 1:
-            return []
-        
-        segments = []
-        segment_ticks = segment_length_sec * self.tick_rate
-        horizon_ticks = int(horizon_sec * self.tick_rate)
-        stride_ticks = int(self.stride_sec * self.tick_rate)
-        
-        # Get global tick range
-        all_min_ticks = []
-        for df in player_trajectories.values():
-            if not df.empty:
-                all_min_ticks.append(df['tick'].min())
-        
-        if not all_min_ticks:
-            return []
-        
-        global_min_tick = min(all_min_ticks)
-        
-        # Get map name
-        map_name = 'de_mirage'
-        for df in player_trajectories.values():
-            if 'map_name' in df.columns and not df.empty:
-                map_name = df.iloc[0]['map_name']
-                break
-        
-        # For each player as POV
-        for pov_steamid, pov_df in player_trajectories.items():
-            if pov_df.empty:
-                continue
-            
-            death_tick = self._find_player_death_tick(pov_df)
-            if death_tick is None:
-                death_tick = pov_df['tick'].max()
-            
-            pov_min_tick = pov_df['tick'].min()
-            pov_side = pov_df.iloc[0]['side']
-            
-            current_tick = pov_min_tick
-            
-            while current_tick + segment_ticks <= death_tick:
-                end_tick = current_tick + segment_ticks
-                middle_tick = current_tick + segment_ticks // 2
-                
-                # Verify POV player is alive
-                segment_data = pov_df[(pov_df['tick'] >= current_tick) & (pov_df['tick'] <= end_tick)]
-                if segment_data.empty or (segment_data['health'] <= 0).any():
-                    current_tick += stride_ticks
-                    continue
-                
-                # Check for damage in forecast window
-                forecast_start = end_tick
-                forecast_end = end_tick + horizon_ticks
-                
-                has_damage = False
-                if not damages_df.empty:
-                    has_damage = self._check_event_in_window(damages_df, forecast_start, forecast_end)
-                
-                segment_info = {
-                    'start_tick': current_tick - global_min_tick,  # Relative to round start
-                    'end_tick': end_tick - global_min_tick,
-                    'prediction_tick': middle_tick - global_min_tick,
-                    'horizon_sec': horizon_sec,
-                    'start_seconds': current_tick / self.tick_rate,
-                    'end_seconds': end_tick / self.tick_rate,
-                    'prediction_seconds': middle_tick / self.tick_rate,
-                    'normalized_start_seconds': (current_tick - global_min_tick) / self.tick_rate,
-                    'normalized_end_seconds': (end_tick - global_min_tick) / self.tick_rate,
-                    'normalized_prediction_seconds': (middle_tick - global_min_tick) / self.tick_rate,
-                    'duration_seconds': segment_length_sec,
-                    'map_name': map_name,
-                    'pov_steamid': pov_steamid,
-                    'pov_side': pov_side,
-                    'has_damage': int(has_damage)
-                }
-                segments.append(segment_info)
-                
-                current_tick += stride_ticks
-        
-        return segments
-    
-    def _create_output_csv(self, all_segments: List[Dict], config: Dict[str, Any]) -> pd.DataFrame:
-        """Create output CSV for imminent damage prediction."""
-        output_rows = []
-        idx = 0
-        
-        for segment in all_segments:
-            row = {
-                'idx': idx,
-                'partition': segment['partition'],
-                'pov_steamid': segment['pov_steamid'],
-                'pov_side': segment['pov_side'],
-                'seg_duration_sec': segment['duration_seconds'],
-                'horizon_sec': segment['horizon_sec'],
-                'start_tick': segment['start_tick'],
-                'end_tick': segment['end_tick'],
-                'prediction_tick': segment['prediction_tick'],
-                'match_id': segment['match_id'],
-                'round_num': segment['round_num'],
-                'map_name': segment['map_name'],
-                'label_has_damage': segment['has_damage']
+                'label': segment['pov_dies']
             }
             output_rows.append(row)
             idx += 1
@@ -415,9 +260,11 @@ class InCombatCreator(TaskCreatorBase):
     """
     Creates labeled segments for in-combat detection task.
     
-    Detects whether POV player or team is currently in combat
+    Detects whether POV player or teammates (4 teammates excluding POV) are currently in combat
     (has damage event in recent window).
     Output: Binary classification.
+    
+    Label column: label (0 or 1)
     """
     
     def _extract_segments_from_round(self, match_id: str, round_num: int,
@@ -448,13 +295,6 @@ class InCombatCreator(TaskCreatorBase):
             return []
         
         global_min_tick = min(all_min_ticks)
-        
-        # Get map name
-        map_name = 'de_mirage'
-        for df in player_trajectories.values():
-            if 'map_name' in df.columns and not df.empty:
-                map_name = df.iloc[0]['map_name']
-                break
         
         # For each player as POV
         for pov_steamid, pov_df in player_trajectories.items():
@@ -496,9 +336,9 @@ class InCombatCreator(TaskCreatorBase):
                             (recent_damages['attacker_steamid'].astype(str) == str(pov_steamid)).any() or
                             (recent_damages['victim_steamid'].astype(str) == str(pov_steamid)).any()
                         )
-                else:  # team
-                    # Get alive teammates at this tick
-                    team_steamids = [str(pov_steamid)]
+                else:  # team - check 4 teammates excluding POV
+                    # Get alive teammates at this tick (excluding POV)
+                    team_steamids = []
                     for steamid, df in player_trajectories.items():
                         if steamid == pov_steamid:
                             continue
@@ -515,21 +355,12 @@ class InCombatCreator(TaskCreatorBase):
                                 break
                 
                 segment_info = {
-                    'start_tick': current_tick - global_min_tick,  # Relative to round start
+                    'start_tick': current_tick - global_min_tick,
                     'end_tick': end_tick - global_min_tick,
                     'prediction_tick': middle_tick - global_min_tick,
-                    'combat_window_sec': combat_window_sec,
-                    'start_seconds': current_tick / self.tick_rate,
-                    'end_seconds': end_tick / self.tick_rate,
-                    'prediction_seconds': middle_tick / self.tick_rate,
-                    'normalized_start_seconds': (current_tick - global_min_tick) / self.tick_rate,
-                    'normalized_end_seconds': (end_tick - global_min_tick) / self.tick_rate,
-                    'normalized_prediction_seconds': (middle_tick - global_min_tick) / self.tick_rate,
                     'duration_seconds': segment_length_sec,
-                    'map_name': map_name,
                     'pov_steamid': pov_steamid,
                     'pov_side': pov_side,
-                    'target_type': target_type,
                     'in_combat': int(in_combat)
                 }
                 segments.append(segment_info)
@@ -549,16 +380,13 @@ class InCombatCreator(TaskCreatorBase):
                 'partition': segment['partition'],
                 'pov_steamid': segment['pov_steamid'],
                 'pov_side': segment['pov_side'],
-                'target_type': segment['target_type'],
                 'seg_duration_sec': segment['duration_seconds'],
-                'combat_window_sec': segment['combat_window_sec'],
                 'start_tick': segment['start_tick'],
                 'end_tick': segment['end_tick'],
                 'prediction_tick': segment['prediction_tick'],
                 'match_id': segment['match_id'],
                 'round_num': segment['round_num'],
-                'map_name': segment['map_name'],
-                'label_in_combat': segment['in_combat']
+                'label': segment['in_combat']
             }
             output_rows.append(row)
             idx += 1

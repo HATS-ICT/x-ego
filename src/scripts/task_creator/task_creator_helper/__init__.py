@@ -14,11 +14,7 @@ from .location_tasks_addon import (
     SelfLocationNowcastCreator,
 )
 from .coordination_tasks import (
-    TeamSpreadCreator,
-    TeamCentroidCreator,
     AliveCountCreator,
-    NearestTeammateDistanceCreator,
-    TeamMovementDirectionCreator,
 )
 from .coordination_tasks_addon import (
     TeammateMovementDirectionCreator,
@@ -27,7 +23,6 @@ from .coordination_tasks_addon import (
 from .combat_tasks import (
     ImminentKillCreator,
     ImminentDeathSelfCreator,
-    ImminentDamageCreator,
     InCombatCreator,
     SelfInCombatCreator,
     ImminentKillSelfCreator,
@@ -58,17 +53,12 @@ __all__ = [
     "EnemyLocationNowcastCreator",
     "LocationForecastCreator",
     # Coordination
-    "TeamSpreadCreator",
-    "TeamCentroidCreator",
     "AliveCountCreator",
-    "NearestTeammateDistanceCreator",
-    "TeamMovementDirectionCreator",
     "TeammateMovementDirectionCreator",
     "TeammateSpeedCreator",
     # Combat
     "ImminentKillCreator",
     "ImminentDeathSelfCreator",
-    "ImminentDamageCreator",
     "InCombatCreator",
     "SelfInCombatCreator",
     "ImminentKillSelfCreator",

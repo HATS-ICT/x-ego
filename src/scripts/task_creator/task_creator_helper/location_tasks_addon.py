@@ -3,6 +3,9 @@ Additional location prediction task creator.
 
 Creates labels for:
 - Self location nowcast
+
+Label column naming convention:
+- multi_cls: label (single column with class index)
 """
 
 import pandas as pd
@@ -19,6 +22,8 @@ class SelfLocationNowcastCreator(TaskCreatorBase):
     
     For each POV player, predicts their own current location (place).
     Output: Multi-class classification over NUM_PLACES places.
+    
+    Label column: label (class index 0-22)
     """
     
     def _extract_segments_from_round(self, match_id: str, round_num: int,
@@ -45,13 +50,6 @@ class SelfLocationNowcastCreator(TaskCreatorBase):
             return []
         
         global_min_tick = min(all_min_ticks)
-        
-        # Get map name
-        map_name = 'de_mirage'
-        for df in player_trajectories.values():
-            if 'map_name' in df.columns and not df.empty:
-                map_name = df.iloc[0]['map_name']
-                break
         
         # For each player as POV, create segments while they are alive
         for pov_steamid, pov_df in player_trajectories.items():
@@ -97,10 +95,8 @@ class SelfLocationNowcastCreator(TaskCreatorBase):
                     'end_tick': end_tick - global_min_tick,
                     'prediction_tick': middle_tick - global_min_tick,
                     'duration_seconds': segment_length_sec,
-                    'map_name': map_name,
                     'pov_steamid': pov_steamid,
                     'pov_side': pov_side,
-                    'place': place,
                     'place_idx': place_idx
                 }
                 segments.append(segment_info)
@@ -126,9 +122,7 @@ class SelfLocationNowcastCreator(TaskCreatorBase):
                 'prediction_tick': segment['prediction_tick'],
                 'match_id': segment['match_id'],
                 'round_num': segment['round_num'],
-                'map_name': segment['map_name'],
-                'place_name': segment['place'],
-                'label_place': segment['place_idx']
+                'label': segment['place_idx']
             }
             output_rows.append(row)
             idx += 1

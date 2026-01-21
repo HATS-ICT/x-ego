@@ -15,19 +15,13 @@ from typing import Dict, Any, List, Tuple
 import argparse
 from dotenv import load_dotenv
 
-sys.path.append(str(Path(__file__).parent.parent.parent))
-
 # Import all task creators
-from scripts.task_creator.task_creator_helper import (
+from .task_creator_helper import (
     SelfLocationNowcastCreator,
     TeammateLocationNowcastCreator,
     EnemyLocationNowcastCreator,
     LocationForecastCreator,
-    TeamSpreadCreator,
-    TeamCentroidCreator,
     AliveCountCreator,
-    NearestTeammateDistanceCreator,
-    TeamMovementDirectionCreator,
     TeammateMovementDirectionCreator,
     TeammateSpeedCreator,
     ImminentKillCreator,
@@ -45,76 +39,6 @@ from scripts.task_creator.task_creator_helper import (
     SelfSpeedCreator,
 )
 
-
-# Oversampling multipliers for each task based on their imbalance ratios
-# Higher multiplier = collect more samples before balanced downsampling
-# Formula: multiplier ≈ ceil(imbalance_ratio * 1.5) to ensure enough minority samples
-# Updated based on label analysis from analyze_label_stats.py
-TASK_OVERSAMPLE_MULTIPLIERS: Dict[str, int] = {
-    # ===== Binary tasks with extreme imbalance (ratio > 15) =====
-    'self_kill_5s': 35,           # 21.62:1 imbalance
-    'global_teamInCombat': 25,    # 15.84:1 imbalance
-    'self_inCombat': 25,          # 15.84:1 imbalance
-    
-    # ===== Binary tasks with high imbalance (ratio 10-15) =====
-    'self_kill_10s': 18,          # 11.35:1 imbalance
-    'self_death_5s': 18,          # 10.49:1 imbalance
-    'global_bombPlanted': 18,     # 10.47:1 imbalance
-    
-    # ===== Binary tasks with moderate imbalance (ratio 5-10) =====
-    'global_anyKill_20s': 12,     # 7.55:1 imbalance
-    'self_kill_20s': 10,          # 6.44:1 imbalance
-    'self_death_10s': 8,          # 4.80:1 imbalance
-    
-    # ===== Binary tasks with low imbalance (ratio 2-5) =====
-    'self_death_20s': 4,          # 2.22:1 imbalance
-    'global_anyKill_10s': 4,      # 1.96:1 imbalance
-    
-    # ===== Binary tasks with minimal imbalance (ratio < 2) =====
-    'global_anyKill_5s': 3,       # 1.35:1 imbalance
-    'global_bombSite': 3,         # 1.31:1 imbalance
-    'global_postPlantOutcome': 3, # 1.24:1 imbalance
-    'global_willPlant': 3,        # 1.23:1 imbalance
-    'global_roundWinner': 3,      # 1.20:1 imbalance
-    
-    # ===== Multi-class tasks with extreme imbalance =====
-    'self_location': 240,         # 235.33:1 imbalance (23 classes)
-    'global_roundOutcome': 100,   # 66.84:1 imbalance (5 classes)
-    
-    # ===== Multi-class tasks with high imbalance =====
-    'self_location_5s': 35,       # 21.03:1 imbalance (2 classes observed)
-    'self_location_10s': 25,      # 16.61:1 imbalance
-    'self_location_20s': 25,      # 15.95:1 imbalance
-    
-    # ===== Multi-class tasks with moderate imbalance =====
-    'enemy_aliveCount': 6,        # 3.42:1 imbalance
-    'teammate_aliveCount': 6,     # 3.42:1 imbalance
-    'self_movementDir': 6,        # 3.13:1 imbalance
-    
-    # ===== Multi-class tasks with low/no imbalance =====
-    'global_teamMovementDir': 3,  # 1.0:1 (but only 1 class observed - data issue?)
-    
-    # ===== Multi-label tasks (use moderate multiplier for coverage) =====
-    'enemy_location': 4,          # Multi-label: 0.2%-31.5% positive rates
-    'enemy_location_5s': 4,
-    'enemy_location_10s': 4,
-    'enemy_location_20s': 4,
-    'teammate_location': 4,       # Multi-label: 0.5%-32.1% positive rates
-    'teammate_location_5s': 4,
-    'teammate_location_10s': 4,
-    'teammate_location_20s': 4,
-    'teammate_movementDir': 4,    # Multi-label: 5.1%-6.4% positive rates
-    
-    # ===== Regression tasks (no class imbalance, use small multiplier) =====
-    'global_teamCentroid': 3,
-    'global_teamSpread': 3,
-    'self_speed': 3,
-    'self_teammateProximity': 3,
-    'teammate_speed': 3,
-    
-    # Default for other tasks
-    'default': 3,
-}
 
 # Task configurations: (task_id, creator_class, config_overrides, output_filename)
 TASK_CONFIGS: List[Tuple[str, type, Dict[str, Any], str]] = [
@@ -153,23 +77,11 @@ TASK_CONFIGS: List[Tuple[str, type, Dict[str, Any], str]] = [
      {"forecast_horizon_sec": 20.0, "target_type": "enemy"}, "enemy_location_20s.csv"),
     
     # ============= COORDINATION TASKS =============
-    # Team spread
-    ("global_teamSpread", TeamSpreadCreator, {}, "global_teamSpread.csv"),
-    
-    # Team centroid
-    ("global_teamCentroid", TeamCentroidCreator, {}, "global_teamCentroid.csv"),
-    
     # Alive counts
     ("teammate_aliveCount", AliveCountCreator, 
      {"count_type": "teammate"}, "teammate_aliveCount.csv"),
     ("enemy_aliveCount", AliveCountCreator, 
      {"count_type": "enemy"}, "enemy_aliveCount.csv"),
-    
-    # Nearest teammate distance
-    ("self_teammateProximity", NearestTeammateDistanceCreator, {}, "self_teammateProximity.csv"),
-    
-    # Team movement direction
-    ("global_teamMovementDir", TeamMovementDirectionCreator, {}, "global_teamMovementDir.csv"),
     
     # Teammate movement direction
     ("teammate_movementDir", TeammateMovementDirectionCreator, {}, "teammate_movementDir.csv"),
@@ -257,6 +169,7 @@ def create_task_labels(
     segment_length_sec: float = 5.0,
     partitions: List[str] = None,
     max_samples: int = None,
+    num_workers: int = None,
     verbose: bool = True,
 ) -> Dict[str, str]:
     """
@@ -271,6 +184,7 @@ def create_task_labels(
         segment_length_sec: Segment length in seconds
         partitions: List of partitions to include (default: all)
         max_samples: Maximum samples per task (None = no limit)
+        num_workers: Number of parallel workers (None = auto based on CPU)
         verbose: Print progress
         
     Returns:
@@ -308,15 +222,12 @@ def create_task_labels(
         
         try:
             # Instantiate creator
+            import multiprocessing as mp
+            cpu_usage = num_workers / mp.cpu_count() if num_workers else 0.9
             creator = creator_class(
                 data_dir, output_dir, partition_csv,
-                stride_sec=stride_sec
-            )
-            
-            # Get task-specific oversample multiplier
-            oversample_mult = TASK_OVERSAMPLE_MULTIPLIERS.get(
-                task_id, 
-                TASK_OVERSAMPLE_MULTIPLIERS['default']
+                stride_sec=stride_sec,
+                cpu_usage=cpu_usage
             )
             
             # Build config
@@ -325,12 +236,8 @@ def create_task_labels(
                 "output_file_name": filename,
                 "partition": partitions,
                 "max_samples": max_samples,
-                "oversample_multiplier": oversample_mult,
                 **config_overrides
             }
-            
-            if verbose and max_samples:
-                print(f"  Oversample multiplier: {oversample_mult}x")
             
             # Process segments with early stopping
             df = creator.process_segments(config)
@@ -368,6 +275,8 @@ def main():
                         help="Partitions to include (default: train val test)")
     parser.add_argument("--max_samples", type=int, default=5000,
                         help="Maximum samples per task (default: 5000, use 0 for no limit)")
+    parser.add_argument("--workers", type=int, default=None,
+                        help="Number of parallel workers (default: 90%% of CPU cores)")
     parser.add_argument("--list", action="store_true",
                         help="List all available tasks and exit")
     args = parser.parse_args()
@@ -422,6 +331,13 @@ def main():
     else:
         print("Max samples per task: unlimited")
     
+    import multiprocessing as mp
+    num_workers = args.workers
+    if num_workers:
+        print(f"Workers: {num_workers}")
+    else:
+        print(f"Workers: auto ({int(mp.cpu_count() * 0.9)} of {mp.cpu_count()} cores)")
+    
     print("=" * 60)
     
     results = create_task_labels(
@@ -433,6 +349,7 @@ def main():
         segment_length_sec=args.segment_length,
         partitions=partitions,
         max_samples=max_samples,
+        num_workers=num_workers,
     )
     
     # Summary

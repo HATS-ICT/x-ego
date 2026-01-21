@@ -2,8 +2,12 @@
 Additional team coordination task creators for teammate-specific predictions.
 
 Creates labels for:
-- Teammate movement direction (per teammate)
-- Teammate speed (per teammate)
+- Teammate movement direction (4 teammates excluding POV)
+- Teammate speed (4 teammates excluding POV)
+
+Label column naming convention:
+- multi_label_cls: label_0, label_1, ..., label_{num_classes-1}
+- regression (multi-output): label_0, label_1, ..., label_{output_dim-1}
 """
 
 import pandas as pd
@@ -18,8 +22,10 @@ class TeammateMovementDirectionCreator(TaskCreatorBase):
     """
     Creates labeled segments for teammate movement direction task.
     
-    Predicts the movement direction of each of the 4 teammates.
+    Predicts the movement direction of each of the 4 teammates (excluding POV).
     Output: Multi-label classification (9 classes per teammate: 8 directions + stationary).
+    
+    Label columns: label_0, label_1, label_2, label_3 (direction index for each teammate)
     """
     
     def _extract_segments_from_round(self, match_id: str, round_num: int,
@@ -45,13 +51,6 @@ class TeammateMovementDirectionCreator(TaskCreatorBase):
             return []
         
         global_min_tick = min(all_min_ticks)
-        
-        # Get map name
-        map_name = 'de_mirage'
-        for df in player_trajectories.values():
-            if 'map_name' in df.columns and not df.empty:
-                map_name = df.iloc[0]['map_name']
-                break
         
         # Need some history for movement computation
         lookback_ticks = int(0.5 * self.tick_rate)  # 0.5 second lookback
@@ -87,9 +86,8 @@ class TeammateMovementDirectionCreator(TaskCreatorBase):
                     current_tick += stride_ticks
                     continue
                 
-                # Get teammate movement directions
+                # Get teammate movement directions (4 teammates excluding POV)
                 teammate_directions = []
-                teammate_steamids = []
                 for steamid, df in player_trajectories.items():
                     if steamid == pov_steamid:
                         continue
@@ -102,7 +100,6 @@ class TeammateMovementDirectionCreator(TaskCreatorBase):
                        player_curr.get('health', 0) > 0:
                         direction_idx = self._compute_movement_direction(player_prev, player_curr)
                         teammate_directions.append(direction_idx)
-                        teammate_steamids.append(steamid)
                 
                 # Need exactly 4 teammates
                 if len(teammate_directions) != 4:
@@ -114,10 +111,8 @@ class TeammateMovementDirectionCreator(TaskCreatorBase):
                     'end_tick': end_tick - global_min_tick,
                     'prediction_tick': middle_tick - global_min_tick,
                     'duration_seconds': segment_length_sec,
-                    'map_name': map_name,
                     'pov_steamid': pov_steamid,
                     'pov_side': pov_side,
-                    'teammate_steamids': teammate_steamids,
                     'teammate_directions': teammate_directions
                 }
                 segments.append(segment_info)
@@ -143,12 +138,10 @@ class TeammateMovementDirectionCreator(TaskCreatorBase):
                 'prediction_tick': segment['prediction_tick'],
                 'match_id': segment['match_id'],
                 'round_num': segment['round_num'],
-                'map_name': segment['map_name'],
             }
-            # Add teammate steamids and directions
-            for i, (steamid, direction) in enumerate(zip(segment['teammate_steamids'], segment['teammate_directions'])):
-                row[f'teammate_{i}_steamid'] = steamid
-                row[f'label_direction_{i}'] = direction
+            # Add teammate directions with standardized naming
+            for i, direction in enumerate(segment['teammate_directions']):
+                row[f'label_{i}'] = direction
             
             output_rows.append(row)
             idx += 1
@@ -166,8 +159,10 @@ class TeammateSpeedCreator(TaskCreatorBase):
     """
     Creates labeled segments for teammate speed estimation task.
     
-    Predicts the movement speed of each of the 4 teammates.
+    Predicts the movement speed of each of the 4 teammates (excluding POV).
     Output: Regression with 4 outputs (one speed per teammate).
+    
+    Label columns: label_0, label_1, label_2, label_3 (speed for each teammate)
     """
     
     def _extract_segments_from_round(self, match_id: str, round_num: int,
@@ -193,13 +188,6 @@ class TeammateSpeedCreator(TaskCreatorBase):
             return []
         
         global_min_tick = min(all_min_ticks)
-        
-        # Get map name
-        map_name = 'de_mirage'
-        for df in player_trajectories.values():
-            if 'map_name' in df.columns and not df.empty:
-                map_name = df.iloc[0]['map_name']
-                break
         
         # Need some history for speed computation
         lookback_ticks = int(0.5 * self.tick_rate)  # 0.5 second lookback
@@ -236,9 +224,8 @@ class TeammateSpeedCreator(TaskCreatorBase):
                     current_tick += stride_ticks
                     continue
                 
-                # Get teammate speeds
+                # Get teammate speeds (4 teammates excluding POV)
                 teammate_speeds = []
-                teammate_steamids = []
                 for steamid, df in player_trajectories.items():
                     if steamid == pov_steamid:
                         continue
@@ -258,7 +245,6 @@ class TeammateSpeedCreator(TaskCreatorBase):
                         speed = distance / lookback_sec
                         
                         teammate_speeds.append(speed)
-                        teammate_steamids.append(steamid)
                 
                 # Need exactly 4 teammates
                 if len(teammate_speeds) != 4:
@@ -270,10 +256,8 @@ class TeammateSpeedCreator(TaskCreatorBase):
                     'end_tick': end_tick - global_min_tick,
                     'prediction_tick': middle_tick - global_min_tick,
                     'duration_seconds': segment_length_sec,
-                    'map_name': map_name,
                     'pov_steamid': pov_steamid,
                     'pov_side': pov_side,
-                    'teammate_steamids': teammate_steamids,
                     'teammate_speeds': teammate_speeds
                 }
                 segments.append(segment_info)
@@ -299,12 +283,10 @@ class TeammateSpeedCreator(TaskCreatorBase):
                 'prediction_tick': segment['prediction_tick'],
                 'match_id': segment['match_id'],
                 'round_num': segment['round_num'],
-                'map_name': segment['map_name'],
             }
-            # Add teammate steamids and speeds
-            for i, (steamid, speed) in enumerate(zip(segment['teammate_steamids'], segment['teammate_speeds'])):
-                row[f'teammate_{i}_steamid'] = steamid
-                row[f'label_speed_{i}'] = speed
+            # Add teammate speeds with standardized naming
+            for i, speed in enumerate(segment['teammate_speeds']):
+                row[f'label_{i}'] = speed
             
             output_rows.append(row)
             idx += 1

@@ -48,3 +48,14 @@ python -m src.scripts.task_creator.create_all_labels
 # analyze label distribution
 python -m src.scripts.task_creator.analyze_label_stats
 ```
+
+
+## Test all model and training setup and all tasks
+
+```
+# Test all model setups (3 settings × 6 models)
+python test_all_model_setup.py
+
+# Test all tasks (35 tasks with siglip baseline)
+python test_all_tasks.py
+```

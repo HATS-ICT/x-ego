@@ -15,6 +15,7 @@ dependencies = [
     "omegaconf>=2.3.0",
     "scikit-learn>=1.7.2",
     "seaborn>=0.13.2",
+    "sentencepiece>=0.2.1",
     "torch>=2.7.0",
     "torchvision>=0.22.0",
     "transformers>=4.56.2",

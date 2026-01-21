@@ -18,17 +18,9 @@ def _task_id_to_labels_filename(task_id: str) -> str:
     """
     Convert task_id to the corresponding labels CSV filename.
     
-    Task IDs in task_definitions.csv use format like 'self_location_0s' for nowcast
-    and 'self_location_5s' for forecast. The CSV files are named:
-    - Nowcast (0s): self_location.csv (without the _0s suffix)
-    - Forecast: self_location_5s.csv (with the horizon suffix)
+    CSV files are named exactly as their task_id: {task_id}.csv
     """
-    # Remove _0s suffix for nowcast tasks (they use base filename)
-    if task_id.endswith('_0s'):
-        base_name = task_id[:-3]  # Remove '_0s'
-        return f"all_tasks/{base_name}.csv"
-    else:
-        return f"all_tasks/{task_id}.csv"
+    return f"all_tasks/{task_id}.csv"
 
 
 def load_task_config(task_id: str, data_path: Path) -> dict:
@@ -57,7 +49,7 @@ def load_task_config(task_id: str, data_path: Path) -> dict:
     row = task_row.iloc[0]
     
     # Determine label column based on task type
-    label_column = _get_label_column_for_task(task_id, row['ml_form'])
+    label_column = _get_label_column_for_task(task_id, row['ml_form'], int(row['output_dim']))
     
     # Determine labels filename from task_id
     labels_filename = _task_id_to_labels_filename(task_id)
@@ -73,18 +65,63 @@ def load_task_config(task_id: str, data_path: Path) -> dict:
     return config
 
 
-def _get_label_column_for_task(task_id: str, ml_form: str) -> str:
+def _get_label_column_for_task(task_id: str, ml_form: str, output_dim: int) -> str:
     """
     Determine the label column name for a task.
     
-    The label column naming convention:
-    - multi_label_cls tasks: label_0, label_1, ... (multi-hot encoded)
-    - multi_cls tasks: label (single class index)
-    - binary_cls tasks: label (single binary value)
-    - regression tasks: label or specific column names
+    The label column naming convention varies by task:
+    - Most tasks: 'label'
+    - Multi-label/multi-output tasks: 'label_0;label_1;...' (semicolon-separated)
+    - Some tasks have specific column names based on the task
+    
+    Args:
+        task_id: Task identifier
+        ml_form: ML formulation (binary_cls, multi_cls, multi_label_cls, regression)
+        output_dim: Output dimension of the task
+        
+    Returns:
+        Label column name(s), semicolon-separated for multi-column tasks
     """
-    # All tasks use 'label' as the primary column name
-    # Multi-label tasks have label_0, label_1, etc. but we return 'label' as base
+    # Task-specific label column mappings (for tasks that don't use 'label')
+    TASK_LABEL_COLUMNS = {
+        # Combat tasks with specific column names
+        'self_kill_5s': 'label_pov_kills',
+        'self_kill_10s': 'label_pov_kills',
+        'self_kill_20s': 'label_pov_kills',
+        # Bomb tasks
+        'global_bombPlanted': 'label_bomb_planted',
+        'global_bombSite': 'label_bomb_site',
+        'global_willPlant': 'label_will_plant',
+        'global_postPlantOutcome': 'label_outcome',
+        # Round tasks
+        'global_roundWinner': 'label_round_winner',
+        'global_roundOutcome': 'label_outcome_reason',
+    }
+    
+    # Check if task has a specific label column mapping
+    if task_id in TASK_LABEL_COLUMNS:
+        return TASK_LABEL_COLUMNS[task_id]
+    
+    # Multi-label classification and multi-output regression use label_0, label_1, etc.
+    if ml_form == 'multi_label_cls':
+        # Multi-label tasks have one column per class (e.g., 23 location classes)
+        # For location tasks, we have 23 columns (label_0 to label_22)
+        # For movement direction, we have 4 columns (label_0 to label_3) for 4 teammates
+        if 'location' in task_id and ('teammate' in task_id or 'enemy' in task_id):
+            # Location multi-label: 23 places
+            return ';'.join([f'label_{i}' for i in range(23)])
+        elif 'movementDir' in task_id and 'teammate' in task_id:
+            # Teammate movement direction: 4 teammates
+            return ';'.join([f'label_{i}' for i in range(4)])
+        else:
+            # Default: use output_dim
+            return ';'.join([f'label_{i}' for i in range(output_dim)])
+    
+    # Multi-output regression (e.g., teammate_speed with 4 outputs)
+    if ml_form == 'regression' and output_dim > 1:
+        return ';'.join([f'label_{i}' for i in range(output_dim)])
+    
+    # Default: single 'label' column
     return 'label'
 
 

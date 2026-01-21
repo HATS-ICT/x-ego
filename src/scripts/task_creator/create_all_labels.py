@@ -40,111 +40,112 @@ from .task_creator_helper import (
 )
 
 
-# Task configurations: (task_id, creator_class, config_overrides, output_filename)
-TASK_CONFIGS: List[Tuple[str, type, Dict[str, Any], str]] = [
+# Task configurations: (task_id, creator_class, config_overrides)
+# Note: output_filename is derived from task_id as "{task_id}.csv"
+TASK_CONFIGS: List[Tuple[str, type, Dict[str, Any]]] = [
     # ============= LOCATION TASKS =============
-    # Self location nowcast
-    ("self_location", SelfLocationNowcastCreator, {}, "self_location.csv"),
+    # Self location nowcast (0s = nowcast)
+    ("self_location_0s", SelfLocationNowcastCreator, {}),
     
     # Teammate location nowcast
-    ("teammate_location", TeammateLocationNowcastCreator, {}, "teammate_location.csv"),
+    ("teammate_location_0s", TeammateLocationNowcastCreator, {}),
     
     # Enemy location nowcast
-    ("enemy_location", EnemyLocationNowcastCreator, {}, "enemy_location.csv"),
+    ("enemy_location_0s", EnemyLocationNowcastCreator, {}),
     
     # Self location forecast (5s, 10s, 20s)
     ("self_location_5s", LocationForecastCreator, 
-     {"forecast_horizon_sec": 5.0, "target_type": "self"}, "self_location_5s.csv"),
+     {"forecast_horizon_sec": 5.0, "target_type": "self"}),
     ("self_location_10s", LocationForecastCreator, 
-     {"forecast_horizon_sec": 10.0, "target_type": "self"}, "self_location_10s.csv"),
+     {"forecast_horizon_sec": 10.0, "target_type": "self"}),
     ("self_location_20s", LocationForecastCreator, 
-     {"forecast_horizon_sec": 20.0, "target_type": "self"}, "self_location_20s.csv"),
+     {"forecast_horizon_sec": 20.0, "target_type": "self"}),
     
     # Teammate location forecast (5s, 10s, 20s)
     ("teammate_location_5s", LocationForecastCreator, 
-     {"forecast_horizon_sec": 5.0, "target_type": "teammate"}, "teammate_location_5s.csv"),
+     {"forecast_horizon_sec": 5.0, "target_type": "teammate"}),
     ("teammate_location_10s", LocationForecastCreator, 
-     {"forecast_horizon_sec": 10.0, "target_type": "teammate"}, "teammate_location_10s.csv"),
+     {"forecast_horizon_sec": 10.0, "target_type": "teammate"}),
     ("teammate_location_20s", LocationForecastCreator, 
-     {"forecast_horizon_sec": 20.0, "target_type": "teammate"}, "teammate_location_20s.csv"),
+     {"forecast_horizon_sec": 20.0, "target_type": "teammate"}),
     
     # Enemy location forecast (5s, 10s, 20s)
     ("enemy_location_5s", LocationForecastCreator, 
-     {"forecast_horizon_sec": 5.0, "target_type": "enemy"}, "enemy_location_5s.csv"),
+     {"forecast_horizon_sec": 5.0, "target_type": "enemy"}),
     ("enemy_location_10s", LocationForecastCreator, 
-     {"forecast_horizon_sec": 10.0, "target_type": "enemy"}, "enemy_location_10s.csv"),
+     {"forecast_horizon_sec": 10.0, "target_type": "enemy"}),
     ("enemy_location_20s", LocationForecastCreator, 
-     {"forecast_horizon_sec": 20.0, "target_type": "enemy"}, "enemy_location_20s.csv"),
+     {"forecast_horizon_sec": 20.0, "target_type": "enemy"}),
     
     # ============= COORDINATION TASKS =============
     # Alive counts
     ("teammate_aliveCount", AliveCountCreator, 
-     {"count_type": "teammate"}, "teammate_aliveCount.csv"),
+     {"count_type": "teammate"}),
     ("enemy_aliveCount", AliveCountCreator, 
-     {"count_type": "enemy"}, "enemy_aliveCount.csv"),
+     {"count_type": "enemy"}),
     
     # Teammate movement direction
-    ("teammate_movementDir", TeammateMovementDirectionCreator, {}, "teammate_movementDir.csv"),
+    ("teammate_movementDir", TeammateMovementDirectionCreator, {}),
     
     # Teammate speed
-    ("teammate_speed", TeammateSpeedCreator, {}, "teammate_speed.csv"),
+    ("teammate_speed", TeammateSpeedCreator, {}),
     
     # ============= COMBAT TASKS =============
     # Imminent kill (5s, 10s, 20s)
     ("global_anyKill_5s", ImminentKillCreator, 
-     {"horizon_sec": 5.0}, "global_anyKill_5s.csv"),
+     {"horizon_sec": 5.0}),
     ("global_anyKill_10s", ImminentKillCreator, 
-     {"horizon_sec": 10.0}, "global_anyKill_10s.csv"),
+     {"horizon_sec": 10.0}),
     ("global_anyKill_20s", ImminentKillCreator, 
-     {"horizon_sec": 20.0}, "global_anyKill_20s.csv"),
+     {"horizon_sec": 20.0}),
     
     # Imminent death self (5s, 10s, 20s)
     ("self_death_5s", ImminentDeathSelfCreator, 
-     {"horizon_sec": 5.0}, "self_death_5s.csv"),
+     {"horizon_sec": 5.0}),
     ("self_death_10s", ImminentDeathSelfCreator, 
-     {"horizon_sec": 10.0}, "self_death_10s.csv"),
+     {"horizon_sec": 10.0}),
     ("self_death_20s", ImminentDeathSelfCreator, 
-     {"horizon_sec": 20.0}, "self_death_20s.csv"),
+     {"horizon_sec": 20.0}),
     
     # POV player gets a kill (5s, 10s, 20s)
     ("self_kill_5s", ImminentKillSelfCreator, 
-     {"horizon_sec": 5.0}, "self_kill_5s.csv"),
+     {"horizon_sec": 5.0}),
     ("self_kill_10s", ImminentKillSelfCreator, 
-     {"horizon_sec": 10.0}, "self_kill_10s.csv"),
+     {"horizon_sec": 10.0}),
     ("self_kill_20s", ImminentKillSelfCreator, 
-     {"horizon_sec": 20.0}, "self_kill_20s.csv"),
+     {"horizon_sec": 20.0}),
     
     # In combat detection
-    ("global_teamInCombat", InCombatCreator, 
-     {"combat_type": "team"}, "global_teamInCombat.csv"),
+    ("teammate_inCombat", InCombatCreator, 
+     {"combat_type": "team"}),
     ("self_inCombat", SelfInCombatCreator, 
-     {"combat_type": "pov"}, "self_inCombat.csv"),
+     {"combat_type": "pov"}),
     
     # ============= BOMB TASKS =============
     # Bomb planted state
-    ("global_bombPlanted", BombPlantedStateCreator, {}, "global_bombPlanted.csv"),
+    ("global_bombPlanted", BombPlantedStateCreator, {}),
     
     # Bomb site prediction
-    ("global_bombSite", BombSitePredictionCreator, {}, "global_bombSite.csv"),
+    ("global_bombSite", BombSitePredictionCreator, {}),
     
     # Will plant prediction
-    ("global_willPlant", WillPlantPredictionCreator, {}, "global_willPlant.csv"),
+    ("global_willPlant", WillPlantPredictionCreator, {}),
     
     # Post plant outcome
-    ("global_postPlantOutcome", PostPlantOutcomeCreator, {}, "global_postPlantOutcome.csv"),
+    ("global_postPlantOutcome", PostPlantOutcomeCreator, {}),
     
     # Round winner
-    ("global_roundWinner", RoundWinnerCreator, {}, "global_roundWinner.csv"),
+    ("global_roundWinner", RoundWinnerCreator, {}),
     
     # Round outcome reason (multi-class)
-    ("global_roundOutcome", RoundOutcomeReasonCreator, {}, "global_roundOutcome.csv"),
+    ("global_roundOutcome", RoundOutcomeReasonCreator, {}),
     
     # ============= SPATIAL TASKS =============
     # Self movement direction
-    ("self_movementDir", SelfMovementDirectionCreator, {}, "self_movementDir.csv"),
+    ("self_movementDir", SelfMovementDirectionCreator, {}),
     
     # Self speed estimation
-    ("self_speed", SelfSpeedCreator, {}, "self_speed.csv"),
+    ("self_speed", SelfSpeedCreator, {}),
     
 ]
 
@@ -214,7 +215,9 @@ def create_task_labels(
     
     total = len(tasks_to_run)
     
-    for i, (task_id, creator_class, config_overrides, filename) in enumerate(tasks_to_run, 1):
+    for i, (task_id, creator_class, config_overrides) in enumerate(tasks_to_run, 1):
+        # Derive filename from task_id
+        filename = f"{task_id}.csv"
         if verbose:
             print(f"\n[{i}/{total}] Creating labels for: {task_id}")
             print(f"  Creator: {creator_class.__name__}")
@@ -285,8 +288,8 @@ def main():
     if args.list:
         print("Implemented tasks:")
         print("-" * 60)
-        for task_id, creator_class, config, filename in TASK_CONFIGS:
-            print(f"  {task_id:30s} -> {filename}")
+        for task_id, creator_class, config in TASK_CONFIGS:
+            print(f"  {task_id:30s} -> {task_id}.csv")
         print()
         print("Not yet implemented tasks:")
         print("-" * 60)

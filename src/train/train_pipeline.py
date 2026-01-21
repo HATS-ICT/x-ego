@@ -119,7 +119,7 @@ def run_training(cfg, trainer, model, datamodule):
     """Run the training process"""
     if 'resume_checkpoint_path' in cfg.checkpoint:
         print(f"Starting training from checkpoint: {cfg.checkpoint.resume_checkpoint_path}")
-        trainer.fit(model, datamodule, ckpt_path=str(cfg.checkpoint.resume_checkpoint_path))
+        trainer.fit(model, datamodule, ckpt_path=str(cfg.checkpoint.resume_checkpoint_path), weights_only=False)
     else:
         print("Starting training from scratch...")
         trainer.fit(model, datamodule)
@@ -160,7 +160,7 @@ def run_testing(cfg, datamodule, model_class, trainer, callbacks, task_name):
             test_model.test_targets = []
         
         try:
-            trainer.test(test_model, datamodule, ckpt_path=checkpoint_path)
+            trainer.test(test_model, datamodule, ckpt_path=checkpoint_path, weights_only=False)
             print(f"Test evaluation completed for {checkpoint_name} checkpoint")
         except Exception as e:
             print(f"Error testing {checkpoint_name} checkpoint: {e}")

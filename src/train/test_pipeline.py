@@ -74,7 +74,7 @@ def run_test_only_pipeline(cfg, model_class, datamodule_class, task_name, checkp
         test_model.checkpoint_name = checkpoint_name
         
         try:
-            trainer.test(test_model, datamodule, ckpt_path=ckpt_path)
+            trainer.test(test_model, datamodule, ckpt_path=ckpt_path, weights_only=False)
             print(f"Test evaluation completed for {checkpoint_name} checkpoint")
         except Exception as e:
             print(f"Error testing {checkpoint_name} checkpoint: {e}")

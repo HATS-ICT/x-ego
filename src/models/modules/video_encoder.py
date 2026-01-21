@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from transformers import CLIPModel, SiglipModel, Siglip2Model, Dinov2Model, VivitModel, VideoMAEModel, VJEPA2Model
+from transformers import AutoModel
 from transformers.models.vjepa2.modeling_vjepa2 import VJEPA2AttentivePooler
 from torch import Tensor
 from typing import Dict, Any, Tuple
@@ -67,7 +67,7 @@ class VideoEncoderClip(nn.Module):
         self.model_type = cfg.model_type
         self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
         
-        self.vision_model = CLIPModel.from_pretrained(self.from_pretrained).vision_model
+        self.vision_model = AutoModel.from_pretrained(self.from_pretrained).vision_model
         
         self.embed_dim = self.vision_model.config.hidden_size
         
@@ -123,7 +123,7 @@ class VideoEncoderSigLIP(nn.Module):
         self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
         
         
-        self.vision_model = SiglipModel.from_pretrained(self.from_pretrained).vision_model
+        self.vision_model = AutoModel.from_pretrained(self.from_pretrained).vision_model
         self.embed_dim = self.vision_model.config.hidden_size
         
         if cfg.freeze_backbone:
@@ -179,7 +179,7 @@ class VideoEncoderSigLIP2(nn.Module):
         self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
         
         
-        self.vision_model = Siglip2Model.from_pretrained(self.from_pretrained).vision_model
+        self.vision_model = AutoModel.from_pretrained(self.from_pretrained).vision_model
         self.embed_dim = self.vision_model.config.hidden_size
         
         if cfg.freeze_backbone:
@@ -235,7 +235,7 @@ class VideoEncoderDinov2(nn.Module):
         self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
         
         
-        self.vision_model = Dinov2Model.from_pretrained(self.from_pretrained)
+        self.vision_model = AutoModel.from_pretrained(self.from_pretrained)
         self.embed_dim = self.vision_model.config.hidden_size * 2
         
         if cfg.freeze_backbone:
@@ -296,7 +296,7 @@ class VideoEncoderVivit(nn.Module):
         self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
         
         
-        self.vision_model = VivitModel.from_pretrained(self.from_pretrained)
+        self.vision_model = AutoModel.from_pretrained(self.from_pretrained)
         
         self.expected_num_frames = 32
         self.embed_dim = self.vision_model.config.hidden_size
@@ -354,7 +354,7 @@ class VideoEncoderVideoMAE(nn.Module):
         self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
         
         
-        self.vision_model = VideoMAEModel.from_pretrained(self.from_pretrained)
+        self.vision_model = AutoModel.from_pretrained(self.from_pretrained)
         
         self.expected_num_frames = 16
         self.embed_dim = self.vision_model.config.hidden_size
@@ -424,11 +424,10 @@ class VideoEncoderVJEPA2(nn.Module):
         self.cfg = cfg
         
         self.model_type = cfg.model_type
-        # Assuming you have this mapping defined globally or pass the string directly
-        self.from_pretrained = cfg.get('from_pretrained', 'facebook/vjepa2-vitl-fpc16-256-ssv2')
+        self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
         
         # Load Model
-        self.vision_model = VJEPA2Model.from_pretrained(self.from_pretrained)
+        self.vision_model = AutoModel.from_pretrained(self.from_pretrained)
         self.pooler = VJEPA2AttentivePooler(self.vision_model.config)
         
         # Store reference to the patch projection layer to calculate grid sizes later

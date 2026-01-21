@@ -48,7 +48,7 @@ model:
   encoder:
     video:
       freeze_backbone: false
-      model_type: siglip
+      model_type: siglip # options: siglip, siglip2, dinov2, clip, vivit, videomae, vjepa2
     proj_dim: 768
   contrastive:
     enable: true
@@ -87,7 +87,7 @@ optimization:
 
 wandb:
   enabled: true
-  project: xego
+  project: xego-v2
   name: null
   group: null
   tags: null

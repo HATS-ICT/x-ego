@@ -378,7 +378,7 @@ class ContrastiveModel(L.LightningModule):
         Returns:
             Tuple of (video_encoder, video_projector, contrastive)
         """
-        checkpoint = torch.load(checkpoint_path, map_location='cpu')
+        checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
         state_dict = checkpoint['state_dict']
         
         # Create model to get architecture

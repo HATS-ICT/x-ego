@@ -36,7 +36,7 @@ def load_model_from_checkpoint(cfg, checkpoint_path: str):
     model = CTFMContrastive(cfg)
     
     # Load checkpoint
-    checkpoint = torch.load(checkpoint_path, map_location='cpu')
+    checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
     model.load_state_dict(checkpoint['state_dict'])
     
     # Set to evaluation mode

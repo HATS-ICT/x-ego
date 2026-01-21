@@ -71,7 +71,7 @@ optimization:
 
 wandb:
   enabled: true
-  project: xego
+  project: xego-v2
   name: null
   group: null
   tags: null

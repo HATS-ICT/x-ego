@@ -3,12 +3,131 @@ Configuration utilities for X-EGO project.
 Handles loading, validation, and manipulation of training configurations.
 """
 
+from pathlib import Path
+import pandas as pd
 from omegaconf import OmegaConf
 
 
 def load_cfg(cfg_path):
     """Load configuration from YAML file using OmegaConf"""
     cfg = OmegaConf.load(cfg_path)
+    return cfg
+
+
+def load_task_config(task_id: str, data_path: Path) -> dict:
+    """
+    Load task configuration from task_definitions.csv based on task_id.
+    
+    Args:
+        task_id: Task identifier (e.g., 'self_location', 'enemy_location_5s')
+        data_path: Path to data directory containing labels/task_definitions.csv
+        
+    Returns:
+        Dictionary with task configuration (ml_form, num_classes, output_dim, label_column)
+    """
+    task_def_path = data_path / "labels" / "task_definitions.csv"
+    
+    if not task_def_path.exists():
+        raise FileNotFoundError(f"Task definitions file not found: {task_def_path}")
+    
+    df = pd.read_csv(task_def_path)
+    task_row = df[df['task_id'] == task_id]
+    
+    if len(task_row) == 0:
+        available_tasks = df['task_id'].tolist()
+        raise ValueError(f"Task '{task_id}' not found in task_definitions.csv. Available: {available_tasks}")
+    
+    row = task_row.iloc[0]
+    
+    # Determine label column based on task type
+    # For most tasks, we use a standardized label column name
+    label_column = _get_label_column_for_task(task_id, row['ml_form'])
+    
+    config = {
+        'ml_form': row['ml_form'],
+        'num_classes': int(row['num_classes']) if pd.notna(row['num_classes']) else None,
+        'output_dim': int(row['output_dim']),
+        'label_column': label_column,
+    }
+    
+    return config
+
+
+def _get_label_column_for_task(task_id: str, ml_form: str) -> str:
+    """
+    Determine the label column name for a task.
+    
+    The label column naming convention:
+    - multi_label_cls tasks: label_place_0, label_place_1, ... (multi-hot encoded)
+    - multi_cls tasks: label_place (single class index)
+    - binary_cls tasks: label (single binary value)
+    - regression tasks: label or specific column names
+    """
+    # Multi-label classification uses multi-hot encoding across label_place_* columns
+    if ml_form == 'multi_label_cls':
+        # These tasks have label_place_0 through label_place_22 columns
+        return 'label_place'  # Will be expanded to label_place_0, label_place_1, etc.
+    
+    # Multi-class classification uses a single label column
+    if ml_form == 'multi_cls':
+        return 'label_place'
+    
+    # Binary classification
+    if ml_form == 'binary_cls':
+        return 'label'
+    
+    # Regression - depends on the specific task
+    if ml_form == 'regression':
+        if 'Centroid' in task_id:
+            return 'label_X;label_Y;label_Z'
+        elif 'speed' in task_id.lower():
+            return 'label'
+        else:
+            return 'label'
+    
+    return 'label'
+
+
+def apply_task_config(cfg, data_path: Path):
+    """
+    Apply task-specific configuration based on task_id.
+    
+    Loads task definition from task_definitions.csv and updates cfg.task
+    with ml_form, num_classes, output_dim, and label_column.
+    
+    Args:
+        cfg: OmegaConf configuration
+        data_path: Path to data directory
+        
+    Returns:
+        Updated configuration
+    """
+    task_id = cfg.task.task_id
+    
+    try:
+        task_config = load_task_config(task_id, data_path)
+        
+        # Update task configuration
+        task_updates = OmegaConf.create({
+            'task': {
+                'ml_form': task_config['ml_form'],
+                'num_classes': task_config['num_classes'],
+                'output_dim': task_config['output_dim'],
+                'label_column': task_config['label_column'],
+            }
+        })
+        
+        cfg = OmegaConf.merge(cfg, task_updates)
+        print(f"[Task Config] Loaded config for task '{task_id}':")
+        print(f"  ml_form: {task_config['ml_form']}")
+        print(f"  num_classes: {task_config['num_classes']}")
+        print(f"  output_dim: {task_config['output_dim']}")
+        print(f"  label_column: {task_config['label_column']}")
+        
+    except Exception as e:
+        print(f"[Task Config] Warning: Could not auto-load task config: {e}")
+        print(f"[Task Config] Using config values from YAML file")
+    
     return cfg
 
 

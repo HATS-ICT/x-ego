@@ -1,4 +1,5 @@
 # Stage 2: Linear Probing on Downstream Tasks
+# Uses single-agent video input with frozen encoder
 
 meta:
   seed: 42
@@ -19,8 +20,8 @@ data:
   video_folder: video_544x306_4fps
   persistent_workers: true
   pin_mem: true
-  batch_size: 2
-  num_workers: 0
+  batch_size: 8
+  num_workers: 4
   prefetch_factor: 2
   data_path_csv_filename: video_partitioned_chunked_downsized.csv
   fixed_duration_seconds: 5
@@ -28,37 +29,20 @@ data:
   video_column_name: video_path
   video_processor_model: facebook/vjepa2-vitl-fpc16-256-ssv2
   video_size_mode: resize_distort
-  num_pov_agents: 5
   mask_minimap: true
   time_jitter_max_seconds: 0.3
-  precomputed_embeddings_encoder: ${model.encoder.video.model_type}
   labels_filename: downstream_labels.csv
-  allow_variable_agents: false
-  min_agents: 2
 
 model:
   activation: gelu
-  num_pov_agents: ${data.num_pov_agents}
-  num_target_agents: 5
-  team_embed_dim: 32
-  hidden_dim: 256
-  num_hidden_layers: 3
   dropout: 0.1
-  class_weights: null
+  # Stage 1 checkpoint path - set to null for baseline (off-the-shelf HuggingFace)
+  # Set to checkpoint path to use pretrained encoder from contrastive learning
   stage1_checkpoint: null
-  freeze_encoder: true
-  loss_fn: bce
   encoder:
     video:
-      freeze_backbone: false
+      freeze_backbone: true
       model_type: siglip
-    proj_dim: 768
-  contrastive:
-    enable: true
-    logit_scale_init: 10
-    logit_bias_init: -3
-    turn_off_bias: false
-    loss_weight: 1.0
 
 training:
   max_epochs: 20

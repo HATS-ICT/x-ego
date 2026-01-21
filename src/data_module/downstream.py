@@ -1,7 +1,8 @@
 """
-Linear Probing DataModule (Stage 2)
+Downstream Task DataModule (Stage 2)
 
 Lightning DataModule for downstream task linear probing.
+Uses single-agent raw video input.
 """
 
 from typing import Dict, Any
@@ -16,21 +17,22 @@ except ImportError:
     from base import BaseDataModule
 
 try:
-    from ..dataset.downstream import LinearProbeDataset, downstream_collate_fn
+    from ..dataset.downstream import DownstreamDataset, downstream_collate_fn
 except ImportError:
-    from dataset.downstream import LinearProbeDataset, downstream_collate_fn
+    from dataset.downstream import DownstreamDataset, downstream_collate_fn
 
 
-class LinearProbeDataModule(BaseDataModule):
+class DownstreamDataModule(BaseDataModule):
     """
-    Lightning DataModule for Stage 2 linear probing.
+    Lightning DataModule for Stage 2 downstream linear probing.
     
+    Uses single-agent raw video input.
     Works with any task defined in task_definitions.csv.
     """
     
     def __init__(self, cfg: Dict[str, Any]):
         """
-        Initialize Linear Probe DataModule.
+        Initialize Downstream DataModule.
         
         Args:
             cfg: Configuration with task info
@@ -41,17 +43,21 @@ class LinearProbeDataModule(BaseDataModule):
         self.ml_form = cfg.task.ml_form
     
     def _create_base_dataset(self):
-        """Create the base linear probe dataset."""
-        return LinearProbeDataset(cfg=self.cfg)
+        """Create the base downstream dataset."""
+        return DownstreamDataset(cfg=self.cfg)
     
     def _get_collate_fn(self):
-        """Get collate function."""
+        """Get collate function for single-agent data."""
         return downstream_collate_fn
     
     def _copy_dataset_attributes(self, base_dataset, partition_dataset):
-        """Copy dataset attributes."""
-        attrs = ['task_id', 'ml_form', 'output_dim', 'num_classes', 
-                 'label_columns', 'num_agents']
+        """Copy dataset attributes to partition datasets."""
+        attrs = [
+            'task_id', 'ml_form', 'output_dim', 'num_classes', 
+            'label_columns', 'video_processor',
+            'cfg', 'data_cfg', 'task_cfg', 'data_root',
+            'target_fps', 'fixed_duration_seconds', 'mask_minimap', 'time_jitter_max_seconds'
+        ]
         for attr in attrs:
             if hasattr(base_dataset, attr):
                 setattr(partition_dataset, attr, getattr(base_dataset, attr))
@@ -72,3 +78,7 @@ class LinearProbeDataModule(BaseDataModule):
         logger.info(f"Output dim: {base_dataset.output_dim}")
         logger.info(f"Num classes: {base_dataset.num_classes}")
         logger.info(f"Full dataset: {len(base_dataset)} samples")
+
+
+# Alias for backward compatibility
+LinearProbeDataModule = DownstreamDataModule

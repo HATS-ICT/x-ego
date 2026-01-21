@@ -6,15 +6,15 @@ import argparse
 from omegaconf import OmegaConf
 
 # Local imports
-from utils.config_utils import load_cfg, apply_cfg_overrides
-from utils.experiment_utils import create_experiment_dir, save_hyperparameters, setup_resume_cfg, load_experiment_cfg
-from train.run_tasks import (
+from src.utils.config_utils import load_cfg, apply_cfg_overrides, apply_task_config
+from src.utils.experiment_utils import create_experiment_dir, save_hyperparameters, setup_resume_cfg, load_experiment_cfg
+from src.train.run_tasks import (
     train_contrastive,
     test_contrastive,
     train_downstream,
     test_downstream,
 )
-from utils.env_utils import get_src_base_path, get_data_base_path, get_output_base_path
+from src.utils.env_utils import get_src_base_path, get_data_base_path, get_output_base_path
 
 
 # TODO: To be removed
@@ -193,6 +193,10 @@ def main():
         
         cfg = apply_cfg_overrides(cfg, args.overrides)
         cfg = setup_base_pathing(cfg)
+        
+        # Auto-configure task settings for downstream tasks
+        if args.task == 'downstream':
+            cfg = apply_task_config(cfg, Path(cfg.path.data))
     
     # TODO: Validation need to be adjusted per training mode at the end
     # validate_cfg(cfg)

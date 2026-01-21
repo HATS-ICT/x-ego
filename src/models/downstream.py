@@ -2,7 +2,7 @@
 Linear Probing Model (Stage 2)
 
 Simple linear classifiers/regressors for downstream tasks.
-Uses frozen video encoder from Stage 1 contrastive learning.
+Uses frozen video encoder - either off-the-shelf from HuggingFace or pretrained from Stage 1 contrastive.
 
 Supports task types (ml_form):
 - binary_cls: Binary classification (BCE loss)
@@ -17,19 +17,17 @@ import torch.nn.functional as F
 import lightning as L
 from torch.optim import AdamW
 import torch._dynamo
-from torchmetrics import Accuracy, F1Score, AUROC, MeanSquaredError, MeanAbsoluteError, R2Score
 from torchmetrics.classification import (
     MultilabelAccuracy, MultilabelF1Score, MultilabelAUROC,
     MulticlassAccuracy, MulticlassF1Score, MulticlassAUROC,
     BinaryAccuracy, BinaryF1Score, BinaryAUROC
 )
+from torchmetrics import MeanSquaredError, MeanAbsoluteError, R2Score
 
 try:
-    from video_encoder import get_embed_dim_for_model_type
-    from architecture_utils import build_mlp
+    from modules.video_encoder import VideoEncoder
 except ImportError:
-    from .video_encoder import get_embed_dim_for_model_type
-    from .architecture_utils import build_mlp
+    from .modules.video_encoder import VideoEncoder
 
 
 class LinearProbeHead(nn.Module):
@@ -72,10 +70,13 @@ class LinearProbeModel(L.LightningModule):
     Linear probing model for Stage 2 downstream tasks.
     
     Architecture:
-        [Frozen Encoder] -> Video Projector -> Agent Fuser -> Linear Head
+        Video [B, T, C, H, W] -> [Frozen VideoEncoder] -> Linear Head -> Prediction
     
-    The encoder weights are loaded from Stage 1 checkpoint and frozen.
-    Only the linear head is trained.
+    The encoder is either:
+    1. Off-the-shelf HuggingFace model (baseline)
+    2. Pretrained from Stage 1 contrastive learning
+    
+    Only the linear head is trained; the encoder is always frozen.
     """
     
     def __init__(self, cfg):
@@ -89,23 +90,23 @@ class LinearProbeModel(L.LightningModule):
         self.num_classes = cfg.task.num_classes
         self.output_dim = cfg.task.output_dim
         
-        # Get embedding dimension
-        video_embed_dim = get_embed_dim_for_model_type(cfg.model.encoder.video.model_type)
-        proj_dim = cfg.model.encoder.proj_dim
+        # Initialize video encoder
+        self.video_encoder = VideoEncoder(cfg.model.encoder.video)
+        video_embed_dim = self.video_encoder.embed_dim
+        print(f"[LinearProbe] Video encoder: {cfg.model.encoder.video.model_type} (dim: {video_embed_dim})")
         
-        # Video projector (trained or frozen based on config)
-        self.video_projector = build_mlp(
-            input_dim=video_embed_dim,
-            output_dim=proj_dim,
-            num_hidden_layers=1,
-            hidden_dim=proj_dim,
-            dropout=cfg.model.dropout,
-            activation=cfg.model.activation
-        )
+        # Load Stage 1 weights if provided (before freezing)
+        if cfg.model.stage1_checkpoint:
+            self._load_stage1_encoder(cfg.model.stage1_checkpoint)
+        else:
+            print("[LinearProbe] Using off-the-shelf HuggingFace encoder (baseline)")
         
-        # Linear probe head (directly on mean-pooled embeddings)
+        # Freeze encoder - always frozen for linear probing
+        self._freeze_encoder()
+        
+        # Linear probe head directly on encoder output
         self.head = LinearProbeHead(
-            input_dim=proj_dim,
+            input_dim=video_embed_dim,
             ml_form=self.ml_form,
             output_dim=self.output_dim,
             num_classes=self.num_classes
@@ -114,15 +115,34 @@ class LinearProbeModel(L.LightningModule):
         # Initialize metrics
         self._init_metrics()
         
-        # Load and freeze encoder if Stage 1 checkpoint provided
-        if cfg.model.stage1_checkpoint:
-            self._load_stage1_weights(cfg.model.stage1_checkpoint)
-        
-        # Freeze encoder components if configured
-        if cfg.model.freeze_encoder:
-            self._freeze_encoder()
-        
         self.output_dir = cfg.path.exp
+    
+    def _load_stage1_encoder(self, checkpoint_path: str):
+        """Load video encoder weights from Stage 1 contrastive checkpoint."""
+        print(f"[LinearProbe] Loading Stage 1 encoder from: {checkpoint_path}")
+        
+        checkpoint = torch.load(checkpoint_path, map_location='cpu')
+        state_dict = checkpoint['state_dict']
+        
+        # Extract video_encoder weights (keys start with 'video_encoder.')
+        encoder_state = {}
+        for k, v in state_dict.items():
+            if k.startswith('video_encoder.'):
+                # Remove 'video_encoder.' prefix
+                new_key = k.replace('video_encoder.', '')
+                encoder_state[new_key] = v
+        
+        if encoder_state:
+            self.video_encoder.load_state_dict(encoder_state)
+            print(f"[LinearProbe] Loaded {len(encoder_state)} encoder parameters from Stage 1")
+        else:
+            print("[LinearProbe] WARNING: No video_encoder weights found in checkpoint!")
+    
+    def _freeze_encoder(self):
+        """Freeze video encoder parameters."""
+        for param in self.video_encoder.parameters():
+            param.requires_grad = False
+        print("[LinearProbe] Video encoder frozen")
     
     def _init_metrics(self):
         """Initialize metrics based on task type."""
@@ -148,53 +168,24 @@ class LinearProbeModel(L.LightningModule):
                 setattr(self, f'{split}_mae', MeanAbsoluteError())
                 setattr(self, f'{split}_r2', R2Score())
     
-    def _load_stage1_weights(self, checkpoint_path: str):
-        """Load encoder weights from Stage 1 contrastive checkpoint."""
-        print(f"Loading Stage 1 weights from: {checkpoint_path}")
-        
-        checkpoint = torch.load(checkpoint_path, map_location='cpu')
-        state_dict = checkpoint['state_dict']
-        
-        # Load video projector weights
-        projector_state = {k.replace('video_projector.', ''): v 
-                         for k, v in state_dict.items() 
-                         if k.startswith('video_projector.')}
-        if projector_state:
-            self.video_projector.load_state_dict(projector_state)
-            print(f"  Loaded video_projector: {len(projector_state)} params")
-        
-        print("Stage 1 weights loaded successfully")
-    
-    def _freeze_encoder(self):
-        """Freeze encoder components (video projector)."""
-        for param in self.video_projector.parameters():
-            param.requires_grad = False
-        print("Encoder frozen (video_projector)")
-    
     def forward(self, batch):
         """
         Forward pass.
         
         Args:
-            batch: Dictionary with 'video' key containing embeddings [B, A, embed_dim]
+            batch: Dictionary with 'video' key containing raw video [B, T, C, H, W]
             
         Returns:
             logits: Task predictions
         """
-        video = batch['video']  # [B, A, embed_dim]
+        video = batch['video']  # [B, T, C, H, W]
         
-        B, A, embed_dim = video.shape
-        
-        # Project embeddings
-        flat_video = video.view(B * A, embed_dim)
-        projected = self.video_projector(flat_video)
-        projected = projected.view(B, A, -1)
-        
-        # Mean pool over agents
-        pooled = projected.mean(dim=1)  # [B, proj_dim]
+        # Encode video through frozen encoder
+        with torch.no_grad():
+            video_embedding = self.video_encoder(video)  # [B, embed_dim]
         
         # Linear head
-        logits = self.head(pooled)
+        logits = self.head(video_embedding)
         
         return logits
     
@@ -306,10 +297,10 @@ class LinearProbeModel(L.LightningModule):
         return self._step(batch, 'test')
     
     def configure_optimizers(self):
-        """Configure optimizer - only train unfrozen parameters."""
+        """Configure optimizer - only train unfrozen parameters (linear head)."""
         opt_config = self.cfg.optimization
         
-        # Only train parameters that require gradients
+        # Only train parameters that require gradients (the linear head)
         trainable_params = filter(lambda p: p.requires_grad, self.parameters())
         
         optimizer = AdamW(

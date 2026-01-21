@@ -200,7 +200,9 @@ class LinearProbeModel(L.LightningModule):
             return F.binary_cross_entropy_with_logits(logits, targets.float())
         
         elif self.ml_form == 'regression':
-            return F.mse_loss(logits, targets.float())
+            # Handle shape mismatch: logits may be [B, 1] while targets are [B]
+            logits_flat = logits.squeeze(-1) if logits.dim() > 1 and logits.shape[-1] == 1 else logits
+            return F.mse_loss(logits_flat, targets.float())
         
         else:
             raise ValueError(f"Unknown ml_form: {self.ml_form}")
@@ -276,13 +278,21 @@ class LinearProbeModel(L.LightningModule):
             mae = getattr(self, f'{split}_mae')
             r2 = getattr(self, f'{split}_r2')
             
-            mse(preds, targets.float())
-            mae(preds, targets.float())
-            r2(preds, targets.float())
+            # Ensure preds and targets have the same shape
+            # For single-output regression, squeeze preds from [B, 1] to [B]
+            preds_flat = preds.squeeze(-1) if preds.dim() > 1 and preds.shape[-1] == 1 else preds
+            targets_flat = targets.float()
+            
+            mse(preds_flat, targets_flat)
+            mae(preds_flat, targets_flat)
+            
+            # R2Score requires at least 2 samples to compute
+            if batch_size >= 2:
+                r2(preds_flat, targets_flat)
+                self.safe_log(f'{split}/r2', r2, batch_size=batch_size, on_epoch=True)
             
             self.safe_log(f'{split}/mse', mse, batch_size=batch_size, on_epoch=True)
             self.safe_log(f'{split}/mae', mae, batch_size=batch_size, on_epoch=True)
-            self.safe_log(f'{split}/r2', r2, batch_size=batch_size, on_epoch=True)
         
         return loss
     

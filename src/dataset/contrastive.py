@@ -175,12 +175,34 @@ class ContrastiveDataset(Dataset):
     
     def _init_video_processor(self):
         """Initialize video processor based on model type from config."""
-        from transformers import AutoProcessor
+        from transformers import AutoImageProcessor, VivitImageProcessor, VideoMAEImageProcessor, VJEPA2VideoProcessor
         from models.modules.video_encoder import MODEL_TYPE_TO_PRETRAINED
         
         model_type = self.cfg.model.encoder.video.model_type
+        self.model_type = model_type
         pretrained_model = MODEL_TYPE_TO_PRETRAINED[model_type]
-        self.video_processor = AutoProcessor.from_pretrained(pretrained_model)
+        
+        # Different models need different processors and have different output formats
+        # processor_type: 'image' uses images= param and returns pixel_values
+        #                 'video' uses videos= param and returns pixel_values_videos
+        if model_type in ['siglip', 'siglip2', 'clip', 'dinov2']:
+            # Image-based models: AutoImageProcessor, returns pixel_values
+            self.video_processor = AutoImageProcessor.from_pretrained(pretrained_model)
+            self.processor_type = 'image'
+        elif model_type == 'vivit':
+            # ViViT: specific image processor, returns pixel_values
+            self.video_processor = VivitImageProcessor.from_pretrained(pretrained_model)
+            self.processor_type = 'image'
+        elif model_type == 'videomae':
+            # VideoMAE: specific image processor, returns pixel_values
+            self.video_processor = VideoMAEImageProcessor.from_pretrained(pretrained_model)
+            self.processor_type = 'image'
+        elif model_type == 'vjepa2':
+            # VJEPA2: video processor, returns pixel_values_videos
+            self.video_processor = VJEPA2VideoProcessor.from_pretrained(pretrained_model)
+            self.processor_type = 'video'
+        else:
+            raise ValueError(f"Unknown model type: {model_type}")
     
     def _to_absolute_path(self, path: str) -> str:
         """Convert relative path to absolute path using configured data directory."""
@@ -238,9 +260,38 @@ class ContrastiveDataset(Dataset):
             return torch.zeros(expected_frames, 3, 306, 544, dtype=torch.float16)
     
     def _transform_video(self, video_clip: torch.Tensor) -> torch.Tensor:
-        """Transform video clip using the video processor."""
-        video_processed = self.video_processor(video_clip, return_tensors="pt")
-        video_features = video_processed.pixel_values_videos.squeeze(0)
+        """Transform video clip using the video processor.
+        
+        Args:
+            video_clip: Video tensor of shape [T, C, H, W] in range [0, 255]
+            
+        Returns:
+            Processed video tensor of shape [T, C, H, W] normalized for the model
+        """
+        # Convert from [T, C, H, W] to list of numpy arrays [H, W, C] in uint8
+        num_frames = video_clip.shape[0]
+        frames_list = []
+        for i in range(num_frames):
+            frame = video_clip[i].permute(1, 2, 0).cpu().numpy()  # [H, W, C]
+            if frame.max() <= 1.0:
+                frame = (frame * 255).astype('uint8')
+            else:
+                frame = frame.astype('uint8')
+            frames_list.append(frame)
+        
+        if self.processor_type == 'video':
+            # VJEPA2: uses videos= parameter and returns pixel_values_videos [1, T, C, H, W]
+            video_processed = self.video_processor(videos=frames_list, return_tensors="pt")
+            video_features = video_processed.pixel_values_videos.squeeze(0)  # [T, C, H, W]
+        else:
+            # Image-based processors: use images= parameter and return pixel_values
+            processed = self.video_processor(images=frames_list, return_tensors="pt")
+            video_features = processed.pixel_values
+            # Video processors (vivit, videomae) return [1, T, C, H, W], need to squeeze
+            # Image processors (siglip, clip, dinov2) return [T, C, H, W]
+            if video_features.dim() == 5:
+                video_features = video_features.squeeze(0)  # [T, C, H, W]
+        
         return video_features
     
     def _construct_video_path(self, match_id: str, player_id: str, round_num: int) -> str:

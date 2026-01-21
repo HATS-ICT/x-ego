@@ -432,7 +432,8 @@ class VideoEncoderVJEPA2(nn.Module):
         self.pooler = VJEPA2AttentivePooler(self.vision_model.config)
         
         # Store reference to the patch projection layer to calculate grid sizes later
-        self.patch_proj = self.vision_model.embeddings.patch_embeddings.projection
+        # VJEPA2Model structure: encoder.embeddings.patch_embeddings.proj
+        self.patch_proj = self.vision_model.encoder.embeddings.patch_embeddings.proj
         
         self.embed_dim = self.vision_model.config.hidden_size
         

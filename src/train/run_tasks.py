@@ -1,10 +1,10 @@
 # Local imports
-from models.contrastive_model import ContrastiveModel
-from models.downstream import LinearProbeModel
-from data_module.contrastive import ContrastiveDataModule
-from data_module.downstream import DownstreamDataModule
-from train.train_pipeline import run_training_pipeline
-from train.test_pipeline import run_test_only_pipeline
+from src.models.contrastive_model import ContrastiveModel
+from src.models.downstream import LinearProbeModel
+from src.data_module.contrastive import ContrastiveDataModule
+from src.data_module.downstream import DownstreamDataModule
+from src.train.train_pipeline import run_training_pipeline
+from src.train.test_pipeline import run_test_only_pipeline
 
 
 # ============================================================================

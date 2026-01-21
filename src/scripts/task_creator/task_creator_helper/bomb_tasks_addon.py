@@ -6,7 +6,6 @@ Creates labels for:
 """
 
 import pandas as pd
-from pathlib import Path
 from typing import Dict, List, Any, Optional
 
 from .base_task_creator import TaskCreatorBase

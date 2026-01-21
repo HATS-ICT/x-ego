@@ -18,16 +18,11 @@ import lightning as L
 from torch.optim import AdamW
 import torch._dynamo
 from torchmetrics.classification import (
-    MultilabelAccuracy, MultilabelF1Score, MultilabelAUROC,
-    MulticlassAccuracy, MulticlassF1Score, MulticlassAUROC,
-    BinaryAccuracy, BinaryF1Score, BinaryAUROC
+    MultilabelAccuracy, MultilabelF1Score, MulticlassAccuracy, MulticlassF1Score, BinaryAccuracy, BinaryF1Score, BinaryAUROC
 )
 from torchmetrics import MeanSquaredError, MeanAbsoluteError, R2Score
 
-try:
-    from modules.video_encoder import VideoEncoder
-except ImportError:
-    from .modules.video_encoder import VideoEncoder
+from src.models.modules.video_encoder import VideoEncoder
 
 
 class LinearProbeHead(nn.Module):

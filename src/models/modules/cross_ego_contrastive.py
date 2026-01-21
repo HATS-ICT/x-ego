@@ -12,7 +12,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from models.architecture_utils import build_mlp
+from src.models.modules.architecture_utils import build_mlp
 
 
 class CrossEgoContrastive(nn.Module):

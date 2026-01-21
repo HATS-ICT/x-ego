@@ -12,7 +12,6 @@ Label column naming convention:
 """
 
 import pandas as pd
-from pathlib import Path
 from typing import Dict, List, Any
 
 from .base_task_creator import TaskCreatorBase

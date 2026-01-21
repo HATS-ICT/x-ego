@@ -14,16 +14,33 @@ def load_cfg(cfg_path):
     return cfg
 
 
+def _task_id_to_labels_filename(task_id: str) -> str:
+    """
+    Convert task_id to the corresponding labels CSV filename.
+    
+    Task IDs in task_definitions.csv use format like 'self_location_0s' for nowcast
+    and 'self_location_5s' for forecast. The CSV files are named:
+    - Nowcast (0s): self_location.csv (without the _0s suffix)
+    - Forecast: self_location_5s.csv (with the horizon suffix)
+    """
+    # Remove _0s suffix for nowcast tasks (they use base filename)
+    if task_id.endswith('_0s'):
+        base_name = task_id[:-3]  # Remove '_0s'
+        return f"all_tasks/{base_name}.csv"
+    else:
+        return f"all_tasks/{task_id}.csv"
+
+
 def load_task_config(task_id: str, data_path: Path) -> dict:
     """
     Load task configuration from task_definitions.csv based on task_id.
     
     Args:
-        task_id: Task identifier (e.g., 'self_location', 'enemy_location_5s')
+        task_id: Task identifier (e.g., 'self_location_0s', 'enemy_location_5s')
         data_path: Path to data directory containing labels/task_definitions.csv
         
     Returns:
-        Dictionary with task configuration (ml_form, num_classes, output_dim, label_column)
+        Dictionary with task configuration (ml_form, num_classes, output_dim, label_column, labels_filename)
     """
     task_def_path = data_path / "labels" / "task_definitions.csv"
     
@@ -40,14 +57,17 @@ def load_task_config(task_id: str, data_path: Path) -> dict:
     row = task_row.iloc[0]
     
     # Determine label column based on task type
-    # For most tasks, we use a standardized label column name
     label_column = _get_label_column_for_task(task_id, row['ml_form'])
+    
+    # Determine labels filename from task_id
+    labels_filename = _task_id_to_labels_filename(task_id)
     
     config = {
         'ml_form': row['ml_form'],
         'num_classes': int(row['num_classes']) if pd.notna(row['num_classes']) else None,
         'output_dim': int(row['output_dim']),
         'label_column': label_column,
+        'labels_filename': labels_filename,
     }
     
     return config
@@ -58,33 +78,13 @@ def _get_label_column_for_task(task_id: str, ml_form: str) -> str:
     Determine the label column name for a task.
     
     The label column naming convention:
-    - multi_label_cls tasks: label_place_0, label_place_1, ... (multi-hot encoded)
-    - multi_cls tasks: label_place (single class index)
+    - multi_label_cls tasks: label_0, label_1, ... (multi-hot encoded)
+    - multi_cls tasks: label (single class index)
     - binary_cls tasks: label (single binary value)
     - regression tasks: label or specific column names
     """
-    # Multi-label classification uses multi-hot encoding across label_place_* columns
-    if ml_form == 'multi_label_cls':
-        # These tasks have label_place_0 through label_place_22 columns
-        return 'label_place'  # Will be expanded to label_place_0, label_place_1, etc.
-    
-    # Multi-class classification uses a single label column
-    if ml_form == 'multi_cls':
-        return 'label_place'
-    
-    # Binary classification
-    if ml_form == 'binary_cls':
-        return 'label'
-    
-    # Regression - depends on the specific task
-    if ml_form == 'regression':
-        if 'Centroid' in task_id:
-            return 'label_X;label_Y;label_Z'
-        elif 'speed' in task_id.lower():
-            return 'label'
-        else:
-            return 'label'
-    
+    # All tasks use 'label' as the primary column name
+    # Multi-label tasks have label_0, label_1, etc. but we return 'label' as base
     return 'label'
 
 
@@ -93,7 +93,7 @@ def apply_task_config(cfg, data_path: Path):
     Apply task-specific configuration based on task_id.
     
     Loads task definition from task_definitions.csv and updates cfg.task
-    with ml_form, num_classes, output_dim, and label_column.
+    with ml_form, num_classes, output_dim, label_column, and labels_filename.
     
     Args:
         cfg: OmegaConf configuration
@@ -114,6 +114,9 @@ def apply_task_config(cfg, data_path: Path):
                 'num_classes': task_config['num_classes'],
                 'output_dim': task_config['output_dim'],
                 'label_column': task_config['label_column'],
+            },
+            'data': {
+                'labels_filename': task_config['labels_filename'],
             }
         })
         
@@ -123,82 +126,14 @@ def apply_task_config(cfg, data_path: Path):
         print(f"  num_classes: {task_config['num_classes']}")
         print(f"  output_dim: {task_config['output_dim']}")
         print(f"  label_column: {task_config['label_column']}")
+        print(f"  labels_filename: {task_config['labels_filename']}")
         
     except Exception as e:
         print(f"[Task Config] Warning: Could not auto-load task config: {e}")
-        print(f"[Task Config] Using config values from YAML file")
+        print("[Task Config] Using config values from YAML file")
     
     return cfg
 
-
-def validate_cfg(cfg):
-    """Validate that cfg has all required keys"""
-    required_keys = {
-        'data': ['dir', 'data_path_csv_filename', 'batch_size', 'num_workers', 'persistent_workers', 'pin_mem',
-                 'target_fps', 'video_column_name', 'label_column_name',
-                 'audio_sample_rate', 'train_split', 'val_split', 'test_split', 'video_processor_model', 'audio_processor_model'],
-        'model': ['encoder'],
-        'training': ['max_epochs', 'accelerator', 'devices', 'precision', 'gradient_clip_val', 'accumulate_grad_batches', 
-                    'val_check_interval', 'check_val_every_n_epoch', 'enable_checkpointing', 'enable_progress_bar', 'enable_model_summary', 'contrastive'],
-        'optimization': ['lr', 'weight_decay', 'epochs', 'final_lr'],
-        'meta': ['seed']  # resume_exp is optional
-    }
-    
-    # Optional sections that have required keys if they exist
-    optional_sections = {
-        'wandb': ['enabled', 'project', 'tags', 'notes', 'save_dir', 'group'],
-        'checkpoint': ['dirpath', 'filename', 'monitor', 'mode', 'save_top_k', 'save_last', 'auto_insert_metric_name'],
-        'early_stopping': ['monitor', 'patience', 'mode']
-    }
-    
-    # Required nested sections
-    nested_required_keys = {
-        'training.contrastive': ['style', 'project_to_shared_dim', 'do_projection', 'do_normalization', 'logit_scale_init', 'logit_bias_init'],
-        'model.encoder': ['video', 'audio'],
-        'model.encoder.video': ['backbone', 'freeze_backbone', 'from_pretrained'],
-        'model.encoder.audio': ['backbone', 'freeze_backbone', 'from_pretrained']
-    }
-    
-    # Check required sections
-    for section, keys in required_keys.items():
-        if section not in cfg:
-            raise ValueError(f"Missing required cfg section: {section}")
-        
-        for key in keys:
-            if key not in cfg[section]:
-                raise ValueError(f"Missing required cfg key: {section}.{key}")
-    
-    # Check optional sections (if they exist, they must have all required keys)
-    for section, keys in optional_sections.items():
-        if section in cfg:
-            for key in keys:
-                if key not in cfg[section]:
-                    raise ValueError(f"Missing required cfg key in optional section: {section}.{key}")
-    
-    # Check nested required sections
-    for section_path, keys in nested_required_keys.items():
-        parts = section_path.split('.')
-        current = cfg
-        
-        # Navigate to the nested section
-        try:
-            for part in parts:
-                current = current[part]
-        except KeyError:
-            raise ValueError(f"Missing required nested cfg section: {section_path}")
-        
-        # Check required keys in the nested section
-        for key in keys:
-            if key not in current:
-                raise ValueError(f"Missing required cfg key: {section_path}.{key}")
-    
-    # Validate contrastive style is supported
-    if 'training' in cfg and 'contrastive' in cfg.training:
-        contrastive_style = cfg.training.contrastive.style
-        if contrastive_style not in ['clip', 'siglip']:
-            raise ValueError(f"Invalid contrastive style: {contrastive_style}. Only 'clip' and 'siglip' are supported.")
-    
-    print("✓ Config validation passed")
 
 
 def apply_cfg_overrides(cfg, overrides):

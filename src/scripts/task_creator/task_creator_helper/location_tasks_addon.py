@@ -9,11 +9,10 @@ Label column naming convention:
 """
 
 import pandas as pd
-from pathlib import Path
 from typing import Dict, List, Any
 
 from .base_task_creator import TaskCreatorBase
-from ..task_definitions import PLACE_TO_IDX, NUM_PLACES
+from ..task_definitions import PLACE_TO_IDX
 
 
 class SelfLocationNowcastCreator(TaskCreatorBase):

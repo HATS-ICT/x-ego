@@ -305,13 +305,15 @@ class DownstreamDataset(Dataset):
         original_csv_idx = row['original_csv_idx']
         
         # Extract video metadata
-        start_seconds = row['normalized_start_seconds']
-        end_seconds = row['normalized_end_seconds']
+        # Convert ticks to seconds (tick_rate = 64)
+        tick_rate = 64
+        start_seconds = row['start_tick'] / tick_rate
+        end_seconds = row['end_tick'] / tick_rate
         match_id = row['match_id']
         round_num = row['round_num']
         
-        # Get player ID - use pov_player_id for single-agent downstream
-        player_id = row.get('pov_player_id', row.get('teammate_0_id', ''))
+        # Get player ID
+        player_id = row['pov_steamid']
         
         # Construct video path and load video
         video_path = self._construct_video_path(match_id, player_id, round_num)
@@ -321,8 +323,8 @@ class DownstreamDataset(Dataset):
         # Get label
         label = self._get_label(row)
         
-        # Get team side
-        pov_team_side = row.get('pov_team_side', 'unknown')
+        # Get team side (CSV uses 'pov_side')
+        pov_team_side = row.get('pov_side', 'unknown')
         if isinstance(pov_team_side, str):
             pov_team_side = pov_team_side.upper()
         pov_team_side_encoded = 1 if pov_team_side == 'CT' else 0

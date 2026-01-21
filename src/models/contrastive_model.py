@@ -17,9 +17,9 @@ import lightning as L
 from torch.optim import AdamW
 import torch._dynamo
 
-from modules.video_encoder import VideoEncoder
-from modules.cross_ego_contrastive import CrossEgoContrastive
-from modules.architecture_utils import build_mlp
+from src.models.modules.video_encoder import VideoEncoder
+from src.models.modules.cross_ego_contrastive import CrossEgoContrastive
+from src.models.modules.architecture_utils import build_mlp
 
 
 class ContrastiveModel(L.LightningModule):

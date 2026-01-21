@@ -300,8 +300,8 @@ class ContrastiveDataset(Dataset):
         row = self.df.iloc[idx]
         
         # Extract metadata
-        start_seconds = row['normalized_start_seconds']
-        end_seconds = row['normalized_end_seconds']
+        start_seconds = row['start_seconds']
+        end_seconds = row['end_seconds']
         match_id = row['match_id']
         round_num = row['round_num']
         pov_team_side = str(row['pov_team_side']).upper()

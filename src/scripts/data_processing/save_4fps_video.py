@@ -169,7 +169,7 @@ def main():
                 pbar.update(1)
     
     # Summary
-    print(f"\nSummary:")
+    print("\nSummary:")
     print(f"  Converted: {success_count}")
     print(f"  Skipped (already exists): {skip_count}")
     print(f"  Errors: {error_count}")

@@ -19,13 +19,8 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 from decord import VideoReader, cpu
+from utils.dataset_utils import apply_minimap_mask
 
-try:
-    from utils.dataset_utils import apply_minimap_mask
-except ImportError:
-    import sys
-    sys.path.append(str(Path(__file__).parent.parent))
-    from utils.dataset_utils import apply_minimap_mask
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -125,53 +120,31 @@ class ContrastiveDataset(Dataset):
             cfg: Configuration dictionary containing dataset parameters
         """
         self.cfg = cfg
-        self.data_cfg = cfg.data
-        self.path_cfg = cfg.path
-        
-        # Common video parameters
-        self.target_fps = self.data_cfg.target_fps
-        self.fixed_duration_seconds = self.data_cfg.fixed_duration_seconds
-        self.mask_minimap = self.data_cfg.mask_minimap
-        self.time_jitter_max_seconds = self.data_cfg.time_jitter_max_seconds
-        
-        # Path configuration
-        self.data_root = Path(cfg.path.data)
-        
-        # Contrastive-specific configuration
-        self.allow_variable_agents = cfg.data.allow_variable_agents
-        self.min_agents = cfg.data.min_agents
         
         # Load label CSV file
-        self.label_path = self.data_cfg.label_path
-        self.df = pd.read_csv(self.label_path, keep_default_na=False)
+        self.df = pd.read_csv(self.cfg.data.label_path, keep_default_na=False)
         
         # Partition filtering
-        self.partition = self.data_cfg.partition
-        if self.partition != 'all':
+        if self.cfg.data.partition != 'all':
             initial_count = len(self.df)
-            # Store original CSV index before filtering (needed for pre-computed embeddings)
-            self.df['original_csv_idx'] = self.df.index
-            self.df = self.df[self.df['partition'] == self.partition].reset_index(drop=True)
+            self.df = self.df[self.df['partition'] == self.cfg.data.partition].reset_index(drop=True)
             filtered_count = len(self.df)
-            logger.info(f"Filtered dataset from {initial_count} to {filtered_count} samples for partition '{self.partition}'")
-        else:
-            # No filtering, original index = current index
-            self.df['original_csv_idx'] = self.df.index
+            logger.info(f"Filtered dataset from {initial_count} to {filtered_count} samples for partition '{self.cfg.data.partition}'")
         
         # Initialize video processor
         self._init_video_processor()
         
         # Filter out samples with too few agents if allow_variable_agents is True
-        if self.allow_variable_agents:
+        if self.cfg.data.allow_variable_agents:
             # Check num_alive_teammates column if it exists
             if 'num_alive_teammates' in self.df.columns:
                 initial_count = len(self.df)
-                self.df = self.df[self.df['num_alive_teammates'] >= self.min_agents].reset_index(drop=True)
-                logger.info(f"Filtered samples with <{self.min_agents} agents: {initial_count} -> {len(self.df)}")
+                self.df = self.df[self.df['num_alive_teammates'] >= self.cfg.data.min_agents].reset_index(drop=True)
+                logger.info(f"Filtered samples with <{self.cfg.data.min_agents} agents: {initial_count} -> {len(self.df)}")
         
         logger.info(f"Contrastive dataset initialized with {len(self.df)} samples")
-        logger.info(f"Allow variable agents: {self.allow_variable_agents}")
-        logger.info(f"Minimum agents: {self.min_agents}")
+        logger.info(f"Allow variable agents: {self.cfg.data.allow_variable_agents}")
+        logger.info(f"Minimum agents: {self.cfg.data.min_agents}")
     
     def _init_video_processor(self):
         """Initialize video processor based on model type from config."""
@@ -208,11 +181,12 @@ class ContrastiveDataset(Dataset):
         """Convert relative path to absolute path using configured data directory."""
         if not Path(path).is_absolute():
             path_obj = Path(path)
+            data_root = Path(self.cfg.path.data)
             if path_obj.parts[0] == "data":
                 relative_path = Path(*path_obj.parts[1:])
-                path = str(self.data_root / relative_path)
+                path = str(data_root / relative_path)
             else:
-                path = str(self.data_root / path)
+                path = str(data_root / path)
         return path
     
     def _load_embedding(self, csv_idx: int, agent_position: int) -> torch.Tensor:
@@ -225,7 +199,7 @@ class ContrastiveDataset(Dataset):
     
     def _load_video_clip(self, video_path: str, start_seconds: float, end_seconds: float) -> torch.Tensor:
         """Load video clip using decord."""
-        expected_frames = int(self.fixed_duration_seconds * self.target_fps)
+        expected_frames = int(self.cfg.data.fixed_duration_seconds * self.cfg.data.target_fps)
         video_full_path = self._to_absolute_path(video_path)
         
         try:
@@ -233,13 +207,13 @@ class ContrastiveDataset(Dataset):
             video_fps = decoder.get_avg_fps()
             
             # Sample frames at target_fps
-            timestamps = np.linspace(start_seconds, start_seconds + self.fixed_duration_seconds, 
+            timestamps = np.linspace(start_seconds, start_seconds + self.cfg.data.fixed_duration_seconds, 
                                      expected_frames, endpoint=False)
             
             # Apply time jitter if configured
-            if self.time_jitter_max_seconds > 0:
-                jitter = np.random.uniform(-self.time_jitter_max_seconds, 
-                                           self.time_jitter_max_seconds, size=len(timestamps))
+            if self.cfg.data.time_jitter_max_seconds > 0:
+                jitter = np.random.uniform(-self.cfg.data.time_jitter_max_seconds, 
+                                           self.cfg.data.time_jitter_max_seconds, size=len(timestamps))
                 timestamps = timestamps + jitter
                 total_duration = len(decoder) / video_fps
                 timestamps = np.clip(timestamps, 0, total_duration)
@@ -251,7 +225,7 @@ class ContrastiveDataset(Dataset):
             video_clip = decoder.get_batch(frame_indices.tolist())
             video_clip = torch.from_numpy(video_clip.asnumpy()).permute(0, 3, 1, 2).half()
             
-            if self.mask_minimap:
+            if self.cfg.data.mask_minimap:
                 video_clip = apply_minimap_mask(video_clip)
             
             return video_clip
@@ -311,6 +285,9 @@ class ContrastiveDataset(Dataset):
             if not agent_id or str(agent_id).strip() == '' or str(agent_id) == 'nan':
                 continue
             
+            # Normalize agent_id to string for consistency (pandas may read as np.int64 or str)
+            agent_id = str(agent_id)
+            
             # Check health if available
             health = row.get(f'teammate_{i}_health', 100)
             if health == '' or (isinstance(health, (int, float)) and health <= 0):
@@ -348,14 +325,14 @@ class ContrastiveDataset(Dataset):
         match_id = row['match_id']
         round_num = row['round_num']
         pov_team_side = str(row['pov_team_side']).upper()
-        original_csv_idx = row.get('original_csv_idx', idx)
+        original_csv_idx = row['idx']
         
         # Get alive agents
         alive_agents = self._get_alive_agents(row)
         
-        if len(alive_agents) < self.min_agents:
+        if len(alive_agents) < self.cfg.data.min_agents:
             # Not enough agents - return minimal sample that will be masked
-            return self._create_minimal_sample(pov_team_side)
+            return self._create_minimal_sample(pov_team_side, original_csv_idx)
         
         # Load videos
         agent_videos = []
@@ -368,8 +345,8 @@ class ContrastiveDataset(Dataset):
             agent_videos.append(video_features)
             agent_ids.append(agent['id'])
         
-        if len(agent_videos) < self.min_agents:
-            return self._create_minimal_sample(pov_team_side)
+        if len(agent_videos) < self.cfg.data.min_agents:
+            return self._create_minimal_sample(pov_team_side, original_csv_idx)
         
         multi_agent_video = torch.stack(agent_videos, dim=0)  # [A, T, C, H, W]
         
@@ -385,11 +362,11 @@ class ContrastiveDataset(Dataset):
             'original_csv_idx': original_csv_idx,
         }
     
-    def _create_minimal_sample(self, pov_team_side: str) -> Dict:
+    def _create_minimal_sample(self, pov_team_side: str, original_csv_idx: int) -> Dict:
         """Create a minimal sample for edge cases (not enough agents)."""
         pov_team_side_encoded = 1 if pov_team_side == 'CT' else 0
         
-        num_frames = int(self.fixed_duration_seconds * self.target_fps)
+        num_frames = int(self.cfg.data.fixed_duration_seconds * self.cfg.data.target_fps)
         video = torch.zeros(1, num_frames, 3, 224, 224)
         
         return {
@@ -398,7 +375,7 @@ class ContrastiveDataset(Dataset):
             'pov_team_side': pov_team_side,
             'pov_team_side_encoded': torch.tensor(pov_team_side_encoded, dtype=torch.long),
             'agent_ids': [],
-            'original_csv_idx': -1,
+            'original_csv_idx': original_csv_idx,
         }
 
 

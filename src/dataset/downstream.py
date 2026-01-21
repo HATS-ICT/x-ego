@@ -14,7 +14,7 @@ import pandas as pd
 import numpy as np
 import torch
 from torch.utils.data import Dataset
-from transformers import AutoVideoProcessor
+from transformers import AutoProcessor
 from decord import VideoReader, cpu
 
 try:
@@ -127,19 +127,12 @@ class DownstreamDataset(Dataset):
         logger.info(f"Output dim: {self.output_dim}, Num classes: {self.num_classes}")
     
     def _init_video_processor(self):
-        """Initialize video processor based on configuration."""
-        processor_model = self.data_cfg.video_processor_model
+        """Initialize video processor based on model type from config."""
+        from models.modules.video_encoder import MODEL_TYPE_TO_PRETRAINED
         
-        if self.data_cfg.video_size_mode == "resize_center_crop":
-            self.video_processor = AutoVideoProcessor.from_pretrained(processor_model)
-        elif self.data_cfg.video_size_mode == "resize_distort":
-            self.video_processor = AutoVideoProcessor.from_pretrained(
-                processor_model,
-                do_center_crop=False
-            )
-            self.video_processor.size = {"width": 224, "height": 224}
-        else:
-            raise ValueError(f"Unsupported video_size_mode: {self.data_cfg.video_size_mode}")
+        model_type = self.cfg.model.encoder.video.model_type
+        pretrained_model = MODEL_TYPE_TO_PRETRAINED[model_type]
+        self.video_processor = AutoProcessor.from_pretrained(pretrained_model)
     
     def _parse_label_columns(self):
         """Parse label column names from task config."""

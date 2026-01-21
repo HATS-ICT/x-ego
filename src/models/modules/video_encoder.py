@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from transformers import CLIPModel, SiglipModel, Dinov2Model, VivitModel, VideoMAEModel, VJEPA2Model
+from transformers import CLIPModel, SiglipModel, Siglip2Model, Dinov2Model, VivitModel, VideoMAEModel, VJEPA2Model
 from transformers.models.vjepa2.modeling_vjepa2 import VJEPA2AttentivePooler
 from torch import Tensor
 from typing import Dict, Any, Tuple
@@ -12,6 +12,7 @@ import math
 MODEL_TYPE_TO_PRETRAINED = {
     "clip": "openai/clip-vit-base-patch32",
     "siglip": "google/siglip-base-patch16-224",
+    "siglip2": "google/siglip2-base-patch16-224",
     "dinov2": "facebook/dinov2-base",
     "vivit": "google/vivit-b-16x2-kinetics400",
     "videomae": "MCG-NJU/videomae-base",
@@ -153,6 +154,62 @@ class VideoEncoderSigLIP(nn.Module):
         sequence_output = vision_outputs.last_hidden_state  # [batch_size * num_frames, seq_len, hidden_size]
         
         # following https://github.com/huggingface/transformers/blob/main/src/transformers/models/siglip/modeling_siglip.py#L1007-L1109
+        frame_features = torch.mean(sequence_output, dim=1)  # [batch_size * num_frames, hidden_size]
+        frame_features = frame_features.view(batch_size, num_frames, -1)  # [batch_size, num_frames, hidden_size]
+        
+        if return_temporal_features:
+            return frame_features  # [batch_size, num_frames, hidden_size]
+        
+        video_features = torch.mean(frame_features, dim=1)  # [batch_size, hidden_size]
+        return video_features
+
+
+class VideoEncoderSigLIP2(nn.Module):
+    """
+    SigLIP2-based video encoder for video classification.
+    
+    Processes video frames through SigLIP2 vision model and pools across time dimension.
+    """
+    
+    def __init__(self, cfg: Dict[str, Any]):
+        super().__init__()
+        self.cfg = cfg
+        
+        self.model_type = cfg.model_type
+        self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
+        
+        
+        self.vision_model = Siglip2Model.from_pretrained(self.from_pretrained).vision_model
+        self.embed_dim = self.vision_model.config.hidden_size
+        
+        if cfg.freeze_backbone:
+            self._freeze_backbone()
+    
+    def _freeze_backbone(self):
+        """Freeze vision model parameters."""
+        for param in self.vision_model.parameters():
+            param.requires_grad = False
+    
+    def forward(self, pixel_values: torch.Tensor, return_temporal_features: bool = False) -> Tensor:
+        """
+        Forward pass through the SigLIP2 video encoder.
+        
+        Args:
+            pixel_values: Video tensor of shape [batch_size, num_frames, channels, height, width]
+            return_temporal_features: If True, return per-frame features [batch_size, num_frames, hidden_size]
+                                     If False, return pooled video features [batch_size, hidden_size]
+            
+        Returns:
+            Video features - either pooled [batch_size, hidden_size] or temporal [batch_size, num_frames, hidden_size]
+        """
+        batch_size, num_frames, channels, height, width = pixel_values.shape
+        
+        frames = pixel_values.view(-1, channels, height, width)
+        
+        vision_outputs = self.vision_model(pixel_values=frames)
+        sequence_output = vision_outputs.last_hidden_state  # [batch_size * num_frames, seq_len, hidden_size]
+        
+        # Mean pooling over sequence (same as SigLIP)
         frame_features = torch.mean(sequence_output, dim=1)  # [batch_size * num_frames, hidden_size]
         frame_features = frame_features.view(batch_size, num_frames, -1)  # [batch_size, num_frames, hidden_size]
         
@@ -504,6 +561,10 @@ def get_embed_dim_for_model_type(model_type: str) -> int:
         from transformers import SiglipConfig
         config = SiglipConfig.from_pretrained(pretrained_name)
         return config.vision_config.hidden_size
+    elif model_type == 'siglip2':
+        from transformers import Siglip2Config
+        config = Siglip2Config.from_pretrained(pretrained_name)
+        return config.vision_config.hidden_size
     elif model_type == 'dinov2':
         from transformers import Dinov2Config
         config = Dinov2Config.from_pretrained(pretrained_name)
@@ -532,6 +593,7 @@ class VideoEncoder(nn.Module):
     Supports:
     - CLIP models (model_type="clip")
     - SigLIP models (model_type="siglip")
+    - SigLIP2 models (model_type="siglip2")
     - DINOv2 models (model_type="dinov2")
     - ViViT models (model_type="vivit")
     - VideoMAE models (model_type="videomae")
@@ -548,6 +610,8 @@ class VideoEncoder(nn.Module):
             self.video_encoder = VideoEncoderClip(cfg)
         elif model_type == 'siglip':
             self.video_encoder = VideoEncoderSigLIP(cfg)
+        elif model_type == 'siglip2':
+            self.video_encoder = VideoEncoderSigLIP2(cfg)
         elif model_type == 'dinov2':
             self.video_encoder = VideoEncoderDinov2(cfg)
         elif model_type == 'vivit':

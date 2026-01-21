@@ -105,9 +105,14 @@ def setup_logger(cfg):
     elif 'teammate' in exp_name:
         tags.append('task:teammate-now')
     
-    # Add contrastive tag
-    contrastive_enabled = cfg.model.contrastive.enable
-    tags.append('yes_contra' if contrastive_enabled else 'no_contra')
+    # Add contrastive tag (only for contrastive task, downstream uses stage1_checkpoint)
+    if 'contrastive' in cfg.model:
+        contrastive_enabled = cfg.model.contrastive.enable
+        tags.append('yes_contra' if contrastive_enabled else 'no_contra')
+    elif cfg.model.get('stage1_checkpoint'):
+        tags.append('yes_contra')  # Using pretrained contrastive encoder
+    else:
+        tags.append('no_contra')  # Baseline with off-the-shelf encoder
     
     # Initialize wandb
     logger = WandbLogger(
@@ -332,7 +337,7 @@ def print_task_info(cfg, datamodule, task_name):
         print(f"ML form: {cfg.task.ml_form}")
         print(f"Num classes: {cfg.task.num_classes}")
         print(f"Output dim: {cfg.task.output_dim}")
-        print(f"Encoder frozen: {cfg.model.freeze_encoder}")
+        print(f"Encoder frozen: {cfg.model.encoder.video.freeze_backbone}")
         if cfg.model.stage1_checkpoint:
             print(f"Stage 1 checkpoint: {cfg.model.stage1_checkpoint}")
     # Common info for location prediction tasks

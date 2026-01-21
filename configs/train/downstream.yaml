@@ -27,8 +27,6 @@ data:
   fixed_duration_seconds: 5
   target_fps: 4
   video_column_name: video_path
-  video_processor_model: facebook/vjepa2-vitl-fpc16-256-ssv2
-  video_size_mode: resize_distort
   mask_minimap: true
   time_jitter_max_seconds: 0.3
   labels_filename: downstream_labels.csv

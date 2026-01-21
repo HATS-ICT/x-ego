@@ -116,15 +116,19 @@ class LinearProbeModel(L.LightningModule):
         """Load video encoder weights from Stage 1 contrastive checkpoint."""
         print(f"[LinearProbe] Loading Stage 1 encoder from: {checkpoint_path}")
         
-        checkpoint = torch.load(checkpoint_path, map_location='cpu')
+        checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
         state_dict = checkpoint['state_dict']
         
         # Extract video_encoder weights (keys start with 'video_encoder.')
+        # The checkpoint has keys like 'video_encoder.video_encoder.vision_model...'
+        # Our VideoEncoder expects keys like 'video_encoder.vision_model...'
+        # So we need to strip only the first 'video_encoder.' prefix
         encoder_state = {}
+        prefix = 'video_encoder.'
         for k, v in state_dict.items():
-            if k.startswith('video_encoder.'):
-                # Remove 'video_encoder.' prefix
-                new_key = k.replace('video_encoder.', '')
+            if k.startswith(prefix):
+                # Remove only the first 'video_encoder.' prefix
+                new_key = k[len(prefix):]
                 encoder_state[new_key] = v
         
         if encoder_state:

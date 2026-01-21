@@ -174,21 +174,13 @@ class ContrastiveDataset(Dataset):
         logger.info(f"Minimum agents: {self.min_agents}")
     
     def _init_video_processor(self):
-        """Initialize video processor based on configuration."""
-        from transformers import AutoVideoProcessor
+        """Initialize video processor based on model type from config."""
+        from transformers import AutoProcessor
+        from models.modules.video_encoder import MODEL_TYPE_TO_PRETRAINED
         
-        processor_model = self.data_cfg.video_processor_model
-        
-        if self.data_cfg.video_size_mode == "resize_center_crop":
-            self.video_processor = AutoVideoProcessor.from_pretrained(processor_model)
-        elif self.data_cfg.video_size_mode == "resize_distort":
-            self.video_processor = AutoVideoProcessor.from_pretrained(
-                processor_model,
-                do_center_crop=False
-            )
-            self.video_processor.size = {"width": 224, "height": 224}
-        else:
-            raise ValueError(f"Unsupported video_size_mode: {self.data_cfg.video_size_mode}")
+        model_type = self.cfg.model.encoder.video.model_type
+        pretrained_model = MODEL_TYPE_TO_PRETRAINED[model_type]
+        self.video_processor = AutoProcessor.from_pretrained(pretrained_model)
     
     def _to_absolute_path(self, path: str) -> str:
         """Convert relative path to absolute path using configured data directory."""

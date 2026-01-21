@@ -17,7 +17,7 @@ task:
 data:
   partition: all
   labels_folder: labels
-  video_folder: video_544x306_4fps
+  video_folder: video_306x306_4fps
   persistent_workers: true
   pin_mem: true
   batch_size: 8

@@ -38,7 +38,7 @@ class TeammateMovementDirectionCreator(TaskCreatorBase):
             return []
         
         segments = []
-        segment_ticks = segment_length_sec * self.tick_rate
+        segment_ticks = int(segment_length_sec * self.tick_rate)
         stride_ticks = int(self.stride_sec * self.tick_rate)
         stride_ticks = max(1, stride_ticks)
         
@@ -73,11 +73,18 @@ class TeammateMovementDirectionCreator(TaskCreatorBase):
             while current_tick + segment_ticks <= death_tick:
                 end_tick = current_tick + segment_ticks
                 middle_tick = current_tick + segment_ticks // 2
+                
+                # Calculate prev_tick with minimum gap for meaningful movement
+                min_gap_ticks = max(1, int(0.1 * self.tick_rate))  # At least 0.1 seconds
                 prev_tick = max(global_min_tick, middle_tick - lookback_ticks)
                 
-                # Ensure prev_tick is before middle_tick
-                if prev_tick >= middle_tick:
-                    prev_tick = max(global_min_tick, middle_tick - 1)
+                # Ensure prev_tick is at least min_gap_ticks before middle_tick
+                if prev_tick >= middle_tick - min_gap_ticks:
+                    prev_tick = max(global_min_tick, middle_tick - min_gap_ticks)
+                    # If we can't get enough history, skip this segment
+                    if prev_tick >= middle_tick:
+                        current_tick += stride_ticks
+                        continue
                 
                 # Verify POV player is alive
                 segment_data = pov_df[(pov_df['tick'] >= current_tick) & (pov_df['tick'] <= end_tick)]
@@ -91,7 +98,7 @@ class TeammateMovementDirectionCreator(TaskCreatorBase):
                     current_tick += stride_ticks
                     continue
                 
-                # Get teammate movement directions (4 teammates excluding POV)
+                # Get teammate movement directions (up to 4 teammates excluding POV)
                 teammate_directions = []
                 for steamid, df in player_trajectories.items():
                     if steamid == pov_steamid:
@@ -106,10 +113,14 @@ class TeammateMovementDirectionCreator(TaskCreatorBase):
                         direction_idx = self._compute_movement_direction(player_prev, player_curr)
                         teammate_directions.append(direction_idx)
                 
-                # Need exactly 4 teammates
-                if len(teammate_directions) != 4:
+                # Need at least 1 teammate, pad to 4 with -1 (invalid direction)
+                if len(teammate_directions) == 0:
                     current_tick += stride_ticks
                     continue
+                
+                # Pad to exactly 4 teammates with -1 for dead/missing teammates
+                while len(teammate_directions) < 4:
+                    teammate_directions.append(-1)
                 
                 segment_info = {
                     'start_tick': current_tick - global_min_tick,
@@ -151,7 +162,13 @@ class TeammateMovementDirectionCreator(TaskCreatorBase):
             output_rows.append(row)
             idx += 1
         
-        df = pd.DataFrame(output_rows)
+        # Create DataFrame with proper columns even if empty (4 teammates)
+        base_columns = ['idx', 'partition', 'pov_steamid', 'pov_side', 'seg_duration_sec', 
+                       'start_tick', 'end_tick', 'prediction_tick', 'match_id', 'round_num']
+        label_columns = [f'label_{i}' for i in range(4)]
+        columns = base_columns + label_columns
+        df = pd.DataFrame(output_rows, columns=columns)
+        
         if len(df) > 0:
             df = df.sort_values(['partition', 'match_id', 'round_num'])
             df = df.reset_index(drop=True)
@@ -180,7 +197,7 @@ class TeammateSpeedCreator(TaskCreatorBase):
             return []
         
         segments = []
-        segment_ticks = segment_length_sec * self.tick_rate
+        segment_ticks = int(segment_length_sec * self.tick_rate)
         stride_ticks = int(self.stride_sec * self.tick_rate)
         stride_ticks = max(1, stride_ticks)
         
@@ -216,11 +233,18 @@ class TeammateSpeedCreator(TaskCreatorBase):
             while current_tick + segment_ticks <= death_tick:
                 end_tick = current_tick + segment_ticks
                 middle_tick = current_tick + segment_ticks // 2
+                
+                # Calculate prev_tick with minimum gap for meaningful movement
+                min_gap_ticks = max(1, int(0.1 * self.tick_rate))  # At least 0.1 seconds
                 prev_tick = max(global_min_tick, middle_tick - lookback_ticks)
                 
-                # Ensure prev_tick is before middle_tick
-                if prev_tick >= middle_tick:
-                    prev_tick = max(global_min_tick, middle_tick - 1)
+                # Ensure prev_tick is at least min_gap_ticks before middle_tick
+                if prev_tick >= middle_tick - min_gap_ticks:
+                    prev_tick = max(global_min_tick, middle_tick - min_gap_ticks)
+                    # If we can't get enough history, skip this segment
+                    if prev_tick >= middle_tick:
+                        current_tick += stride_ticks
+                        continue
                 
                 # Verify POV player is alive
                 segment_data = pov_df[(pov_df['tick'] >= current_tick) & (pov_df['tick'] <= end_tick)]
@@ -234,7 +258,7 @@ class TeammateSpeedCreator(TaskCreatorBase):
                     current_tick += stride_ticks
                     continue
                 
-                # Get teammate speeds (4 teammates excluding POV)
+                # Get teammate speeds (up to 4 teammates excluding POV)
                 teammate_speeds = []
                 for steamid, df in player_trajectories.items():
                     if steamid == pov_steamid:
@@ -256,10 +280,14 @@ class TeammateSpeedCreator(TaskCreatorBase):
                         
                         teammate_speeds.append(speed)
                 
-                # Need exactly 4 teammates
-                if len(teammate_speeds) != 4:
+                # Need at least 1 teammate, pad to 4 with 0.0 (dead/missing teammates)
+                if len(teammate_speeds) == 0:
                     current_tick += stride_ticks
                     continue
+                
+                # Pad to exactly 4 teammates with 0.0 for dead/missing teammates
+                while len(teammate_speeds) < 4:
+                    teammate_speeds.append(0.0)
                 
                 segment_info = {
                     'start_tick': current_tick - global_min_tick,
@@ -301,7 +329,13 @@ class TeammateSpeedCreator(TaskCreatorBase):
             output_rows.append(row)
             idx += 1
         
-        df = pd.DataFrame(output_rows)
+        # Create DataFrame with proper columns even if empty (4 teammates)
+        base_columns = ['idx', 'partition', 'pov_steamid', 'pov_side', 'seg_duration_sec', 
+                       'start_tick', 'end_tick', 'prediction_tick', 'match_id', 'round_num']
+        label_columns = [f'label_{i}' for i in range(4)]
+        columns = base_columns + label_columns
+        df = pd.DataFrame(output_rows, columns=columns)
+        
         if len(df) > 0:
             df = df.sort_values(['partition', 'match_id', 'round_num'])
             df = df.reset_index(drop=True)

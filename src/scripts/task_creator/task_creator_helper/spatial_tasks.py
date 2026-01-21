@@ -32,7 +32,7 @@ class POVMovementDirectionCreator(TaskCreatorBase):
             return []
         
         segments = []
-        segment_ticks = segment_length_sec * self.tick_rate
+        segment_ticks = int(segment_length_sec * self.tick_rate)
         stride_ticks = int(self.stride_sec * self.tick_rate)
         stride_ticks = max(1, stride_ticks)
         
@@ -40,7 +40,7 @@ class POVMovementDirectionCreator(TaskCreatorBase):
         all_min_ticks = []
         for df in player_trajectories.values():
             if not df.empty:
-                all_min_ticks.append(df['tick'].min())
+                all_min_ticks.append(int(df['tick'].min()))
         
         if not all_min_ticks:
             return []
@@ -64,9 +64,9 @@ class POVMovementDirectionCreator(TaskCreatorBase):
             
             death_tick = self._find_player_death_tick(pov_df)
             if death_tick is None:
-                death_tick = pov_df['tick'].max()
+                death_tick = int(pov_df['tick'].max())
             
-            pov_min_tick = pov_df['tick'].min()
+            pov_min_tick = int(pov_df['tick'].min())
             pov_side = pov_df.iloc[0]['side']
             
             current_tick = pov_min_tick
@@ -74,11 +74,9 @@ class POVMovementDirectionCreator(TaskCreatorBase):
             while current_tick + segment_ticks <= death_tick:
                 end_tick = current_tick + segment_ticks
                 middle_tick = current_tick + segment_ticks // 2
-                prev_tick = max(pov_min_tick, middle_tick - lookback_ticks)
                 
-                # Ensure prev_tick is before middle_tick
-                if prev_tick >= middle_tick:
-                    prev_tick = max(pov_min_tick, middle_tick - 1)
+                # Calculate prev_tick for movement computation
+                prev_tick = max(pov_min_tick, middle_tick - lookback_ticks)
                 
                 # Verify POV player is alive
                 segment_data = pov_df[(pov_df['tick'] >= current_tick) & (pov_df['tick'] <= end_tick)]
@@ -130,12 +128,17 @@ class POVMovementDirectionCreator(TaskCreatorBase):
                 'match_id': segment['match_id'],
                 'round_num': segment['round_num'],
                 'map_name': segment['map_name'],
-                'label_direction': segment['direction_idx']
+                'label': segment['direction_idx']
             }
             output_rows.append(row)
             idx += 1
         
-        df = pd.DataFrame(output_rows)
+        # Create DataFrame with proper columns even if empty
+        columns = ['idx', 'partition', 'pov_steamid', 'pov_side', 'seg_duration_sec', 
+                  'start_tick', 'end_tick', 'prediction_tick', 'match_id', 'round_num', 
+                  'map_name', 'label']
+        df = pd.DataFrame(output_rows, columns=columns)
+        
         if len(df) > 0:
             df = df.sort_values(['partition', 'match_id', 'round_num'])
             df = df.reset_index(drop=True)
@@ -162,7 +165,7 @@ class POVSpeedCreator(TaskCreatorBase):
             return []
         
         segments = []
-        segment_ticks = segment_length_sec * self.tick_rate
+        segment_ticks = int(segment_length_sec * self.tick_rate)
         stride_ticks = int(self.stride_sec * self.tick_rate)
         stride_ticks = max(1, stride_ticks)
         
@@ -205,11 +208,24 @@ class POVSpeedCreator(TaskCreatorBase):
             while current_tick + segment_ticks <= death_tick:
                 end_tick = current_tick + segment_ticks
                 middle_tick = current_tick + segment_ticks // 2
+                
+                # Calculate prev_tick with minimum gap for meaningful movement
+                min_gap_ticks = max(1, int(0.1 * self.tick_rate))  # At least 0.1 seconds
                 prev_tick = max(pov_min_tick, middle_tick - lookback_ticks)
                 
-                # Ensure prev_tick is before middle_tick
-                if prev_tick >= middle_tick:
-                    prev_tick = max(pov_min_tick, middle_tick - 1)
+                # Ensure prev_tick is at least min_gap_ticks before middle_tick
+                if prev_tick >= middle_tick - min_gap_ticks:
+                    prev_tick = max(pov_min_tick, middle_tick - min_gap_ticks)
+                    # If we can't get enough history, skip this segment
+                    if prev_tick >= middle_tick:
+                        current_tick += stride_ticks
+                        continue
+                
+                # Recalculate lookback_sec based on actual time difference
+                actual_lookback_sec = (middle_tick - prev_tick) / self.tick_rate
+                if actual_lookback_sec <= 0:
+                    current_tick += stride_ticks
+                    continue
                 
                 # Verify POV player is alive
                 segment_data = pov_df[(pov_df['tick'] >= current_tick) & (pov_df['tick'] <= end_tick)]
@@ -230,7 +246,7 @@ class POVSpeedCreator(TaskCreatorBase):
                 dz = pov_curr.get('Z_norm', 0) - pov_prev.get('Z_norm', 0)
                 
                 distance = np.sqrt(dx**2 + dy**2 + dz**2)
-                speed = distance / lookback_sec  # normalized coords per second
+                speed = distance / actual_lookback_sec  # normalized coords per second
                 
                 segment_info = {
                     'start_tick': current_tick - global_min_tick,
@@ -266,12 +282,17 @@ class POVSpeedCreator(TaskCreatorBase):
                 'match_id': segment['match_id'],
                 'round_num': segment['round_num'],
                 'map_name': segment['map_name'],
-                'label_speed': segment['speed']
+                'label': segment['speed']
             }
             output_rows.append(row)
             idx += 1
         
-        df = pd.DataFrame(output_rows)
+        # Create DataFrame with proper columns even if empty
+        columns = ['idx', 'partition', 'pov_steamid', 'pov_side', 'seg_duration_sec', 
+                  'start_tick', 'end_tick', 'prediction_tick', 'match_id', 'round_num', 
+                  'map_name', 'label']
+        df = pd.DataFrame(output_rows, columns=columns)
+        
         if len(df) > 0:
             df = df.sort_values(['partition', 'match_id', 'round_num'])
             df = df.reset_index(drop=True)

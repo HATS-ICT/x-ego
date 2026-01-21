@@ -363,6 +363,10 @@ class TaskCreatorBase(ABC):
         exact_data = df[df['tick'] == target_tick]
         if not exact_data.empty:
             row = exact_data.iloc[0]
+            # Use X_norm if available, otherwise fall back to X (same for Y, Z)
+            x_norm = row.get('X_norm') if row.get('X_norm') is not None else row.get('X')
+            y_norm = row.get('Y_norm') if row.get('Y_norm') is not None else row.get('Y')
+            z_norm = row.get('Z_norm') if row.get('Z_norm') is not None else row.get('Z')
             return {
                 'steamid': row.get('steamid'),
                 'name': row.get('name'),
@@ -370,9 +374,9 @@ class TaskCreatorBase(ABC):
                 'X': row.get('X'),
                 'Y': row.get('Y'),
                 'Z': row.get('Z'),
-                'X_norm': row.get('X_norm'),
-                'Y_norm': row.get('Y_norm'), 
-                'Z_norm': row.get('Z_norm'),
+                'X_norm': x_norm,
+                'Y_norm': y_norm, 
+                'Z_norm': z_norm,
                 'place': row.get('place'),
                 'health': row.get('health')
             }
@@ -385,6 +389,10 @@ class TaskCreatorBase(ABC):
         if not window_data.empty:
             closest_idx = (window_data['tick'] - target_tick).abs().idxmin()
             row = df.loc[closest_idx]
+            # Use X_norm if available, otherwise fall back to X (same for Y, Z)
+            x_norm = row.get('X_norm') if row.get('X_norm') is not None else row.get('X')
+            y_norm = row.get('Y_norm') if row.get('Y_norm') is not None else row.get('Y')
+            z_norm = row.get('Z_norm') if row.get('Z_norm') is not None else row.get('Z')
             return {
                 'steamid': row.get('steamid'),
                 'name': row.get('name'),
@@ -392,9 +400,9 @@ class TaskCreatorBase(ABC):
                 'X': row.get('X'),
                 'Y': row.get('Y'),
                 'Z': row.get('Z'),
-                'X_norm': row.get('X_norm'),
-                'Y_norm': row.get('Y_norm'), 
-                'Z_norm': row.get('Z_norm'),
+                'X_norm': x_norm,
+                'Y_norm': y_norm, 
+                'Z_norm': z_norm,
                 'place': row.get('place'),
                 'health': row.get('health')
             }

@@ -48,7 +48,7 @@ def run_training_pipeline(cfg, model_class, datamodule_class, task_name, print_h
     setup_model_with_dataset_info(cfg, datamodule, model)
     
     if cfg.training.torch_compile:
-        model = torch.compile(model)
+        model.video_encoder = torch.compile(model.video_encoder)
     
     callbacks = setup_callbacks(cfg)
     logger = setup_logger(cfg)

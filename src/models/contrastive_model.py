@@ -16,7 +16,6 @@ Key features:
 import torch
 import lightning as L
 from torch.optim import AdamW
-import torch._dynamo
 
 from src.models.modules.video_encoder import VideoEncoder
 from src.models.modules.cross_ego_contrastive import CrossEgoContrastive
@@ -193,7 +192,6 @@ class ContrastiveModel(L.LightningModule):
         
         return loss, metrics
     
-    @torch._dynamo.disable
     def _compute_metrics(self, logits: torch.Tensor, labels: torch.Tensor, 
                          temperature: torch.Tensor) -> dict:
         """Compute contrastive learning metrics.
@@ -264,11 +262,6 @@ class ContrastiveModel(L.LightningModule):
         
         return metrics
     
-    @torch._dynamo.disable
-    def safe_log(self, *args, **kwargs):
-        """Safe logging that disables dynamo compilation."""
-        return self.log(*args, **kwargs)
-    
     def training_step(self, batch, batch_idx):
         """Training step.
         batch.video.shape: [total_agents, T, C, H, W] e.g. [5, 20, 3, 224, 224]
@@ -281,24 +274,17 @@ class ContrastiveModel(L.LightningModule):
         
         agent_counts = batch['agent_counts']
         batch_size = len(agent_counts)
-        total_agents = agent_counts.sum().item()
         
         # Log loss
-        self.safe_log('train/contrastive_loss', loss, batch_size=batch_size,
+        self.log('train/contrastive_loss', loss, batch_size=batch_size,
                      on_step=True, on_epoch=True, prog_bar=True)
-        self.safe_log('train/loss', loss, batch_size=batch_size,
+        self.log('train/loss', loss, batch_size=batch_size,
                      on_step=True, on_epoch=True, prog_bar=True)
         
         # Log metrics
         for name, value in metrics.items():
-            self.safe_log(f'train/contrastive_{name}', value, batch_size=batch_size,
+            self.log(f'train/contrastive_{name}', value, batch_size=batch_size,
                          on_step=True, on_epoch=True, prog_bar=False)
-        
-        # Log agent statistics
-        self.safe_log('train/total_agents', float(total_agents), batch_size=batch_size,
-                     on_step=True, on_epoch=False, prog_bar=False)
-        self.safe_log('train/avg_agents_per_sample', float(total_agents) / batch_size,
-                     batch_size=batch_size, on_step=True, on_epoch=True, prog_bar=False)
         
         return loss
     
@@ -311,14 +297,14 @@ class ContrastiveModel(L.LightningModule):
         batch_size = len(batch['agent_counts'])
         
         # Log loss
-        self.safe_log('val/contrastive_loss', loss, batch_size=batch_size,
+        self.log('val/contrastive_loss', loss, batch_size=batch_size,
                      on_step=False, on_epoch=True, prog_bar=True)
-        self.safe_log('val/loss', loss, batch_size=batch_size,
+        self.log('val/loss', loss, batch_size=batch_size,
                      on_step=False, on_epoch=True, prog_bar=True)
         
         # Log metrics
         for name, value in metrics.items():
-            self.safe_log(f'val/contrastive_{name}', value, batch_size=batch_size,
+            self.log(f'val/contrastive_{name}', value, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=False)
         
         return loss
@@ -334,12 +320,12 @@ class ContrastiveModel(L.LightningModule):
         prefix = f'test/{checkpoint_name}'
         
         # Log loss
-        self.safe_log(f'{prefix}/contrastive_loss', loss, batch_size=batch_size,
+        self.log(f'{prefix}/contrastive_loss', loss, batch_size=batch_size,
                      on_step=False, on_epoch=True, prog_bar=True)
         
         # Log metrics
         for name, value in metrics.items():
-            self.safe_log(f'{prefix}/contrastive_{name}', value, batch_size=batch_size,
+            self.log(f'{prefix}/contrastive_{name}', value, batch_size=batch_size,
                          on_step=False, on_epoch=True, prog_bar=False)
         
         return loss

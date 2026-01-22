@@ -18,7 +18,9 @@ import lightning as L
 from torch.optim import AdamW
 import torch._dynamo
 from torchmetrics.classification import (
-    MultilabelAccuracy, MultilabelF1Score, MulticlassAccuracy, MulticlassF1Score, BinaryAccuracy, BinaryF1Score, BinaryAUROC
+    MultilabelAccuracy, MultilabelF1Score, MultilabelAUROC,
+    MulticlassAccuracy, MulticlassF1Score,
+    BinaryAccuracy, BinaryF1Score, BinaryAUROC
 )
 from torchmetrics import MeanSquaredError, MeanAbsoluteError, R2Score
 
@@ -172,12 +174,16 @@ class LinearProbeModel(L.LightningModule):
         elif self.ml_form == 'multi_cls':
             for split in ['train', 'val', 'test']:
                 setattr(self, f'{split}_acc', MulticlassAccuracy(num_classes=self.num_classes))
+                setattr(self, f'{split}_acc_top3', MulticlassAccuracy(num_classes=self.num_classes, top_k=3))
+                setattr(self, f'{split}_acc_top5', MulticlassAccuracy(num_classes=self.num_classes, top_k=5))
                 setattr(self, f'{split}_f1', MulticlassF1Score(num_classes=self.num_classes, average='macro'))
         
         elif self.ml_form == 'multi_label_cls':
             for split in ['train', 'val', 'test']:
-                setattr(self, f'{split}_acc', MultilabelAccuracy(num_labels=self.num_classes))
+                setattr(self, f'{split}_acc_subset', MultilabelAccuracy(num_labels=self.num_classes, average='micro', threshold=0.5))
+                setattr(self, f'{split}_acc_hamming', MultilabelAccuracy(num_labels=self.num_classes, average='micro', threshold=0.5, multidim_average='global'))
                 setattr(self, f'{split}_f1', MultilabelF1Score(num_labels=self.num_classes, average='macro'))
+                setattr(self, f'{split}_auroc', MultilabelAUROC(num_labels=self.num_classes, average='macro'))
         
         elif self.ml_form == 'regression':
             for split in ['train', 'val', 'test']:
@@ -273,23 +279,38 @@ class LinearProbeModel(L.LightningModule):
         
         elif self.ml_form == 'multi_cls':
             acc = getattr(self, f'{split}_acc')
+            acc_top3 = getattr(self, f'{split}_acc_top3')
+            acc_top5 = getattr(self, f'{split}_acc_top5')
             f1 = getattr(self, f'{split}_f1')
             
             acc(preds, targets.long())
             f1(preds, targets.long())
+            # Only compute top-k if we have enough classes
+            if self.num_classes >= 3:
+                acc_top3(preds, targets.long())
+                self.safe_log(f'{split}/acc_top3', acc_top3, batch_size=batch_size, on_epoch=True)
+            if self.num_classes >= 5:
+                acc_top5(preds, targets.long())
+                self.safe_log(f'{split}/acc_top5', acc_top5, batch_size=batch_size, on_epoch=True)
             
             self.safe_log(f'{split}/acc', acc, batch_size=batch_size, on_epoch=True)
             self.safe_log(f'{split}/f1', f1, batch_size=batch_size, on_epoch=True)
         
         elif self.ml_form == 'multi_label_cls':
-            acc = getattr(self, f'{split}_acc')
+            acc_subset = getattr(self, f'{split}_acc_subset')
+            acc_hamming = getattr(self, f'{split}_acc_hamming')
             f1 = getattr(self, f'{split}_f1')
+            auroc = getattr(self, f'{split}_auroc')
             
-            acc(preds, targets.int())
+            acc_subset(preds, targets.int())
+            acc_hamming(preds, targets.int())
             f1(preds, targets.int())
+            auroc(preds, targets.int())
             
-            self.safe_log(f'{split}/acc', acc, batch_size=batch_size, on_epoch=True)
+            self.safe_log(f'{split}/acc_subset', acc_subset, batch_size=batch_size, on_epoch=True)
+            self.safe_log(f'{split}/acc_hamming', acc_hamming, batch_size=batch_size, on_epoch=True)
             self.safe_log(f'{split}/f1', f1, batch_size=batch_size, on_epoch=True)
+            self.safe_log(f'{split}/auroc', auroc, batch_size=batch_size, on_epoch=True)
         
         elif self.ml_form == 'regression':
             mse = getattr(self, f'{split}_mse')
@@ -364,17 +385,24 @@ def get_metrics_for_task(ml_form: str, num_classes: int = None, num_labels: int 
         }
     
     elif ml_form == 'multi_cls':
-        return {
+        metrics = {
             'acc': MulticlassAccuracy(num_classes=num_classes),
             'f1_macro': MulticlassF1Score(num_classes=num_classes, average='macro'),
             'f1_micro': MulticlassF1Score(num_classes=num_classes, average='micro'),
         }
+        if num_classes >= 3:
+            metrics['acc_top3'] = MulticlassAccuracy(num_classes=num_classes, top_k=3)
+        if num_classes >= 5:
+            metrics['acc_top5'] = MulticlassAccuracy(num_classes=num_classes, top_k=5)
+        return metrics
     
     elif ml_form == 'multi_label_cls':
         return {
-            'acc': MultilabelAccuracy(num_labels=num_labels),
+            'acc_subset': MultilabelAccuracy(num_labels=num_labels, average='micro', threshold=0.5),
+            'acc_hamming': MultilabelAccuracy(num_labels=num_labels, average='micro', threshold=0.5, multidim_average='global'),
             'f1_macro': MultilabelF1Score(num_labels=num_labels, average='macro'),
             'f1_micro': MultilabelF1Score(num_labels=num_labels, average='micro'),
+            'auroc': MultilabelAUROC(num_labels=num_labels, average='macro'),
         }
     
     elif ml_form == 'regression':

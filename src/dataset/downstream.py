@@ -42,16 +42,12 @@ class DownstreamDataset(Dataset):
                 - task.task_id: Task identifier
                 - task.ml_form: ML form (binary_cls, multi_cls, etc.)
                 - task.label_column: Column name(s) for labels
-                - data.labels_filename: Path to labels CSV
+                - data.label_path: Path to labels CSV (set by DataModule)
         """
         self.cfg = cfg
         
-        # Load label CSV
-        data_root = Path(cfg.path.data)
-        label_path = data_root / cfg.data.labels_folder / cfg.data.labels_filename
-        
-        if not label_path.exists():
-            raise FileNotFoundError(f"Labels file not found: {label_path}")
+        # Load label CSV (path is set by DataModule._validate_paths())
+        label_path = cfg.data.label_path
         
         self.df = pl.read_csv(label_path, null_values=[])
         rprint(f"[green]OK[/green] Loaded [bold]{len(self.df):,}[/bold] samples from [dim]{label_path}[/dim]")

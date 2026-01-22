@@ -2,7 +2,7 @@
 
 data:
   batch_size: 16
-  num_workers: 0
+  num_workers: 16
 
 training:
   max_epochs: 2
@@ -10,6 +10,12 @@ training:
   limit_val_batches: 2
   limit_test_batches: 2
   log_every_n_steps: 1
+  accumulate_grad_batches: 2
 
+model:
+  stage1_checkpoint: null
+  encoder:
+    finetune_last_k_layers: 0  # -1: finetune all, 0: freeze all, k: finetune last k layers
+    model_type: vjepa2
 wandb:
   enabled: false

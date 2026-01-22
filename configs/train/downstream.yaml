@@ -7,7 +7,7 @@ meta:
   resume_exp: null
 
 task:
-  task_id: self_location
+  task_id: self_location_0s
   ml_form: multi_cls
   num_classes: 23
   output_dim: 23
@@ -19,14 +19,14 @@ data:
   video_folder: video_306x306_4fps
   persistent_workers: true
   pin_mem: true
-  batch_size: 8
-  num_workers: 4
+  batch_size: 16
+  num_workers: 16
   prefetch_factor: 2
   data_path_csv_filename: video_partitioned_chunked_downsized.csv
   fixed_duration_seconds: 5
   target_fps: 4
   video_column_name: video_path
-  ui_mask: minimap_only  # options: none, minimap_only, all (all not implemented yet)
+  ui_mask: all  # options: none, minimap_only, all (all not implemented yet)
   time_jitter_max_seconds: 0
 
 model:
@@ -39,14 +39,14 @@ model:
     model_type: siglip2
 
 training:
-  max_epochs: 20
+  max_epochs: 30
   max_steps: -1
   accelerator: gpu
   devices: 1
   strategy: auto
   precision: bf16-mixed
   gradient_clip_val: 1.0
-  accumulate_grad_batches: 1
+  accumulate_grad_batches: 2
   val_check_interval: null
   check_val_every_n_epoch: 1
   log_every_n_steps: 10
@@ -61,16 +61,20 @@ training:
   limit_test_batches: 1.0
 
 optimization:
-  lr: 0.001
+  lr: 0.0004
   weight_decay: 0.0
   fused_optimizer: true
 
 wandb:
   enabled: true
   project: xego-v2
-  name: null
+  name: ${meta.run_name}
   group: null
-  tags: null
+  tags:
+  - ${task.task_id}
+  - ${model.encoder.model_type}
+  - downstream
+  - ui_mask_${data.ui_mask}
   notes: null
   save_dir: null
 

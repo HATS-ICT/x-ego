@@ -18,9 +18,6 @@ import lightning as L
 from torch.optim import AdamW
 import torch._dynamo
 
-# Configure dynamo to capture scalar outputs to avoid graph breaks from .item() calls
-torch._dynamo.config.capture_scalar_outputs = True
-
 from src.models.modules.video_encoder import VideoEncoder
 from src.models.modules.cross_ego_contrastive import CrossEgoContrastive
 from src.models.modules.architecture_utils import build_mlp
@@ -196,9 +193,16 @@ class ContrastiveModel(L.LightningModule):
         
         return loss, metrics
     
+    @torch._dynamo.disable
     def _compute_metrics(self, logits: torch.Tensor, labels: torch.Tensor, 
                          temperature: torch.Tensor) -> dict:
-        """Compute contrastive learning metrics."""
+        """Compute contrastive learning metrics.
+        
+        Disabled from dynamo compilation due to graph-breaking operations:
+        - .item() calls for scalar extraction
+        - Dynamic dictionary construction with conditionals
+        - Python control flow (if/for with data-dependent conditions)
+        """
         N = logits.shape[0]
         
         # Binary classification accuracy

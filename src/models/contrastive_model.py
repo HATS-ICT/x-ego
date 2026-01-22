@@ -18,6 +18,9 @@ import lightning as L
 from torch.optim import AdamW
 import torch._dynamo
 
+# Configure dynamo to capture scalar outputs to avoid graph breaks from .item() calls
+torch._dynamo.config.capture_scalar_outputs = True
+
 from src.models.modules.video_encoder import VideoEncoder
 from src.models.modules.cross_ego_contrastive import CrossEgoContrastive
 from src.models.modules.architecture_utils import build_mlp

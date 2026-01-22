@@ -40,10 +40,8 @@ class DownstreamDataModule(BaseDataModule):
     def _copy_dataset_attributes(self, base_dataset, partition_dataset):
         """Copy dataset attributes to partition datasets."""
         attrs = [
-            'task_id', 'ml_form', 'output_dim', 'num_classes', 
             'label_columns', 'video_processor',
-            'cfg', 'data_cfg', 'task_cfg', 'data_root',
-            'target_fps', 'fixed_duration_seconds', 'mask_minimap', 'time_jitter_max_seconds'
+            'cfg', 'model_type', 'processor_type',
         ]
         for attr in attrs:
             if hasattr(base_dataset, attr):
@@ -61,8 +59,8 @@ class DownstreamDataModule(BaseDataModule):
     
     def _store_dataset_info(self, base_dataset):
         """Store dataset information."""
-        rprint(f"[green]✓[/green] Task: [bold]{base_dataset.task_id}[/bold]")
-        rprint(f"  ML form: [cyan]{base_dataset.ml_form}[/cyan]")
-        rprint(f"  Output dim: [bold]{base_dataset.output_dim}[/bold]")
-        rprint(f"  Num classes: [bold]{base_dataset.num_classes}[/bold]")
+        rprint(f"[green]CHECK[/green] Task: [bold]{base_dataset.cfg.task.task_id}[/bold]")
+        rprint(f"  ML form: [cyan]{base_dataset.cfg.task.ml_form}[/cyan]")
+        rprint(f"  Output dim: [bold]{base_dataset.cfg.task.output_dim}[/bold]")
+        rprint(f"  Num classes: [bold]{base_dataset.cfg.task.num_classes}[/bold]")
         rprint(f"  Full dataset: [bold]{len(base_dataset):,}[/bold] samples")

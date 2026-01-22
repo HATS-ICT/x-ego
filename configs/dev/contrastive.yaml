@@ -1,12 +1,12 @@
 # Dev overrides for contrastive learning
 
 data:
-  batch_size: 4
+  batch_size: 2
   num_workers: 0
 
 training:
   max_epochs: 2
-  limit_train_batches: 1.0
+  limit_train_batches: 2
   limit_val_batches: 2
   limit_test_batches: 2
   log_every_n_steps: 1

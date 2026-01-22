@@ -411,7 +411,7 @@ class VideoEncoderVJEPA2(nn.Module):
         
         configure_finetuning(
             self.vision_model,
-            self.vision_model.encoder.encoder.layers,  # VJEPA2 uses encoder.encoder.layers
+            self.vision_model.encoder.layer,  # VJEPA2 uses encoder.layer
             cfg.finetune_last_k_layers,
             getattr(self.vision_model.encoder, 'layernorm', None)
         )

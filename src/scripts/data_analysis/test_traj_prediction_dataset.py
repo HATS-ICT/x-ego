@@ -180,9 +180,9 @@ def test_random_sampling():
     
     # Verify we got different combinations
     if len(combinations) > 1:
-        print(f"\n✓ Random sampling is working (got {len(combinations)} different combinations)")
+        print(f"\nCHECK Random sampling is working (got {len(combinations)} different combinations)")
     else:
-        print("\n⚠ Warning: Only got 1 combination, might need more samples")
+        print("\nWARN Warning: Only got 1 combination, might need more samples")
     
     print("\n" + "=" * 80)
     print("Random sampling test completed successfully!")

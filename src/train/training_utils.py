@@ -312,7 +312,7 @@ def _plot_labels(labels_tensor, ax, cfg, label_type='enemy'):
     # Add text annotations for positive labels
     for place_idx in range(len(labels)):
         if labels[place_idx] > 0.5:
-            ax.text(place_idx, 0, '✓', ha='center', va='center', 
+            ax.text(place_idx, 0, 'CHECK', ha='center', va='center', 
                    color='black', fontsize=10, fontweight='bold')
     
 def setup_test_model_with_dataset_info(cfg, datamodule, test_model):
@@ -336,14 +336,6 @@ def print_task_info(cfg, datamodule, task_name):
         print(f"ML form: {cfg.task.ml_form}")
         print(f"Num classes: {cfg.task.num_classes}")
         print(f"Output dim: {cfg.task.output_dim}")
-        print(f"Encoder frozen: {cfg.model.encoder.video.freeze_backbone}")
+        print(f"Finetune last k layers: {cfg.model.encoder.video.finetune_last_k_layers}")
         if cfg.model.stage1_checkpoint:
             print(f"Stage 1 checkpoint: {cfg.model.stage1_checkpoint}")
-    # Common info for location prediction tasks
-    elif 'location' in task_name:
-        print(f"Number of agents: {cfg.data.num_pov_agents}")
-        print(f"Agent fusion method: {cfg.model.agent_fusion.method}")
-        
-        # Get num_places from datamodule after setup and update cfg
-        cfg.num_places = datamodule.num_places
-        print(f"Number of places: {cfg.num_places}")

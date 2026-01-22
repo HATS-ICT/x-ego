@@ -8,6 +8,18 @@ data/labels/task_definitions.csv in dev mode.
 
 import subprocess
 import sys
+
+# Fix Windows console encoding to support Unicode characters
+if sys.platform == 'win32':
+    # Set UTF-8 encoding for stdout and stderr
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    if hasattr(sys.stderr, 'reconfigure'):
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    # Also set environment variable for subprocesses
+    import os
+    os.environ['PYTHONIOENCODING'] = 'utf-8'
+
 import csv
 from pathlib import Path
 from dataclasses import dataclass
@@ -127,7 +139,7 @@ def print_summary(results: list[TestResult]):
         print(f"\n{category.upper()}:")
         for r in by_category[category]:
             status = "PASS" if r.success else "FAIL"
-            symbol = "✓" if r.success else "✗"
+            symbol = "CHECK" if r.success else "✗"
             print(f"  {symbol} {r.task_id}: {status}")
             
             if r.success:

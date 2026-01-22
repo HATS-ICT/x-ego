@@ -54,7 +54,7 @@ class DownstreamDataset(Dataset):
             raise FileNotFoundError(f"Labels file not found: {label_path}")
         
         self.df = pl.read_csv(label_path, null_values=[])
-        rprint(f"[green]✓[/green] Loaded [bold]{len(self.df):,}[/bold] samples from [dim]{label_path}[/dim]")
+        rprint(f"[green]CHECK[/green] Loaded [bold]{len(self.df):,}[/bold] samples from [dim]{label_path}[/dim]")
         
         # Add original CSV index
         self.df = self.df.with_row_index("original_csv_idx")
@@ -64,7 +64,7 @@ class DownstreamDataset(Dataset):
             initial_count = len(self.df)
             self.df = self.df.filter(pl.col('partition') == cfg.data.partition)
             filtered_count = len(self.df)
-            rprint(f"[blue]→[/blue] Filtered dataset from [bold]{initial_count:,}[/bold] to [bold]{filtered_count:,}[/bold] samples for partition [cyan]'{cfg.data.partition}'[/cyan]")
+            rprint(f"[blue]->[/blue] Filtered dataset from [bold]{initial_count:,}[/bold] to [bold]{filtered_count:,}[/bold] samples for partition [cyan]'{cfg.data.partition}'[/cyan]")
         
         # Initialize video processor
         self._init_video_processor()
@@ -72,7 +72,7 @@ class DownstreamDataset(Dataset):
         # Parse label column configuration
         self._parse_label_columns()
         
-        rprint(f"[green]✓[/green] Task: [bold]{cfg.task.task_id}[/bold] ([cyan]{cfg.task.ml_form}[/cyan])")
+        rprint(f"[green]CHECK[/green] Task: [bold]{cfg.task.task_id}[/bold] ([cyan]{cfg.task.ml_form}[/cyan])")
         rprint(f"  Output dim: [bold]{cfg.task.output_dim}[/bold], Num classes: [bold]{cfg.task.num_classes}[/bold]")
     
     def _init_video_processor(self):

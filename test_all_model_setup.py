@@ -12,6 +12,18 @@ All tests run in dev mode for quick verification.
 
 import subprocess
 import sys
+
+# Fix Windows console encoding to support Unicode characters
+if sys.platform == 'win32':
+    # Set UTF-8 encoding for stdout and stderr
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    if hasattr(sys.stderr, 'reconfigure'):
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    # Also set environment variable for subprocesses
+    import os
+    os.environ['PYTHONIOENCODING'] = 'utf-8'
+
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional
@@ -43,6 +55,8 @@ def run_command(cmd: list[str], description: str) -> tuple[bool, str, str]:
             cmd,
             capture_output=True,
             text=True,
+            encoding='utf-8',
+            errors='replace',
             cwd=Path(__file__).parent
         )
         
@@ -61,7 +75,7 @@ def run_command(cmd: list[str], description: str) -> tuple[bool, str, str]:
 
 def find_checkpoint(stdout: str, stderr: str) -> Optional[str]:
     """Extract checkpoint path from training output."""
-    combined = stdout + stderr
+    combined = (stdout or "") + (stderr or "")
     
     # Look for checkpoint path patterns
     for line in combined.split('\n'):
@@ -181,7 +195,7 @@ def print_summary(results: list[TestResult]):
         print(f"\n{model_type}:")
         for r in by_model[model_type]:
             status = "PASS" if r.success else "FAIL"
-            symbol = "✓" if r.success else "✗"
+            symbol = "CHECK" if r.success else "✗"
             print(f"  {symbol} {r.name}: {status}")
             
             if r.success:

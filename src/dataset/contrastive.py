@@ -48,7 +48,7 @@ def plot_video_example(
     
     n_frames = video_clip.shape[0]
     if n_frames != 20:
-        rprint(f"[yellow]⚠[/yellow] plot_video_example expects 20 frames, got [bold]{n_frames}[/bold]; grid may be incomplete")
+        rprint(f"[yellow]WARN[/yellow] plot_video_example expects 20 frames, got [bold]{n_frames}[/bold]; grid may be incomplete")
 
     # [T, C, H, W] -> numpy, then [T, H, W, C] for imshow
     arr = video_clip.detach().float().numpy()
@@ -66,7 +66,7 @@ def plot_video_example(
     plt.tight_layout()
     plt.savefig(full_save_path, dpi=150, bbox_inches="tight")
     plt.close()
-    rprint(f"[green]✓[/green] Saved video example to [bold]{full_save_path}[/bold]")
+    rprint(f"[green]CHECK[/green] Saved video example to [bold]{full_save_path}[/bold]")
 
 
 class ContrastiveDataset(Dataset):
@@ -98,12 +98,12 @@ class ContrastiveDataset(Dataset):
             initial_count = len(self.df)
             self.df = self.df.filter(pl.col('partition') == self.cfg.data.partition)
             filtered_count = len(self.df)
-            rprint(f"[blue]→[/blue] Filtered dataset from [bold]{initial_count:,}[/bold] to [bold]{filtered_count:,}[/bold] samples for partition [cyan]'{self.cfg.data.partition}'[/cyan]")
+            rprint(f"[blue]->[/blue] Filtered dataset from [bold]{initial_count:,}[/bold] to [bold]{filtered_count:,}[/bold] samples for partition [cyan]'{self.cfg.data.partition}'[/cyan]")
         
         # Initialize video processor
         self._init_video_processor()
         
-        rprint(f"[green]✓[/green] Contrastive dataset initialized with [bold]{len(self.df):,}[/bold] samples")
+        rprint(f"[green]CHECK[/green] Contrastive dataset initialized with [bold]{len(self.df):,}[/bold] samples")
     
     def _init_video_processor(self):
         """Initialize video processor based on model type from config."""

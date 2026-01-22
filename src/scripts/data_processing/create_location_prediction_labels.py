@@ -60,7 +60,7 @@ def main():
             'partition': ['train', 'val', 'test']
         })
         
-        print("✓ Enemy Location Nowcast labels created successfully!")
+        print("CHECK Enemy Location Nowcast labels created successfully!")
         
     except Exception as e:
         print(f"✗ Enemy Location Nowcast failed: {e}")
@@ -85,7 +85,7 @@ def main():
             'partition': ['train', 'val', 'test']
         })
         
-        print("✓ Enemy Location Forecast labels created successfully!")
+        print("CHECK Enemy Location Forecast labels created successfully!")
         
     except Exception as e:
         print(f"✗ Enemy Location Forecast failed: {e}")
@@ -110,7 +110,7 @@ def main():
             'partition': ['train', 'val', 'test']
         })
         
-        print("✓ Teammate Location Forecast labels created successfully!")
+        print("CHECK Teammate Location Forecast labels created successfully!")
         
     except Exception as e:
         print(f"✗ Teammate Location Forecast failed: {e}")
@@ -134,7 +134,7 @@ def main():
             'partition': ['train', 'val', 'test']
         })
         
-        print("✓ Teammate Location Nowcast labels created successfully!")
+        print("CHECK Teammate Location Nowcast labels created successfully!")
         
     except Exception as e:
         print(f"✗ Teammate Location Nowcast failed: {e}")

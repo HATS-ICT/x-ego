@@ -156,7 +156,7 @@ class BaseDataModule(L.LightningDataModule, ABC):
     def setup(self, stage: Optional[str] = None) -> None:
         """Setup datasets for each stage."""
         if stage == "fit" or stage is None:
-            rprint(f"[blue]→[/blue] Loading [bold]{self.__class__.__name__}[/bold] dataset and initializing processors...")
+            rprint(f"[blue]->[/blue] Loading [bold]{self.__class__.__name__}[/bold] dataset and initializing processors...")
             base_dataset = self._create_base_dataset()
             
             # Store dataset info for model configuration
@@ -169,10 +169,10 @@ class BaseDataModule(L.LightningDataModule, ABC):
             # Apply any previously loaded states
             self._apply_saved_states()
             
-            rprint(f"[green]✓[/green] Dataset split - [cyan]Train[/cyan]: [bold]{len(self.train_dataset):,}[/bold], [cyan]Val[/cyan]: [bold]{len(self.val_dataset):,}[/bold]")
+            rprint(f"[green]CHECK[/green] Dataset split - [cyan]Train[/cyan]: [bold]{len(self.train_dataset):,}[/bold], [cyan]Val[/cyan]: [bold]{len(self.val_dataset):,}[/bold]")
         
         elif stage == "test":
-            rprint(f"[blue]→[/blue] Loading [bold]{self.__class__.__name__}[/bold] dataset for testing...")
+            rprint(f"[blue]->[/blue] Loading [bold]{self.__class__.__name__}[/bold] dataset for testing...")
             base_dataset = self._create_base_dataset()
             
             # Store dataset info for model configuration
@@ -180,9 +180,9 @@ class BaseDataModule(L.LightningDataModule, ABC):
             
             try:
                 self.test_dataset = self._create_partition_dataset(base_dataset, 'test')
-                rprint(f"[green]✓[/green] Test dataset size: [bold]{len(self.test_dataset):,}[/bold]")
+                rprint(f"[green]CHECK[/green] Test dataset size: [bold]{len(self.test_dataset):,}[/bold]")
             except Exception as e:
-                rprint(f"[yellow]⚠[/yellow] No test split found: [dim]{e}[/dim]")
+                rprint(f"[yellow]WARN[/yellow] No test split found: [dim]{e}[/dim]")
                 self.test_dataset = None
     
     def _store_dataset_info(self, base_dataset) -> None:
@@ -265,7 +265,7 @@ class BaseDataModule(L.LightningDataModule, ABC):
         
         train_status = "[green]train[/green]" if self._train_state else "[dim]no train[/dim]"
         val_status = "[green]val[/green]" if self._val_state else "[dim]no val[/dim]"
-        rprint(f"[blue]→[/blue] Loaded DataModule state for {train_status} and {val_status}")
+        rprint(f"[blue]->[/blue] Loaded DataModule state for {train_status} and {val_status}")
     
     # Optional epoch hooks
     def on_train_epoch_start(self) -> None:

@@ -81,13 +81,13 @@ def init_video_processor(cfg: Dict) -> Tuple[Any, str]:
         video_processor = AutoImageProcessor.from_pretrained(pretrained_model, use_fast=True)
         processor_type = 'image'
     elif model_type == 'vivit':
-        # ViViT: specific image processor, returns pixel_values
+        # ViViT: expects list of HWC numpy arrays, returns pixel_values
         video_processor = VivitImageProcessor.from_pretrained(pretrained_model)
-        processor_type = 'image'
+        processor_type = 'video_frames'
     elif model_type == 'videomae':
-        # VideoMAE: specific image processor, returns pixel_values
+        # VideoMAE: expects list of HWC numpy arrays, returns pixel_values
         video_processor = VideoMAEImageProcessor.from_pretrained(pretrained_model)
-        processor_type = 'image'
+        processor_type = 'video_frames'
     elif model_type == 'vjepa2':
         # VJEPA2: video processor, returns pixel_values_videos
         video_processor = VJEPA2VideoProcessor.from_pretrained(pretrained_model)
@@ -156,7 +156,7 @@ def load_video_clip(cfg: Dict, video_full_path: str, start_seconds: float, end_s
         
         return video_clip
     except Exception as e:
-        rprint(f"[yellow]⚠[/yellow] Failed to load video [bold]{video_full_path}[/bold]: [dim]{e}[/dim], using placeholder")
+        rprint(f"[yellow]WARN[/yellow] Failed to load video [bold]{video_full_path}[/bold]: [dim]{e}[/dim], using placeholder")
         return torch.zeros(expected_frames, 3, 306, 544, dtype=torch.float16)
 
 
@@ -166,7 +166,7 @@ def transform_video(video_processor: Any, processor_type: str, video_clip: torch
     
     Args:
         video_processor: The video processor instance
-        processor_type: 'image' or 'video'
+        processor_type: 'image' or 'video' or 'video_frames'
         video_clip: Video tensor of shape [T, C, H, W] in range [0, 255]
         
     Returns:
@@ -176,13 +176,19 @@ def transform_video(video_processor: Any, processor_type: str, video_clip: torch
         # VJEPA2: uses videos= parameter and returns pixel_values_videos [1, T, C, H, W]
         video_processed = video_processor(videos=video_clip, return_tensors="pt")
         video_features = video_processed.pixel_values_videos.squeeze(0)  # [T, C, H, W]
-    else:
-        # Image-based processors: use images= parameter and return pixel_values
-        processed = video_processor(images=video_clip, return_tensors="pt")
+    elif processor_type == 'video_frames':
+        # VivitImageProcessor/VideoMAEImageProcessor: expects list of HWC numpy arrays
+        # Convert from [T, C, H, W] tensor to list of [H, W, C] numpy arrays
+        frames_list = [frame.permute(1, 2, 0).numpy().astype(np.uint8) for frame in video_clip]
+        processed = video_processor(images=frames_list, return_tensors="pt")
         video_features = processed.pixel_values
-        # Video processors (vivit, videomae) return [1, T, C, H, W], need to squeeze
-        # Image processors (siglip, clip, dinov2) return [T, C, H, W]
+        # Returns [1, T, C, H, W], need to squeeze
         if video_features.dim() == 5:
             video_features = video_features.squeeze(0)  # [T, C, H, W]
+    else:
+        # Image-based processors (siglip, clip, dinov2): use images= parameter
+        processed = video_processor(images=video_clip, return_tensors="pt")
+        video_features = processed.pixel_values
+        # Returns [T, C, H, W]
     
     return video_features

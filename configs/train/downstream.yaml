@@ -4,7 +4,6 @@
 meta:
   seed: 42
   run_name: probe-${task.task_id}-${model.encoder.video.model_type}
-  fast_dev_run: false
   resume_exp: null
 
 task:
@@ -33,7 +32,6 @@ data:
 
 model:
   activation: gelu
-  dropout: 0.1
   # Stage 1 checkpoint path - set to null for baseline (off-the-shelf HuggingFace)
   # Set to checkpoint path to use pretrained encoder from contrastive learning
   stage1_checkpoint: null

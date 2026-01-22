@@ -30,7 +30,9 @@ from typing import Optional
 
 
 # Available model types from cheatsheet
-MODEL_TYPES = ["siglip2", "dinov2", "clip", "vivit", "videomae", "vjepa2"]
+# MODEL_TYPES = ["siglip2", "dinov2", "dinov3", "clip", "vivit", "videomae", "vjepa2"]
+# MODEL_TYPES = ["siglip2", "dinov2", "vjepa2"]
+MODEL_TYPES = ["dinov2"]
 TASK_ID = "self_location_0s"
 
 

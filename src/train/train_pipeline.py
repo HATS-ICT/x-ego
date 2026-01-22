@@ -106,7 +106,6 @@ def create_trainer(cfg, callbacks, logger):
         callbacks=callbacks,
         logger=logger,
         deterministic=training_cfg.deterministic,
-        fast_dev_run=cfg.meta.fast_dev_run,
         num_sanity_val_steps=training_cfg.num_sanity_val_steps,
         limit_train_batches=training_cfg.limit_train_batches,
         limit_val_batches=training_cfg.limit_val_batches,

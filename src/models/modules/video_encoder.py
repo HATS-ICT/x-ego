@@ -13,6 +13,7 @@ MODEL_TYPE_TO_PRETRAINED = {
     "clip": "openai/clip-vit-base-patch32",
     "siglip2": "google/siglip2-base-patch16-224",
     "dinov2": "facebook/dinov2-base",
+    "dinov3": "facebook/dinov3-vitb16-pretrain-lvd1689m",
     "vivit": "google/vivit-b-16x2-kinetics400",
     "videomae": "MCG-NJU/videomae-base",
     "vjepa2": "facebook/vjepa2-vitl-fpc16-256-ssv2",
@@ -241,6 +242,63 @@ class VideoEncoderDinov2(nn.Module):
         
         # following https://github.com/huggingface/transformers/blob/main/src/transformers/models/dinov2/modeling_dinov2.py#L555-L603
         # get frame features
+        sequence_output = outputs.last_hidden_state  # [batch_size * num_frames, seq_len, hidden_size]
+        cls_tokens = sequence_output[:, 0]  # [batch_size * num_frames, hidden_size]
+        patch_tokens = sequence_output[:, 1:]  # [batch_size * num_frames, num_patches, hidden_size]
+        patch_features = torch.mean(patch_tokens, dim=1)  # [batch_size * num_frames, hidden_size]
+        frame_features = torch.cat([cls_tokens, patch_features], dim=1)  # [batch_size * num_frames, hidden_size * 2]
+        
+        # reshape to [batch_size, num_frames, hidden_size * 2]
+        frame_features = frame_features.view(batch_size, num_frames, -1)
+        
+        if return_temporal_features:
+            return frame_features  # [batch_size, num_frames, hidden_size * 2]
+        
+        video_features = torch.mean(frame_features, dim=1)  # [batch_size, hidden_size * 2]
+        return video_features
+
+
+class VideoEncoderDinov3(nn.Module):
+    """
+    DINOv3-based video encoder for video classification.
+    
+    Processes video frames through DINOv3 vision model and pools across time dimension.
+    """
+    
+    def __init__(self, cfg: Dict[str, Any]):
+        super().__init__()
+        self.cfg = cfg
+        
+        self.model_type = cfg.model_type
+        self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
+        
+        self.vision_model = AutoModel.from_pretrained(self.from_pretrained)
+        self.embed_dim = self.vision_model.config.hidden_size * 2
+        
+        configure_finetuning(
+            self.vision_model,
+            self.vision_model.encoder.layer,  # DINOv3 uses .layer like DINOv2
+            cfg.finetune_last_k_layers,
+            getattr(self.vision_model, 'layernorm', None)
+        )
+    
+    def forward(self, pixel_values: torch.Tensor, return_temporal_features: bool = False) -> Tensor:
+        """
+        Forward pass through the DINOv3 video encoder.
+        
+        Args:
+            pixel_values: Video tensor of shape [batch_size, num_frames, channels, height, width]
+            return_temporal_features: If True, return per-frame features [batch_size, num_frames, hidden_size * 2]
+                                     If False, return pooled video features [batch_size, hidden_size * 2]
+            
+        Returns:
+            Video features - either pooled [batch_size, hidden_size * 2] or temporal [batch_size, num_frames, hidden_size * 2]
+        """
+        batch_size, num_frames, channels, height, width = pixel_values.shape
+        frames = pixel_values.view(-1, channels, height, width)
+        outputs = self.vision_model(pixel_values=frames)
+        
+        # Following DINOv2 pattern - concatenate CLS and mean patch features
         sequence_output = outputs.last_hidden_state  # [batch_size * num_frames, seq_len, hidden_size]
         cls_tokens = sequence_output[:, 0]  # [batch_size * num_frames, hidden_size]
         patch_tokens = sequence_output[:, 1:]  # [batch_size * num_frames, num_patches, hidden_size]
@@ -537,6 +595,10 @@ def get_embed_dim_for_model_type(model_type: str) -> int:
         from transformers import Dinov2Config
         config = Dinov2Config.from_pretrained(pretrained_name)
         return config.hidden_size * 2  # DINOv2 uses concatenated CLS and patch tokens
+    elif model_type == 'dinov3':
+        from transformers import Dinov3Config
+        config = Dinov3Config.from_pretrained(pretrained_name)
+        return config.hidden_size * 2  # DINOv3 uses concatenated CLS and patch tokens
     elif model_type == 'vivit':
         from transformers import VivitConfig
         config = VivitConfig.from_pretrained(pretrained_name)
@@ -562,6 +624,7 @@ class VideoEncoder(nn.Module):
     - CLIP models (model_type="clip")
     - SigLIP2 models (model_type="siglip2")
     - DINOv2 models (model_type="dinov2")
+    - DINOv3 models (model_type="dinov3")
     - ViViT models (model_type="vivit")
     - VideoMAE models (model_type="videomae")
     - VJEPA2 models (model_type="vjepa2")
@@ -579,6 +642,8 @@ class VideoEncoder(nn.Module):
             self.video_encoder = VideoEncoderSigLIP2(cfg)
         elif model_type == 'dinov2':
             self.video_encoder = VideoEncoderDinov2(cfg)
+        elif model_type == 'dinov3':
+            self.video_encoder = VideoEncoderDinov3(cfg)
         elif model_type == 'vivit':
             self.video_encoder = VideoEncoderVivit(cfg)
         elif model_type == 'videomae':

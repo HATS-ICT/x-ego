@@ -3,15 +3,7 @@
 meta:
   seed: 42
   run_name: contrastive-${model.encoder.video.model_type}
-  fast_dev_run: false
   resume_exp: null
-
-task:
-  task_id: null
-  ml_form: null
-  num_classes: null
-  output_dim: null
-  label_column: null
 
 data:
   partition: all
@@ -26,24 +18,16 @@ data:
   fixed_duration_seconds: 5
   target_fps: 4
   video_column_name: video_path
-  num_pov_agents: 5
   ui_mask: minimap_only  # options: none, minimap_only, all (all not implemented yet)
   time_jitter_max_seconds: 0
   labels_filename: contrastive.csv
 
 model:
   activation: gelu
-  num_pov_agents: ${data.num_pov_agents}
-  num_target_agents: 5
-  team_embed_dim: 32
-  hidden_dim: 256
-  num_hidden_layers: 3
-  dropout: 0.1
   encoder:
     video:
       finetune_last_k_layers: 3  # -1: finetune all, 0: freeze all, k: finetune last k layers
       model_type: siglip2 # options: siglip2, dinov2, clip, vivit, videomae, vjepa2
-    proj_dim: 768
   contrastive:
     enable: true
     logit_scale_init: 10
@@ -52,7 +36,7 @@ model:
     loss_weight: 1.0
 
 training:
-  max_epochs: 20
+  max_epochs: 40
   max_steps: -1
   accelerator: gpu
   devices: 1
@@ -96,7 +80,7 @@ checkpoint:
     filename: ${meta.run_name}-e{epoch:02d}-s{step:06d}-l{val/contrastive_loss:.4f}
     monitor: 'val/contrastive_loss'
     mode: min
-    save_top_k: 1
+    save_top_k: -1  # -1 saves all checkpoints at every epoch
     save_last: true
     auto_insert_metric_name: false
     save_on_train_epoch_end: true

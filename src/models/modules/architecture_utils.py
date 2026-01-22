@@ -26,7 +26,7 @@ ACT2CLS = {
 }
 
 
-def build_mlp(input_dim, output_dim, num_hidden_layers, hidden_dim, dropout, activation='gelu'):
+def build_mlp(input_dim, output_dim, num_hidden_layers, hidden_dim, activation='gelu'):
     """
     Build a multi-layer perceptron with specified number of hidden layers.
     
@@ -35,7 +35,6 @@ def build_mlp(input_dim, output_dim, num_hidden_layers, hidden_dim, dropout, act
         output_dim: Output dimension
         num_hidden_layers: Number of hidden layers
         hidden_dim: Dimension of hidden layers
-        dropout: Dropout probability
         activation: Name of activation function from ACT2CLS
     
     Returns:
@@ -48,7 +47,6 @@ def build_mlp(input_dim, output_dim, num_hidden_layers, hidden_dim, dropout, act
         layers.extend([
             nn.Linear(current_dim, hidden_dim),
             ACT2CLS[activation](),
-            nn.Dropout(dropout)
         ])
         current_dim = hidden_dim
     

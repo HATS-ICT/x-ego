@@ -76,7 +76,7 @@ def init_video_processor(cfg: Dict) -> Tuple[Any, str]:
     pretrained_model = MODEL_TYPE_TO_PRETRAINED[model_type]
     
     # Different models need different processors and have different output formats
-    if model_type in ['siglip', 'siglip2', 'clip', 'dinov2']:
+    if model_type in ['siglip2', 'clip', 'dinov2', 'dinov3']:
         # Image-based models: AutoImageProcessor, returns pixel_values
         video_processor = AutoImageProcessor.from_pretrained(pretrained_model, use_fast=True)
         processor_type = 'image'

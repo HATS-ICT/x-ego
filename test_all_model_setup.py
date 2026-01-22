@@ -18,7 +18,7 @@ from typing import Optional
 
 
 # Available model types from cheatsheet
-MODEL_TYPES = ["siglip", "siglip2", "dinov2", "clip", "vivit", "videomae", "vjepa2"]
+MODEL_TYPES = ["siglip2", "dinov2", "clip", "vivit", "videomae", "vjepa2"]
 TASK_ID = "self_location_0s"
 
 

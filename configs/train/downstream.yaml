@@ -40,7 +40,7 @@ model:
   encoder:
     video:
       finetune_last_k_layers: 0  # -1: finetune all, 0: freeze all, k: finetune last k layers
-      model_type: siglip
+      model_type: siglip2
 
 training:
   max_epochs: 20

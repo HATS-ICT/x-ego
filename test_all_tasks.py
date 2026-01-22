@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 
-MODEL_TYPE = "siglip"
+MODEL_TYPE = "siglip2"
 TASK_DEFINITIONS_PATH = Path(__file__).parent / "data" / "labels" / "task_definitions.csv"
 
 

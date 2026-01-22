@@ -14,11 +14,11 @@ Key features:
 """
 
 import torch
+import torch.nn as nn
 import lightning as L
 from torch.optim import AdamW
 
 from src.models.modules.video_encoder import VideoEncoder
-from src.models.modules.cross_ego_contrastive import CrossEgoContrastive
 from src.models.modules.architecture_utils import build_mlp
 
 
@@ -59,13 +59,15 @@ class ContrastiveModel(L.LightningModule):
             activation=cfg.model.activation
         )
         
-        # Contrastive module
-        self.contrastive = CrossEgoContrastive(
-            embed_dim=proj_dim,
-            init_logit_scale=cfg.model.contrastive.logit_scale_init,
-            init_logit_bias=cfg.model.contrastive.logit_bias_init,
-            learnable_temp=True,
-            turn_off_bias=cfg.model.contrastive.turn_off_bias
+        # Contrastive parameters (learnable temperature and bias, following SigLIP)
+        self.turn_off_bias = cfg.model.contrastive.turn_off_bias
+        self.logit_scale = nn.Parameter(
+            torch.tensor(cfg.model.contrastive.logit_scale_init, dtype=torch.float32).log(),
+            requires_grad=True
+        )
+        self.logit_bias = nn.Parameter(
+            torch.tensor(cfg.model.contrastive.logit_bias_init, dtype=torch.float32),
+            requires_grad=True
         )
         
         # Store dimensions
@@ -176,14 +178,21 @@ class ContrastiveModel(L.LightningModule):
         logits = torch.matmul(normalized, normalized.t())
         
         # Apply learnable temperature and bias
-        logit_scale = self.contrastive.logit_scale.exp()
+        logit_scale = self.logit_scale.exp()
         logits = logits * logit_scale
-        if not self.contrastive.turn_off_bias:
-            logits = logits + self.contrastive.logit_bias
+        if not self.turn_off_bias:
+            logits = logits + self.logit_bias
         
         # Compute sigmoid loss
         m1_diag1 = 2 * labels - 1  # Convert {0,1} to {-1,1}
         loglik = F.logsigmoid(m1_diag1 * logits)
+        
+        N = logits.shape[0]
+        diag_mask = torch.eye(N, device=logits.device, dtype=torch.bool)
+        # Set diagonal log-likelihoods to 0.0
+        # Since loss is -sum(loglik), adding 0.0 effectively ignores these terms
+        loglik = loglik.masked_fill(diag_mask, 0.0)
+        
         nll = -torch.sum(loglik, dim=-1)
         loss = nll.mean()
         
@@ -195,11 +204,6 @@ class ContrastiveModel(L.LightningModule):
     def _compute_metrics(self, logits: torch.Tensor, labels: torch.Tensor, 
                          temperature: torch.Tensor) -> dict:
         """Compute contrastive learning metrics.
-        
-        Disabled from dynamo compilation due to graph-breaking operations:
-        - .item() calls for scalar extraction
-        - Dynamic dictionary construction with conditionals
-        - Python control flow (if/for with data-dependent conditions)
         """
         N = logits.shape[0]
         
@@ -222,8 +226,8 @@ class ContrastiveModel(L.LightningModule):
         if neg_mask.any():
             metrics['neg_pair_acc'] = (pred_binary[neg_mask] == labels[neg_mask]).float().mean()
         
-        if not self.contrastive.turn_off_bias:
-            metrics['bias'] = self.contrastive.logit_bias.item()
+        if not self.turn_off_bias:
+            metrics['bias'] = self.logit_bias.item()
         
         # Retrieval metrics (simplified for variable agents)
         if N > 1:
@@ -408,12 +412,13 @@ class ContrastiveModel(L.LightningModule):
         Returns dictionary containing:
             - video_encoder (if not using precomputed)
             - video_projector
-            - contrastive module
+            - contrastive parameters (logit_scale, logit_bias)
         """
         state = {
             'video_encoder': self.video_encoder.state_dict(),
             'video_projector': self.video_projector.state_dict(),
-            'contrastive': self.contrastive.state_dict(),
+            'logit_scale': self.logit_scale,
+            'logit_bias': self.logit_bias,
         }
         
         return state
@@ -428,7 +433,7 @@ class ContrastiveModel(L.LightningModule):
             cfg: Configuration for the model
             
         Returns:
-            Tuple of (video_encoder, video_projector, contrastive)
+            Tuple of (video_encoder, video_projector)
         """
         checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
         state_dict = checkpoint['state_dict']
@@ -442,7 +447,7 @@ class ContrastiveModel(L.LightningModule):
         # Load weights
         model.load_state_dict(state_dict)
         
-        return model.video_encoder, model.video_projector, model.contrastive
+        return model.video_encoder, model.video_projector
     
     @staticmethod
     def _strip_orig_mod_prefix(state_dict: dict) -> dict:

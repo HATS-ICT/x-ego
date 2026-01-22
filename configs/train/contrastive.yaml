@@ -42,7 +42,7 @@ model:
   encoder:
     video:
       finetune_last_k_layers: 3  # -1: finetune all, 0: freeze all, k: finetune last k layers
-      model_type: siglip2 # options: siglip, siglip2, dinov2, clip, vivit, videomae, vjepa2
+      model_type: siglip2 # options: siglip2, dinov2, clip, vivit, videomae, vjepa2
     proj_dim: 768
   contrastive:
     enable: true

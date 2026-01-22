@@ -2,7 +2,7 @@
 
 meta:
   seed: 42
-  run_name: contrastive-${model.encoder.video.model_type}
+  run_name: contrastive-${model.encoder.model_type}
   resume_exp: null
 
 data:
@@ -25,9 +25,11 @@ data:
 model:
   activation: gelu
   encoder:
-    video:
-      finetune_last_k_layers: 3  # -1: finetune all, 0: freeze all, k: finetune last k layers
-      model_type: siglip2 # options: siglip2, dinov2, clip, vivit, videomae, vjepa2
+    finetune_last_k_layers: 3  # -1: finetune all, 0: freeze all, k: finetune last k layers
+    model_type: siglip2 # options: siglip2, dinov2, clip, vivit, videomae, vjepa2
+  projector:
+    proj_dim: 768
+    num_hidden_layers: 1
   contrastive:
     enable: true
     logit_scale_init: 10

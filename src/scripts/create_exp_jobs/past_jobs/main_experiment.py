@@ -71,7 +71,7 @@ cd {project_src}
 uv run python main.py --mode train --task {task} \\
   data.num_pov_agents={num_pov_agents} \\
   data.task_form={task_form} \\
-  model.encoder.video.model_type={model} \\
+  model.encoder.model_type={model} \\
   model.contrastive.enable=false \\
   meta.exp_name={exp_name} \\
   meta.run_name={run_name}
@@ -84,7 +84,7 @@ cd {project_src}
 uv run python main.py --mode train --task {task} \\
   data.num_pov_agents={num_pov_agents} \\
   data.task_form={task_form} \\
-  model.encoder.video.model_type={model} \\
+  model.encoder.model_type={model} \\
   model.contrastive.enable=true \\
   meta.exp_name={exp_name} \\
   meta.run_name={run_name}
@@ -208,7 +208,7 @@ def main():
                         command = f"""uv run python main.py --mode train --task {task} \\
   data.num_pov_agents={num_pov} \\
   data.task_form={TASK_FORM} \\
-  model.encoder.video.model_type={model} \\
+  model.encoder.model_type={model} \\
   model.contrastive.enable=true \\
   meta.exp_name={exp_name} \\
   meta.run_name={run_name}"""
@@ -216,7 +216,7 @@ def main():
                         command = f"""uv run python main.py --mode train --task {task} \\
   data.num_pov_agents={num_pov} \\
   data.task_form={TASK_FORM} \\
-  model.encoder.video.model_type={model} \\
+  model.encoder.model_type={model} \\
   model.contrastive.enable=false \\
   meta.exp_name={exp_name} \\
   meta.run_name={run_name}"""

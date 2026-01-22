@@ -72,7 +72,7 @@ def init_video_processor(cfg: Dict) -> Tuple[Any, str]:
     from transformers import AutoImageProcessor, VivitImageProcessor, VideoMAEImageProcessor, VJEPA2VideoProcessor
     from ..models.modules.video_encoder import MODEL_TYPE_TO_PRETRAINED
     
-    model_type = cfg.model.encoder.video.model_type
+    model_type = cfg.model.encoder.model_type
     pretrained_model = MODEL_TYPE_TO_PRETRAINED[model_type]
     
     # Different models need different processors and have different output formats

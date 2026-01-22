@@ -75,11 +75,41 @@ def run_command(cmd: list[str], description: str) -> tuple[bool, str, str]:
         return False, "", str(e)
 
 
-def find_checkpoint(stdout: str, stderr: str) -> Optional[str]:
-    """Extract checkpoint path from training output."""
+def find_checkpoint(stdout: str, stderr: str, model_type: str) -> Optional[str]:
+    """Extract checkpoint path from training output, filtering by model type."""
     combined = (stdout or "") + (stderr or "")
     
-    # Look for checkpoint path patterns
+    # First, try to find the experiment directory from the output
+    experiment_dir = None
+    for line in combined.split('\n'):
+        if 'Created experiment directory' in line or 'experiment directory:' in line.lower():
+            # Try to extract the path - look for the path after the colon or equals sign
+            if ':' in line:
+                # Extract everything after the colon
+                path_part = line.split(':', 1)[1].strip()
+                # Remove any trailing punctuation
+                path_part = path_part.strip("'\":,.")
+                potential_path = Path(path_part)
+                if potential_path.exists() and potential_path.is_dir():
+                    experiment_dir = potential_path
+                    break
+            # Also try splitting by spaces and looking for paths
+            parts = line.split()
+            for part in parts:
+                if 'output' in part.lower() or 'contrastive' in part.lower():
+                    # Check if it's a valid path
+                    potential_path = Path(part.strip("'\":,."))
+                    if potential_path.exists() and potential_path.is_dir():
+                        experiment_dir = potential_path
+                        break
+                    # Also check if it contains the full path
+                    if '\\' in part or '/' in part:
+                        potential_path = Path(part.strip("'\":,."))
+                        if potential_path.exists() and potential_path.is_dir():
+                            experiment_dir = potential_path
+                            break
+    
+    # Look for checkpoint path patterns in output
     for line in combined.split('\n'):
         if '.ckpt' in line and ('Saving' in line or 'checkpoint' in line.lower()):
             # Try to extract the path
@@ -91,12 +121,45 @@ def find_checkpoint(stdout: str, stderr: str) -> Optional[str]:
                     if Path(path).exists():
                         return path
     
-    # Alternative: look in output directory for recent checkpoints
+    # If we found the experiment directory, look for checkpoints there
+    if experiment_dir:
+        checkpoint_dir = experiment_dir / "checkpoint"
+        if checkpoint_dir.exists():
+            ckpt_files = list(checkpoint_dir.glob("*.ckpt"))
+            if ckpt_files:
+                # Return the most recently modified checkpoint from this experiment
+                return str(max(ckpt_files, key=lambda p: p.stat().st_mtime))
+    
+    # Alternative: look in output directory for checkpoints matching the model type
     output_dir = Path(__file__).parent / "output"
     if output_dir.exists():
+        # Look for experiment directories that match the model type
+        # Experiment names are like: contrastive-{model_type}-{timestamp}-{hash}
+        matching_dirs = []
+        for exp_dir in output_dir.iterdir():
+            if exp_dir.is_dir() and f'contrastive-{model_type}' in exp_dir.name:
+                matching_dirs.append(exp_dir)
+        
+        # If we found matching directories, look for checkpoints in the most recent one
+        if matching_dirs:
+            # Sort by modification time, most recent first
+            matching_dirs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            most_recent_exp = matching_dirs[0]
+            checkpoint_dir = most_recent_exp / "checkpoint"
+            if checkpoint_dir.exists():
+                ckpt_files = list(checkpoint_dir.glob("*.ckpt"))
+                if ckpt_files:
+                    # Return the most recently modified checkpoint
+                    return str(max(ckpt_files, key=lambda p: p.stat().st_mtime))
+        
+        # Fallback: look for any checkpoint, but prefer ones matching model type
         ckpt_files = list(output_dir.rglob("*.ckpt"))
         if ckpt_files:
-            # Return the most recently modified checkpoint
+            # Filter by model type in parent directory name
+            matching_ckpts = [c for c in ckpt_files if f'contrastive-{model_type}' in str(c)]
+            if matching_ckpts:
+                return str(max(matching_ckpts, key=lambda p: p.stat().st_mtime))
+            # If no matching checkpoints, return the most recent (but warn)
             return str(max(ckpt_files, key=lambda p: p.stat().st_mtime))
     
     return None
@@ -108,7 +171,7 @@ def test_contrastive(model_type: str) -> TestResult:
         sys.executable, "main.py",
         "--mode", "dev",
         "--task", "contrastive",
-        f"model.encoder.video.model_type={model_type}"
+        f"model.encoder.model_type={model_type}"
     ]
     
     success, stdout, stderr = run_command(
@@ -116,7 +179,7 @@ def test_contrastive(model_type: str) -> TestResult:
         f"Contrastive training with {model_type}"
     )
     
-    checkpoint_path = find_checkpoint(stdout, stderr) if success else None
+    checkpoint_path = find_checkpoint(stdout, stderr, model_type) if success else None
     
     return TestResult(
         name="contrastive",
@@ -134,7 +197,7 @@ def test_baseline_downstream(model_type: str) -> TestResult:
         "--mode", "dev",
         "--task", "downstream",
         f"task.task_id={TASK_ID}",
-        f"model.encoder.video.model_type={model_type}"
+        f"model.encoder.model_type={model_type}"
     ]
     
     success, stdout, stderr = run_command(
@@ -157,7 +220,7 @@ def test_downstream_with_checkpoint(model_type: str, checkpoint_path: str) -> Te
         "--mode", "dev",
         "--task", "downstream",
         f"task.task_id={TASK_ID}",
-        f"model.encoder.video.model_type={model_type}",
+        f"model.encoder.model_type={model_type}",
         f"model.stage1_checkpoint={checkpoint_path}"
     ]
     

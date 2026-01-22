@@ -86,9 +86,9 @@ class LinearProbeModel(L.LightningModule):
         self.output_dim = cfg.task.output_dim
         
         # Initialize video encoder
-        self.video_encoder = VideoEncoder(cfg.model.encoder.video)
+        self.video_encoder = VideoEncoder(cfg.model.encoder)
         video_embed_dim = self.video_encoder.embed_dim
-        print(f"[LinearProbe] Video encoder: {cfg.model.encoder.video.model_type} (dim: {video_embed_dim})")
+        print(f"[LinearProbe] Video encoder: {cfg.model.encoder.model_type} (dim: {video_embed_dim})")
         
         # Load Stage 1 weights if provided (before freezing)
         if cfg.model.stage1_checkpoint:
@@ -122,10 +122,6 @@ class LinearProbeModel(L.LightningModule):
         # Handle torch.compile _orig_mod prefix in state dict keys
         state_dict = self._strip_orig_mod_prefix(state_dict)
         
-        # Extract video_encoder weights (keys start with 'video_encoder.')
-        # The checkpoint has keys like 'video_encoder.video_encoder.vision_model...'
-        # Our VideoEncoder expects keys like 'video_encoder.vision_model...'
-        # So we need to strip only the first 'video_encoder.' prefix
         encoder_state = {}
         prefix = 'video_encoder.'
         for k, v in state_dict.items():

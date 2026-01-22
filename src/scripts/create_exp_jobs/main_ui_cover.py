@@ -58,7 +58,7 @@ JOB_BODY = """module restore
 cd {project_src}
 
 uv run python main.py --mode train --task contrastive \\
-  model.encoder.video.model_type={model} \\
+  model.encoder.model_type={model} \\
   data.ui_mask={ui_mask} \\
   meta.exp_name={exp_name} \\
   meta.run_name={run_name}
@@ -152,7 +152,7 @@ def main():
             
             # Extract the command for sequential run script
             command = f"""uv run python main.py --mode train --task contrastive \\
-  model.encoder.video.model_type={model} \\
+  model.encoder.model_type={model} \\
   data.ui_mask={ui_mask} \\
   meta.exp_name={EXP_PREFIX} \\
   meta.run_name={run_name}"""

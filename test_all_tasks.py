@@ -101,7 +101,7 @@ def test_task(task: TaskDefinition) -> TestResult:
         "--mode", "dev",
         "--task", "downstream",
         f"task.task_id={task.task_id}",
-        f"model.encoder.video.model_type={MODEL_TYPE}"
+        f"model.encoder.model_type={MODEL_TYPE}"
     ]
     
     success, stdout, stderr = run_command(

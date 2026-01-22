@@ -88,7 +88,7 @@ cd {project_src}
 
 uv run python main.py --mode train --task {task} \\
   data.task_form=multi-label-cls \\
-  model.encoder.video.model_type={model} \\
+  model.encoder.model_type={model} \\
   model.loss_fn.multi-label-cls={loss} \\
   model.class_weights={class_weights}{focal_params} \\
   training.max_epochs={max_epochs} \\
@@ -103,7 +103,7 @@ cd {project_src}
 uv run python main.py --mode train --task {task} \\
   data.task_form=density-cls \\
   data.gaussian_sigma={gaussian_sigma} \\
-  model.encoder.video.model_type={model} \\
+  model.encoder.model_type={model} \\
   model.loss_fn.density-cls={loss} \\
   training.max_epochs={max_epochs} \\
   meta.exp_name={exp_name} \\

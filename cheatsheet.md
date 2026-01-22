@@ -17,13 +17,13 @@ python main.py --mode dev --task downstream task.task_id=self_location_0s model.
 
 ```bash
 # Change model type
-python main.py --mode dev --task contrastive model.encoder.video.model_type=dinov2
+python main.py --mode dev --task contrastive model.encoder.model_type=dinov2
 
 # Change batch size
 python main.py --mode dev --task downstream task.task_id=self_location_0s data.batch_size=16
 
 # Multiple overrides
-python main.py --mode train --task downstream task.task_id=enemy_location_5s model.encoder.video.model_type=clip data.batch_size=8
+python main.py --mode train --task downstream task.task_id=enemy_location_5s model.encoder.model_type=clip data.batch_size=8
 ```
 
 ### Modes

@@ -108,7 +108,7 @@ class ContrastiveDataset(Dataset):
     def _init_video_processor(self):
         """Initialize video processor based on model type from config."""
         self.video_processor, self.processor_type = init_video_processor(self.cfg)
-        self.model_type = self.cfg.model.encoder.video.model_type
+        self.model_type = self.cfg.model.encoder.model_type
     
     def _get_alive_agent_ids(self, row: Dict[str, Any]) -> List[str]:
         num_alive = int(row['num_alive_teammates'])

@@ -101,7 +101,6 @@ class VideoEncoderClip(nn.Module):
     
     def __init__(self, cfg: Dict[str, Any]):
         super().__init__()
-        self.cfg = cfg
         
         self.model_type = cfg.model_type
         self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
@@ -155,7 +154,7 @@ class VideoEncoderSigLIP2(nn.Module):
     
     def __init__(self, cfg: Dict[str, Any]):
         super().__init__()
-        self.cfg = cfg
+        
         
         self.model_type = cfg.model_type
         self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
@@ -209,7 +208,7 @@ class VideoEncoderDinov2(nn.Module):
     
     def __init__(self, cfg: Dict[str, Any]):
         super().__init__()
-        self.cfg = cfg
+        
         
         self.model_type = cfg.model_type
         self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
@@ -267,7 +266,7 @@ class VideoEncoderDinov3(nn.Module):
     
     def __init__(self, cfg: Dict[str, Any]):
         super().__init__()
-        self.cfg = cfg
+        
         
         self.model_type = cfg.model_type
         self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
@@ -325,7 +324,7 @@ class VideoEncoderVivit(nn.Module):
     
     def __init__(self, cfg: Dict[str, Any]):
         super().__init__()
-        self.cfg = cfg
+        
         
         self.model_type = cfg.model_type
         self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
@@ -381,7 +380,7 @@ class VideoEncoderVideoMAE(nn.Module):
     
     def __init__(self, cfg: Dict[str, Any]):
         super().__init__()
-        self.cfg = cfg
+        
         
         self.model_type = cfg.model_type
         self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
@@ -452,7 +451,7 @@ class VideoEncoderVJEPA2(nn.Module):
     
     def __init__(self, cfg: Dict[str, Any]):
         super().__init__()
-        self.cfg = cfg
+        
         
         self.model_type = cfg.model_type
         self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
@@ -632,7 +631,7 @@ class VideoEncoder(nn.Module):
     
     def __init__(self, cfg: Dict[str, Any]):
         super().__init__()
-        self.cfg = cfg
+        
         
         model_type = cfg.model_type
         

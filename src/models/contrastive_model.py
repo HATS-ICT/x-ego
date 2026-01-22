@@ -19,6 +19,7 @@ import lightning as L
 from torch.optim import AdamW
 
 from src.models.modules.video_encoder import VideoEncoder
+from src.models.modules.architecture_utils import build_mlp
 
 
 class ContrastiveModel(L.LightningModule):
@@ -26,7 +27,7 @@ class ContrastiveModel(L.LightningModule):
     Contrastive learning model for team alignment (Stage 1).
     
     Architecture:
-        Video Encoder -> Contrastive Module
+        Video Encoder -> Video Projector -> Contrastive Module
     
     The model learns to align agent embeddings from the same team/batch
     while pushing apart embeddings from different teams/batches.
@@ -43,9 +44,19 @@ class ContrastiveModel(L.LightningModule):
         self.cfg = cfg
         
         # Video encoder setup
-        self.video_encoder = VideoEncoder(cfg.model.encoder.video)
+        self.video_encoder = VideoEncoder(cfg.model.encoder)
         video_embed_dim = self.video_encoder.embed_dim
-        print(f"[Model Init] Video encoder: {cfg.model.encoder.video.model_type} (dim: {video_embed_dim})")
+        print(f"[Model Init] Video encoder: {cfg.model.encoder.model_type} (dim: {video_embed_dim})")
+        
+        # Video projector
+        proj_dim = cfg.model.projector.proj_dim
+        self.video_projector = build_mlp(
+            input_dim=video_embed_dim,
+            output_dim=proj_dim,
+            num_hidden_layers=cfg.model.projector.num_hidden_layers,
+            hidden_dim=proj_dim,
+            activation=cfg.model.activation
+        )
         
         # Contrastive parameters (learnable temperature and bias, following SigLIP)
         self.turn_off_bias = cfg.model.contrastive.turn_off_bias
@@ -60,6 +71,7 @@ class ContrastiveModel(L.LightningModule):
         
         # Store dimensions
         self.video_embed_dim = video_embed_dim
+        self.proj_dim = proj_dim
         
         # Output directory
         self.output_dir = cfg.path.exp
@@ -110,7 +122,7 @@ class ContrastiveModel(L.LightningModule):
                 
         Returns:
             Dictionary containing:
-                - embeddings: [total_agents, embed_dim] projected embeddings
+                - embeddings: [total_agents, proj_dim] projected embeddings
                 - loss: Contrastive loss scalar
                 - metrics: Dictionary of contrastive metrics
         """
@@ -126,14 +138,17 @@ class ContrastiveModel(L.LightningModule):
         # Encode videos
         embeddings = self.video_encoder(video)  # [total_agents, embed_dim]
         
+        # Project embeddings
+        projected = self.video_projector(embeddings)  # [total_agents, proj_dim]
+        
         # Create alignment labels
         labels = self.create_alignment_matrix(agent_counts, device)
         
         # Compute contrastive loss
-        loss, metrics = self.compute_contrastive_loss(embeddings, labels)
+        loss, metrics = self.compute_contrastive_loss(projected, labels)
         
         return {
-            'embeddings': embeddings,
+            'embeddings': projected,
             'loss': loss,
             'metrics': metrics,
             'labels': labels,
@@ -146,7 +161,7 @@ class ContrastiveModel(L.LightningModule):
         Uses sigmoid loss formulation (similar to SigLIP).
         
         Args:
-            embeddings: [N, embed_dim] normalized embeddings
+            embeddings: [N, proj_dim] normalized embeddings
             labels: [N, N] alignment matrix (1 for positive pairs, 0 for negative)
             
         Returns:
@@ -395,10 +410,12 @@ class ContrastiveModel(L.LightningModule):
         
         Returns dictionary containing:
             - video_encoder (if not using precomputed)
+            - video_projector
             - contrastive parameters (logit_scale, logit_bias)
         """
         state = {
             'video_encoder': self.video_encoder.state_dict(),
+            'video_projector': self.video_projector.state_dict(),
             'logit_scale': self.logit_scale,
             'logit_bias': self.logit_bias,
         }
@@ -415,7 +432,7 @@ class ContrastiveModel(L.LightningModule):
             cfg: Configuration for the model
             
         Returns:
-            video_encoder module with loaded weights
+            Tuple of (video_encoder, video_projector) with loaded weights
         """
         checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
         state_dict = checkpoint['state_dict']
@@ -429,7 +446,7 @@ class ContrastiveModel(L.LightningModule):
         # Load weights
         model.load_state_dict(state_dict)
         
-        return model.video_encoder
+        return model.video_encoder, model.video_projector
     
     @staticmethod
     def _strip_orig_mod_prefix(state_dict: dict) -> dict:

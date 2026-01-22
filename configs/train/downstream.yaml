@@ -3,7 +3,7 @@
 
 meta:
   seed: 42
-  run_name: probe-${task.task_id}-${model.encoder.video.model_type}
+  run_name: probe-${task.task_id}-${model.encoder.model_type}
   resume_exp: null
 
 task:
@@ -36,9 +36,8 @@ model:
   # Set to checkpoint path to use pretrained encoder from contrastive learning
   stage1_checkpoint: null
   encoder:
-    video:
-      finetune_last_k_layers: 0  # -1: finetune all, 0: freeze all, k: finetune last k layers
-      model_type: siglip2
+    finetune_last_k_layers: 0  # -1: finetune all, 0: freeze all, k: finetune last k layers
+    model_type: siglip2
 
 training:
   max_epochs: 20

@@ -112,7 +112,7 @@ def generate_command(task: str, num_pov: int, model: str, with_contra: bool, see
         command = f"""uv run python main.py --mode train --task {task} \\
   data.num_pov_agents={num_pov} \\
   data.task_form={TASK_FORM} \\
-  model.encoder.video.model_type={model} \\
+  model.encoder.model_type={model} \\
   model.contrastive.enable=true \\
   training.num_epochs={NUM_EPOCHS} \\
   meta.exp_name={EXP_PREFIX} \\
@@ -122,7 +122,7 @@ def generate_command(task: str, num_pov: int, model: str, with_contra: bool, see
         command = f"""uv run python main.py --mode train --task {task} \\
   data.num_pov_agents={num_pov} \\
   data.task_form={TASK_FORM} \\
-  model.encoder.video.model_type={model} \\
+  model.encoder.model_type={model} \\
   model.contrastive.enable=false \\
   training.num_epochs={NUM_EPOCHS} \\
   meta.exp_name={EXP_PREFIX} \\

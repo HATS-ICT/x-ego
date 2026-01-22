@@ -325,7 +325,7 @@ def print_task_info(cfg, datamodule, task_name):
     """Print task-specific information"""
     # Contrastive learning task
     if task_name == 'contrastive':
-        print(f"Video encoder: {cfg.model.encoder.video.model_type}")
+        print(f"Video encoder: {cfg.model.encoder.model_type}")
         print(f"Contrastive temperature init: {cfg.model.contrastive.logit_scale_init}")
         print(f"Contrastive bias init: {cfg.model.contrastive.logit_bias_init}")
         print(f"UI mask: {cfg.data.ui_mask}")
@@ -335,6 +335,6 @@ def print_task_info(cfg, datamodule, task_name):
         print(f"ML form: {cfg.task.ml_form}")
         print(f"Num classes: {cfg.task.num_classes}")
         print(f"Output dim: {cfg.task.output_dim}")
-        print(f"Finetune last k layers: {cfg.model.encoder.video.finetune_last_k_layers}")
+        print(f"Finetune last k layers: {cfg.model.encoder.finetune_last_k_layers}")
         if cfg.model.stage1_checkpoint:
             print(f"Stage 1 checkpoint: {cfg.model.stage1_checkpoint}")

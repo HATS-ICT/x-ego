@@ -70,7 +70,7 @@ cd {project_src}
 uv run python main.py --mode train --task {task} \\
   data.num_pov_agents=1 \\
   data.task_form={task_form} \\
-  model.encoder.video.model_type={model} \\
+  model.encoder.model_type={model} \\
   model.contrastive.enable=false \\
   training.max_epochs={max_epochs} \\
   meta.exp_name={exp_name} \\
@@ -179,7 +179,7 @@ def main():
                 command = f"""uv run python main.py --mode train --task {task} \\
   data.num_pov_agents=1 \\
   data.task_form={task_form} \\
-  model.encoder.video.model_type={model} \\
+  model.encoder.model_type={model} \\
   model.contrastive.enable=false \\
   training.max_epochs={MAX_EPOCHS} \\
   meta.exp_name={EXP_PREFIX} \\

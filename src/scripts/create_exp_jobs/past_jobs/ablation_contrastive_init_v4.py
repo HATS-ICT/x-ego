@@ -109,7 +109,7 @@ uv run python main.py --mode train --task {task} \\
   data.num_pov_agents=1 \\
   data.num_workers=24 \\
   data.task_form={task_form} \\
-  model.encoder.video.model_type={model} \\
+  model.encoder.model_type={model} \\
   model.contrastive.enable=true \\
   model.contrastive.logit_scale_init={logit_scale_init} \\
   model.contrastive.logit_bias_init={logit_bias_init} \\
@@ -215,7 +215,7 @@ def main():
   data.num_pov_agents=1 \\
   data.num_workers=24 \\
   data.task_form={TASK_FORM} \\
-  model.encoder.video.model_type={MODEL} \\
+  model.encoder.model_type={MODEL} \\
   model.contrastive.enable=true \\
   model.contrastive.logit_scale_init={config['logit_scale_init']} \\
   model.contrastive.logit_bias_init={config['logit_bias_init']} \\

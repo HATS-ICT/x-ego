@@ -90,7 +90,7 @@ cd {project_src}
 
 uv run python main.py --mode train --task {task} \\
   data.task_form=grid-cls \\
-  model.encoder.video.model_type={model} \\
+  model.encoder.model_type={model} \\
   model.loss_fn.grid-cls={loss} \\
   model.class_weights={class_weights}{focal_params} \\
   training.max_epochs={max_epochs} \\
@@ -104,7 +104,7 @@ cd {project_src}
 
 uv run python main.py --mode train --task {task} \\
   data.task_form=coord-gen \\
-  model.encoder.video.model_type={model} \\
+  model.encoder.model_type={model} \\
   model.loss_fn.coord-gen={loss}{sinkhorn_params} \\
   training.max_epochs={max_epochs} \\
   meta.exp_name={exp_name} \\

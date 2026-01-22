@@ -39,7 +39,7 @@ model:
   stage1_checkpoint: null
   encoder:
     video:
-      freeze_backbone: true
+      finetune_last_k_layers: 0  # -1: finetune all, 0: freeze all, k: finetune last k layers
       model_type: siglip
 
 training:

@@ -41,8 +41,8 @@ model:
   dropout: 0.1
   encoder:
     video:
-      freeze_backbone: false
-      model_type: siglip # options: siglip, siglip2, dinov2, clip, vivit, videomae, vjepa2
+      finetune_last_k_layers: 3  # -1: finetune all, 0: freeze all, k: finetune last k layers
+      model_type: siglip2 # options: siglip, siglip2, dinov2, clip, vivit, videomae, vjepa2
     proj_dim: 768
   contrastive:
     enable: true
@@ -74,7 +74,7 @@ training:
   limit_test_batches: 1.0
 
 optimization:
-  lr: 0.0003
+  lr: 0.00001
   weight_decay: 0.01
   fused_optimizer: true
 

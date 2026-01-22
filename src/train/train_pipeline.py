@@ -3,6 +3,7 @@ import wandb
 import torch
 from pathlib import Path
 from lightning.pytorch.callbacks import ModelCheckpoint
+import sys
 
 # Local imports
 from .training_utils import setup_callbacks, setup_logger, print_task_info, setup_test_model_with_dataset_info
@@ -47,7 +48,7 @@ def run_training_pipeline(cfg, model_class, datamodule_class, task_name, print_h
     # Update model with dataset info for location prediction tasks
     setup_model_with_dataset_info(cfg, datamodule, model)
     
-    if cfg.training.torch_compile:
+    if cfg.training.torch_compile and sys.platform.startswith('linux'):
         model.video_encoder = torch.compile(model.video_encoder)
     
     callbacks = setup_callbacks(cfg)

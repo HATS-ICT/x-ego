@@ -53,6 +53,45 @@ def temporal_sampling(frames: torch.Tensor, target_frames: int) -> torch.Tensor:
     return resampled
 
 
+def configure_finetuning(model: nn.Module, encoder_layers: nn.ModuleList, 
+                         finetune_last_k_layers: int, final_norm: nn.Module = None):
+    """
+    Configure which transformer layers to finetune.
+    
+    Args:
+        model: The full model to freeze/unfreeze
+        encoder_layers: The ModuleList of transformer layers
+        finetune_last_k_layers: Number of layers to finetune from the end.
+            -1: Finetune all layers (no freezing)
+             0: Freeze all layers
+             k: Finetune last k transformer layers, freeze the rest
+        final_norm: Optional final layer norm to unfreeze
+    """
+    if finetune_last_k_layers == -1:
+        # Finetune all - nothing to freeze
+        return
+    
+    # Freeze all first
+    for param in model.parameters():
+        param.requires_grad = False
+    
+    if finetune_last_k_layers == 0:
+        return
+    
+    # Unfreeze last k transformer layers
+    num_layers = len(encoder_layers)
+    layers_to_unfreeze = min(finetune_last_k_layers, num_layers)
+    
+    for layer in encoder_layers[-layers_to_unfreeze:]:
+        for param in layer.parameters():
+            param.requires_grad = True
+    
+    # Also unfreeze the final layer norm if provided
+    if final_norm is not None:
+        for param in final_norm.parameters():
+            param.requires_grad = True
+
+
 class VideoEncoderClip(nn.Module):
     """
     CLIP-based video encoder for video classification.
@@ -71,13 +110,12 @@ class VideoEncoderClip(nn.Module):
         
         self.embed_dim = self.vision_model.config.hidden_size
         
-        if cfg.freeze_backbone:
-            self._freeze_backbone()
-    
-    def _freeze_backbone(self):
-        """Freeze vision model parameters."""
-        for param in self.vision_model.parameters():
-            param.requires_grad = False
+        configure_finetuning(
+            self.vision_model,
+            self.vision_model.encoder.layers,
+            cfg.finetune_last_k_layers,
+            getattr(self.vision_model, 'post_layernorm', None)
+        )
     
     def forward(self, pixel_values: torch.Tensor, return_temporal_features: bool = False) -> Tensor:
         """
@@ -122,17 +160,15 @@ class VideoEncoderSigLIP(nn.Module):
         self.model_type = cfg.model_type
         self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
         
-        
         self.vision_model = AutoModel.from_pretrained(self.from_pretrained).vision_model
         self.embed_dim = self.vision_model.config.hidden_size
         
-        if cfg.freeze_backbone:
-            self._freeze_backbone()
-    
-    def _freeze_backbone(self):
-        """Freeze vision model parameters."""
-        for param in self.vision_model.parameters():
-            param.requires_grad = False
+        configure_finetuning(
+            self.vision_model,
+            self.vision_model.encoder.layers,
+            cfg.finetune_last_k_layers,
+            getattr(self.vision_model, 'post_layernorm', None)
+        )
     
     def forward(self, pixel_values: torch.Tensor, return_temporal_features: bool = False) -> Tensor:
         """
@@ -178,17 +214,15 @@ class VideoEncoderSigLIP2(nn.Module):
         self.model_type = cfg.model_type
         self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
         
-        
         self.vision_model = AutoModel.from_pretrained(self.from_pretrained).vision_model
         self.embed_dim = self.vision_model.config.hidden_size
         
-        if cfg.freeze_backbone:
-            self._freeze_backbone()
-    
-    def _freeze_backbone(self):
-        """Freeze vision model parameters."""
-        for param in self.vision_model.parameters():
-            param.requires_grad = False
+        configure_finetuning(
+            self.vision_model,
+            self.vision_model.encoder.layers,
+            cfg.finetune_last_k_layers,
+            getattr(self.vision_model, 'post_layernorm', None)
+        )
     
     def forward(self, pixel_values: torch.Tensor, return_temporal_features: bool = False) -> Tensor:
         """
@@ -234,17 +268,15 @@ class VideoEncoderDinov2(nn.Module):
         self.model_type = cfg.model_type
         self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
         
-        
         self.vision_model = AutoModel.from_pretrained(self.from_pretrained)
         self.embed_dim = self.vision_model.config.hidden_size * 2
         
-        if cfg.freeze_backbone:
-            self._freeze_backbone()
-    
-    def _freeze_backbone(self):
-        """Freeze DINOv2 model parameters."""
-        for param in self.vision_model.parameters():
-            param.requires_grad = False
+        configure_finetuning(
+            self.vision_model,
+            self.vision_model.encoder.layer,  # DINOv2 uses .layer not .layers
+            cfg.finetune_last_k_layers,
+            getattr(self.vision_model, 'layernorm', None)
+        )
     
     def forward(self, pixel_values: torch.Tensor, return_temporal_features: bool = False) -> Tensor:
         """
@@ -295,19 +327,17 @@ class VideoEncoderVivit(nn.Module):
         self.model_type = cfg.model_type
         self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
         
-        
         self.vision_model = AutoModel.from_pretrained(self.from_pretrained)
         
         self.expected_num_frames = 32
         self.embed_dim = self.vision_model.config.hidden_size
         
-        if cfg.freeze_backbone:
-            self._freeze_backbone()
-    
-    def _freeze_backbone(self):
-        """Freeze ViViT model parameters."""
-        for param in self.vision_model.parameters():
-            param.requires_grad = False
+        configure_finetuning(
+            self.vision_model,
+            self.vision_model.encoder.layer,  # ViViT uses .layer not .layers
+            cfg.finetune_last_k_layers,
+            getattr(self.vision_model, 'layernorm', None)
+        )
     
     def forward(self, pixel_values: torch.Tensor, return_temporal_features: bool = False) -> Tensor:
         """
@@ -353,7 +383,6 @@ class VideoEncoderVideoMAE(nn.Module):
         self.model_type = cfg.model_type
         self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
         
-        
         self.vision_model = AutoModel.from_pretrained(self.from_pretrained)
         
         self.expected_num_frames = 16
@@ -366,13 +395,12 @@ class VideoEncoderVideoMAE(nn.Module):
         else:
             self.fc_norm = None
         
-        if cfg.freeze_backbone:
-            self._freeze_backbone()
-    
-    def _freeze_backbone(self):
-        """Freeze VideoMAE model parameters."""
-        for param in self.vision_model.parameters():
-            param.requires_grad = False
+        configure_finetuning(
+            self.vision_model,
+            self.vision_model.encoder.layer,  # VideoMAE uses .layer
+            cfg.finetune_last_k_layers,
+            getattr(self.vision_model, 'layernorm', None)
+        )
     
     def forward(self, pixel_values: torch.Tensor, return_temporal_features: bool = False) -> Tensor:
         """
@@ -436,13 +464,12 @@ class VideoEncoderVJEPA2(nn.Module):
         
         self.embed_dim = self.vision_model.config.hidden_size
         
-        if getattr(cfg, 'freeze_backbone', False):
-            self._freeze_backbone()
-    
-    def _freeze_backbone(self):
-        """Freeze VJEPA2 model parameters."""
-        for param in self.vision_model.parameters():
-            param.requires_grad = False
+        configure_finetuning(
+            self.vision_model,
+            self.vision_model.encoder.encoder.layers,  # VJEPA2 uses encoder.encoder.layers
+            cfg.finetune_last_k_layers,
+            getattr(self.vision_model.encoder, 'layernorm', None)
+        )
             
     def _get_patch_grid_shape(self, input_shape: Tuple[int, ...]) -> Tuple[int, int, int]:
         """

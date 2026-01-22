@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any, Callable
 from torch.utils.data import DataLoader
 import lightning as L
+import polars as pl
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -33,14 +34,6 @@ class BaseDataModule(L.LightningDataModule, ABC):
         
         # Store config
         self.cfg = cfg
-        data_cfg = cfg.data
-        
-        # Extract common dataloader parameters from config
-        self.batch_size = data_cfg.batch_size
-        self.num_workers = data_cfg.num_workers
-        self.persistent_workers = data_cfg.persistent_workers
-        self.pin_memory = data_cfg.pin_mem
-        self.prefetch_factor = data_cfg.prefetch_factor
         
         # Will be set in setup()
         self.train_dataset = None
@@ -97,7 +90,8 @@ class BaseDataModule(L.LightningDataModule, ABC):
             Partitioned dataset
         """
         partition_dataset = copy.copy(base_dataset)
-        partition_df = base_dataset.df[base_dataset.df['partition'] == partition].reset_index(drop=True)
+        # Use Polars filter method instead of boolean indexing
+        partition_df = base_dataset.df.filter(pl.col('partition') == partition)
         partition_dataset.df = partition_df
         
         # Copy additional attributes if needed
@@ -136,14 +130,15 @@ class BaseDataModule(L.LightningDataModule, ABC):
         Returns:
             Configured DataLoader
         """
+        data_cfg = self.cfg.data
         return DataLoader(
             dataset,
-            batch_size=self.batch_size,
+            batch_size=data_cfg.batch_size,
             shuffle=shuffle,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
-            persistent_workers=self.persistent_workers if self.num_workers > 0 else False,
-            prefetch_factor=self.prefetch_factor if self.num_workers > 0 else None,
+            num_workers=data_cfg.num_workers,
+            pin_memory=data_cfg.pin_mem,
+            persistent_workers=data_cfg.persistent_workers if data_cfg.num_workers > 0 else False,
+            prefetch_factor=data_cfg.prefetch_factor if data_cfg.num_workers > 0 else None,
             collate_fn=collate_fn,
             drop_last=drop_last
         )

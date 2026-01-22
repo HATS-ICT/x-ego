@@ -10,51 +10,20 @@ No precomputed embeddings - video is processed through the model's encoder.
 import logging
 from pathlib import Path
 from typing import Dict
-import pandas as pd
-import numpy as np
+import polars as pl
 import torch
 from torch.utils.data import Dataset
-from transformers import AutoImageProcessor
-from decord import VideoReader, cpu
 
-try:
-    from utils.dataset_utils import apply_minimap_mask
-except ImportError:
-    import sys
-    sys.path.append(str(Path(__file__).parent.parent))
-    from utils.dataset_utils import apply_minimap_mask
+from .dataset_utils import (
+    init_video_processor,
+    construct_video_path,
+    load_video_clip,
+    transform_video,
+)
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-
-def downstream_collate_fn(batch):
-    """
-    Collate function for downstream dataset.
-    
-    Args:
-        batch: List of dictionaries containing:
-            - 'video': Video tensor [T, C, H, W]
-            - 'label': Task-specific label (shape depends on task)
-            - metadata fields
-    
-    Returns:
-        Dictionary with batched tensors
-    """
-    collated = {}
-    
-    for key in batch[0].keys():
-        values = [item[key] for item in batch]
-        
-        if key in ['pov_team_side', 'match_id', 'player_id']:
-            # Keep string values as lists
-            collated[key] = values
-        else:
-            # Stack tensors
-            collated[key] = torch.utils.data.default_collate(values)
-    
-    return collated
 
 
 class DownstreamDataset(Dataset):
@@ -80,42 +49,26 @@ class DownstreamDataset(Dataset):
                 - data.labels_filename: Path to labels CSV
         """
         self.cfg = cfg
-        self.data_cfg = cfg.data
-        self.task_cfg = cfg.task
-        
-        # Task info
-        self.task_id = self.task_cfg.task_id
-        self.ml_form = self.task_cfg.ml_form
-        self.output_dim = self.task_cfg.output_dim
-        self.num_classes = self.task_cfg.num_classes
-        
-        # Video parameters
-        self.target_fps = self.data_cfg.target_fps
-        self.fixed_duration_seconds = self.data_cfg.fixed_duration_seconds
-        self.mask_minimap = self.data_cfg.mask_minimap
-        self.time_jitter_max_seconds = self.data_cfg.time_jitter_max_seconds
-        
-        # Path configuration
-        self.data_root = Path(cfg.path.data)
         
         # Load label CSV
-        label_path = self.data_root / self.data_cfg.labels_folder / self.data_cfg.labels_filename
+        data_root = Path(cfg.path.data)
+        label_path = data_root / cfg.data.labels_folder / cfg.data.labels_filename
         
         if not label_path.exists():
             raise FileNotFoundError(f"Labels file not found: {label_path}")
         
-        self.df = pd.read_csv(label_path, keep_default_na=False)
+        self.df = pl.read_csv(label_path, null_values=[])
         logger.info(f"Loaded {len(self.df)} samples from {label_path}")
         
-        # Store original CSV index
-        self.df['original_csv_idx'] = self.df.index
+        # Add original CSV index
+        self.df = self.df.with_row_index("original_csv_idx")
         
         # Filter by partition
-        partition = self.data_cfg.partition
-        if partition != 'all':
+        if cfg.data.partition != 'all':
             initial_count = len(self.df)
-            self.df = self.df[self.df['partition'] == partition].reset_index(drop=True)
-            logger.info(f"Filtered from {initial_count} to {len(self.df)} samples for partition '{partition}'")
+            self.df = self.df.filter(pl.col('partition') == cfg.data.partition)
+            filtered_count = len(self.df)
+            logger.info(f"Filtered dataset from {initial_count} to {filtered_count} samples for partition '{cfg.data.partition}'")
         
         # Initialize video processor
         self._init_video_processor()
@@ -123,43 +76,17 @@ class DownstreamDataset(Dataset):
         # Parse label column configuration
         self._parse_label_columns()
         
-        logger.info(f"Task: {self.task_id} ({self.ml_form})")
-        logger.info(f"Output dim: {self.output_dim}, Num classes: {self.num_classes}")
+        logger.info(f"Task: {cfg.task.task_id} ({cfg.task.ml_form})")
+        logger.info(f"Output dim: {cfg.task.output_dim}, Num classes: {cfg.task.num_classes}")
     
     def _init_video_processor(self):
         """Initialize video processor based on model type from config."""
-        from transformers import VivitImageProcessor, VideoMAEImageProcessor, VJEPA2VideoProcessor
-        from models.modules.video_encoder import MODEL_TYPE_TO_PRETRAINED
-        
-        model_type = self.cfg.model.encoder.video.model_type
-        self.model_type = model_type
-        pretrained_model = MODEL_TYPE_TO_PRETRAINED[model_type]
-        
-        # Different models need different processors and have different output formats
-        # processor_type: 'image' uses images= param and returns pixel_values
-        #                 'video' uses videos= param and returns pixel_values_videos
-        if model_type in ['siglip', 'siglip2', 'clip', 'dinov2']:
-            # Image-based models: AutoImageProcessor, returns pixel_values
-            self.video_processor = AutoImageProcessor.from_pretrained(pretrained_model)
-            self.processor_type = 'image'
-        elif model_type == 'vivit':
-            # ViViT: specific image processor, returns pixel_values
-            self.video_processor = VivitImageProcessor.from_pretrained(pretrained_model)
-            self.processor_type = 'image'
-        elif model_type == 'videomae':
-            # VideoMAE: specific image processor, returns pixel_values
-            self.video_processor = VideoMAEImageProcessor.from_pretrained(pretrained_model)
-            self.processor_type = 'image'
-        elif model_type == 'vjepa2':
-            # VJEPA2: video processor, returns pixel_values_videos
-            self.video_processor = VJEPA2VideoProcessor.from_pretrained(pretrained_model)
-            self.processor_type = 'video'
-        else:
-            raise ValueError(f"Unknown model type: {model_type}")
+        self.video_processor, self.processor_type = init_video_processor(self.cfg)
+        self.model_type = self.cfg.model.encoder.video.model_type
     
     def _parse_label_columns(self):
         """Parse label column names from task config."""
-        label_column = self.task_cfg.label_column
+        label_column = self.cfg.task.label_column
         
         # Label column can be a single string or semicolon-separated list
         if isinstance(label_column, str):
@@ -171,134 +98,33 @@ class DownstreamDataset(Dataset):
             self.label_columns = list(label_column)
         
         # Verify columns exist
+        df_columns = self.df.columns
         for col in self.label_columns:
-            if col not in self.df.columns:
-                raise ValueError(f"Label column '{col}' not found in CSV. Available: {list(self.df.columns)}")
+            if col not in df_columns:
+                raise ValueError(f"Label column '{col}' not found in CSV. Available: {list(df_columns)}")
         
         logger.info(f"Label columns: {self.label_columns}")
     
-    def _to_absolute_path(self, path: str) -> str:
-        """Convert relative path to absolute path using configured data directory."""
-        if not Path(path).is_absolute():
-            path_obj = Path(path)
-            if path_obj.parts[0] == "data":
-                relative_path = Path(*path_obj.parts[1:])
-                path = str(self.data_root / relative_path)
-            else:
-                path = str(self.data_root / path)
-        return path
     
-    def _construct_video_path(self, match_id: str, player_id: str, round_num: int) -> str:
-        """Construct video path for a player's round."""
-        video_folder = self.cfg.data.video_folder
-        video_path = Path('data') / video_folder / str(match_id) / str(player_id) / f"round_{round_num}.mp4"
-        return str(video_path)
-    
-    def _load_video_clip(self, video_path: str, start_seconds: float, end_seconds: float) -> torch.Tensor:
-        """
-        Load video clip using decord.
-        
-        Args:
-            video_path: Path to the video file
-            start_seconds: Start time of the clip
-            end_seconds: End time of the clip
-            
-        Returns:
-            Video tensor of shape (num_frames, channels, height, width)
-        """
-        expected_frames = int(self.fixed_duration_seconds * self.target_fps)
-        video_full_path = self._to_absolute_path(video_path)
-        
-        try:
-            decoder = VideoReader(video_full_path, ctx=cpu(0))
-            video_fps = decoder.get_avg_fps()
-            
-            # Sample frames at target_fps
-            timestamps = np.linspace(
-                start_seconds, 
-                start_seconds + self.fixed_duration_seconds, 
-                expected_frames, 
-                endpoint=False
-            )
-            
-            # Apply time jitter if configured
-            if self.time_jitter_max_seconds > 0:
-                jitter = np.random.uniform(
-                    -self.time_jitter_max_seconds, 
-                    self.time_jitter_max_seconds, 
-                    size=len(timestamps)
-                )
-                timestamps = timestamps + jitter
-                total_duration = len(decoder) / video_fps
-                timestamps = np.clip(timestamps, 0, total_duration)
-            
-            frame_indices = (timestamps * video_fps).astype(int)
-            max_frame_index = len(decoder) - 1
-            frame_indices = np.clip(frame_indices, 0, max_frame_index)
-            
-            video_clip = decoder.get_batch(frame_indices.tolist())
-            video_clip = torch.from_numpy(video_clip.asnumpy()).permute(0, 3, 1, 2).half()
-            
-            if self.mask_minimap:
-                video_clip = apply_minimap_mask(video_clip)
-            
-            return video_clip
-        except Exception as e:
-            logger.warning(f"Failed to load video {video_path}: {e}, using placeholder")
-            return torch.zeros(expected_frames, 3, 306, 544, dtype=torch.float16)
-    
-    def _transform_video(self, video_clip: torch.Tensor) -> torch.Tensor:
-        """Transform video clip using the video processor.
-        
-        Args:
-            video_clip: Video tensor of shape [T, C, H, W] in range [0, 255]
-            
-        Returns:
-            Processed video tensor of shape [T, C, H, W] normalized for the model
-        """
-        # Convert from [T, C, H, W] to list of numpy arrays [H, W, C] in uint8
-        num_frames = video_clip.shape[0]
-        frames_list = []
-        for i in range(num_frames):
-            frame = video_clip[i].permute(1, 2, 0).cpu().numpy()  # [H, W, C]
-            if frame.max() <= 1.0:
-                frame = (frame * 255).astype('uint8')
-            else:
-                frame = frame.astype('uint8')
-            frames_list.append(frame)
-        
-        if self.processor_type == 'video':
-            # VJEPA2: uses videos= parameter and returns pixel_values_videos [1, T, C, H, W]
-            video_processed = self.video_processor(videos=frames_list, return_tensors="pt")
-            video_features = video_processed.pixel_values_videos.squeeze(0)  # [T, C, H, W]
-        else:
-            # Image-based processors: use images= parameter and return pixel_values
-            processed = self.video_processor(images=frames_list, return_tensors="pt")
-            video_features = processed.pixel_values
-            # Video processors (vivit, videomae) return [1, T, C, H, W], need to squeeze
-            # Image processors (siglip, clip, dinov2) return [T, C, H, W]
-            if video_features.dim() == 5:
-                video_features = video_features.squeeze(0)  # [T, C, H, W]
-        
-        return video_features
-    
-    def _get_label(self, row: pd.Series) -> torch.Tensor:
+    def _get_label(self, row: Dict) -> torch.Tensor:
         """
         Extract label from row based on task type.
         
         Returns tensor of appropriate shape for the task.
         """
-        if self.ml_form == 'binary_cls':
+        ml_form = self.cfg.task.ml_form
+        
+        if ml_form == 'binary_cls':
             # Single binary value
             value = row[self.label_columns[0]]
             return torch.tensor(float(value), dtype=torch.float32)
         
-        elif self.ml_form == 'multi_cls':
+        elif ml_form == 'multi_cls':
             # Single class index
             value = row[self.label_columns[0]]
             return torch.tensor(int(value), dtype=torch.long)
         
-        elif self.ml_form == 'multi_label_cls':
+        elif ml_form == 'multi_label_cls':
             # Multi-hot vector - label column should contain the multi-hot encoding
             # or we need to construct it from multiple columns
             if len(self.label_columns) == 1:
@@ -313,7 +139,8 @@ class DownstreamDataset(Dataset):
                     return torch.tensor(value, dtype=torch.float32)
                 else:
                     # Assume it's a single value to be one-hot encoded
-                    label = torch.zeros(self.num_classes, dtype=torch.float32)
+                    num_classes = self.cfg.task.num_classes
+                    label = torch.zeros(num_classes, dtype=torch.float32)
                     label[int(value)] = 1.0
                     return label
             else:
@@ -321,7 +148,7 @@ class DownstreamDataset(Dataset):
                 values = [float(row[col]) for col in self.label_columns]
                 return torch.tensor(values, dtype=torch.float32)
         
-        elif self.ml_form == 'regression':
+        elif ml_form == 'regression':
             # Continuous value(s)
             if len(self.label_columns) == 1:
                 value = row[self.label_columns[0]]
@@ -331,7 +158,7 @@ class DownstreamDataset(Dataset):
                 return torch.tensor(values, dtype=torch.float32)
         
         else:
-            raise ValueError(f"Unknown ml_form: {self.ml_form}")
+            raise ValueError(f"Unknown ml_form: {ml_form}")
     
     def __len__(self) -> int:
         return len(self.df)
@@ -346,7 +173,7 @@ class DownstreamDataset(Dataset):
                 - 'label': Task-specific label
                 - metadata fields
         """
-        row = self.df.iloc[idx]
+        row = self.df.row(idx, named=True)
         original_csv_idx = row['original_csv_idx']
         
         # Extract video metadata
@@ -361,9 +188,9 @@ class DownstreamDataset(Dataset):
         player_id = row['pov_steamid']
         
         # Construct video path and load video
-        video_path = self._construct_video_path(match_id, player_id, round_num)
-        video_clip = self._load_video_clip(video_path, start_seconds, end_seconds)
-        video = self._transform_video(video_clip)  # [T, C, H, W]
+        video_path = construct_video_path(self.cfg, match_id, player_id, round_num)
+        video_clip = load_video_clip(self.cfg, video_path, start_seconds, end_seconds)
+        video = transform_video(self.video_processor, self.processor_type, video_clip)  # [T, C, H, W]
         
         # Get label
         label = self._get_label(row)

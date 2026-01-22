@@ -8,19 +8,12 @@ Uses single-agent raw video input.
 from typing import Dict, Any
 import logging
 
+from .base import BaseDataModule
+from ..dataset.downstream import DownstreamDataset
+from ..dataset.collate import downstream_collate_fn
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-try:
-    from .base import BaseDataModule
-except ImportError:
-    from base import BaseDataModule
-
-try:
-    from ..dataset.downstream import DownstreamDataset, downstream_collate_fn
-except ImportError:
-    from dataset.downstream import DownstreamDataset, downstream_collate_fn
-
 
 class DownstreamDataModule(BaseDataModule):
     """
@@ -38,9 +31,6 @@ class DownstreamDataModule(BaseDataModule):
             cfg: Configuration with task info
         """
         super().__init__(cfg)
-        
-        self.task_id = cfg.task.task_id
-        self.ml_form = cfg.task.ml_form
     
     def _create_base_dataset(self):
         """Create the base downstream dataset."""
@@ -78,7 +68,3 @@ class DownstreamDataModule(BaseDataModule):
         logger.info(f"Output dim: {base_dataset.output_dim}")
         logger.info(f"Num classes: {base_dataset.num_classes}")
         logger.info(f"Full dataset: {len(base_dataset)} samples")
-
-
-# Alias for backward compatibility
-LinearProbeDataModule = DownstreamDataModule

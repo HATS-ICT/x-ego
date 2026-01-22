@@ -12,17 +12,9 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Import base class
-try:
-    from .base import BaseDataModule
-except ImportError:
-    from base import BaseDataModule
-
-# Import dataset and collate function
-try:
-    from ..dataset.contrastive import ContrastiveDataset, contrastive_collate_fn
-except ImportError:
-    from dataset.contrastive import ContrastiveDataset, contrastive_collate_fn
+from .base import BaseDataModule
+from ..dataset.contrastive import ContrastiveDataset
+from ..dataset.collate import contrastive_collate_fn
 
 
 class ContrastiveDataModule(BaseDataModule):
@@ -42,9 +34,6 @@ class ContrastiveDataModule(BaseDataModule):
         """
         super().__init__(cfg)
         
-        # Store contrastive-specific parameters
-        self.min_agents = cfg.data.min_agents
-    
     def _create_base_dataset(self):
         """Create the base contrastive dataset."""
         return ContrastiveDataset(cfg=self.cfg)
@@ -55,7 +44,7 @@ class ContrastiveDataModule(BaseDataModule):
     
     def _copy_dataset_attributes(self, base_dataset, partition_dataset):
         """Copy dataset attributes."""
-        attrs = ['min_agents', 'video_processor',
+        attrs = ['video_processor',
                  'cfg', 'data_cfg', 'path_cfg', 'data_root', 
                  'target_fps', 'fixed_duration_seconds', 'time_jitter_max_seconds']
         for attr in attrs:
@@ -74,7 +63,6 @@ class ContrastiveDataModule(BaseDataModule):
     def _store_dataset_info(self, base_dataset):
         """Store dataset information."""
         logger.info(f"Full contrastive dataset: {len(base_dataset)} samples")
-        logger.info(f"Minimum agents: {self.min_agents}")
     
     def _get_val_drop_last(self) -> bool:
         """Drop last batch in validation for consistent batch sizes."""

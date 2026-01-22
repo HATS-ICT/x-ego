@@ -78,6 +78,8 @@ def run_command(cmd: list[str], description: str) -> tuple[bool, str, str]:
             cmd,
             capture_output=True,
             text=True,
+            encoding='utf-8',
+            errors='replace',
             cwd=Path(__file__).parent
         )
         

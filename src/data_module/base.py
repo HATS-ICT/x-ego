@@ -169,7 +169,7 @@ class BaseDataModule(L.LightningDataModule, ABC):
             # Apply any previously loaded states
             self._apply_saved_states()
             
-            rprint(f"[green]CHECK[/green] Dataset split - [cyan]Train[/cyan]: [bold]{len(self.train_dataset):,}[/bold], [cyan]Val[/cyan]: [bold]{len(self.val_dataset):,}[/bold]")
+            rprint(f"[green]OK[/green] Dataset split - [cyan]Train[/cyan]: [bold]{len(self.train_dataset):,}[/bold], [cyan]Val[/cyan]: [bold]{len(self.val_dataset):,}[/bold]")
         
         elif stage == "test":
             rprint(f"[blue]->[/blue] Loading [bold]{self.__class__.__name__}[/bold] dataset for testing...")
@@ -180,7 +180,7 @@ class BaseDataModule(L.LightningDataModule, ABC):
             
             try:
                 self.test_dataset = self._create_partition_dataset(base_dataset, 'test')
-                rprint(f"[green]CHECK[/green] Test dataset size: [bold]{len(self.test_dataset):,}[/bold]")
+                rprint(f"[green]OK[/green] Test dataset size: [bold]{len(self.test_dataset):,}[/bold]")
             except Exception as e:
                 rprint(f"[yellow]WARN[/yellow] No test split found: [dim]{e}[/dim]")
                 self.test_dataset = None

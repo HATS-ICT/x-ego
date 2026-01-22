@@ -59,7 +59,7 @@ class ContrastiveDataModule(BaseDataModule):
     
     def _store_dataset_info(self, base_dataset):
         """Store dataset information."""
-        rprint(f"[green]CHECK[/green] Full contrastive dataset: [bold]{len(base_dataset):,}[/bold] samples")
+        rprint(f"[green]OK[/green] Full contrastive dataset: [bold]{len(base_dataset):,}[/bold] samples")
     
     def _get_val_drop_last(self) -> bool:
         """Drop last batch in validation for consistent batch sizes."""

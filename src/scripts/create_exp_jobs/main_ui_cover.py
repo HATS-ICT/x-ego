@@ -13,8 +13,8 @@ PARTITION = "gpu"
 GPU_CONSTRAINT = "a40|a100"  # Use constraint to get either A40 or A100
 GPU_COUNT = 1
 CPUS = 20
-MEM = "64G"
-TIME = "06:00:00"
+MEM = "90G"
+TIME = "48:00:00"
 MAIL_USER = "yunzhewa@usc.edu"
 MAIL_TYPE = "all"
 LOGS_SUBDIR = "logs"
@@ -60,6 +60,10 @@ cd {project_src}
 uv run python main.py --mode train --task contrastive \\
   model.encoder.model_type={model} \\
   data.ui_mask={ui_mask} \\
+  data.batch_size={batch_size} \\
+  data.num_workers={num_workers} \\
+  training.max_epochs={max_epochs} \\
+  training.accumulate_grad_batches={accumulate_grad_batches} \\
   meta.exp_name={exp_name} \\
   meta.run_name={run_name}
 """
@@ -124,6 +128,18 @@ def main():
 
     # Generate jobs for each combination (3 models × 3 ui_masks = 9 jobs)
     for model in MODELS:
+        # Model-specific training settings
+        if model == "siglip2":
+            batch_size = 10
+            accumulate_grad_batches = 4
+        elif model in ["dinov2", "vjepa2"]:
+            batch_size = 4  # 4 * 10 = 40 total batch size
+            accumulate_grad_batches = 10
+        else:
+            # Default fallback
+            batch_size = 10
+            accumulate_grad_batches = 4
+        
         for ui_mask in UI_MASKS:
             ui_mask_short = get_ui_mask_short_name(ui_mask)
             run_name = f"{EXP_PREFIX}-{model}-{ui_mask_short}"
@@ -140,6 +156,10 @@ def main():
                 project_src=str(project_src),
                 model=model,
                 ui_mask=ui_mask,
+                batch_size=batch_size,
+                num_workers=8,
+                max_epochs=40,
+                accumulate_grad_batches=accumulate_grad_batches,
                 exp_name=EXP_PREFIX,
                 run_name=run_name,
             ).rstrip()
@@ -154,6 +174,10 @@ def main():
             command = f"""uv run python main.py --mode train --task contrastive \\
   model.encoder.model_type={model} \\
   data.ui_mask={ui_mask} \\
+  data.batch_size={batch_size} \\
+  data.num_workers=8 \\
+  training.max_epochs=40 \\
+  training.accumulate_grad_batches={accumulate_grad_batches} \\
   meta.exp_name={EXP_PREFIX} \\
   meta.run_name={run_name}"""
             all_commands.append((run_name, command))

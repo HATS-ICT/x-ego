@@ -66,7 +66,7 @@ def plot_video_example(
     plt.tight_layout()
     plt.savefig(full_save_path, dpi=150, bbox_inches="tight")
     plt.close()
-    rprint(f"[green]CHECK[/green] Saved video example to [bold]{full_save_path}[/bold]")
+    rprint(f"[green]OK[/green] Saved video example to [bold]{full_save_path}[/bold]")
 
 
 class ContrastiveDataset(Dataset):
@@ -103,7 +103,7 @@ class ContrastiveDataset(Dataset):
         # Initialize video processor
         self._init_video_processor()
         
-        rprint(f"[green]CHECK[/green] Contrastive dataset initialized with [bold]{len(self.df):,}[/bold] samples")
+        rprint(f"[green]OK[/green] Contrastive dataset initialized with [bold]{len(self.df):,}[/bold] samples")
     
     def _init_video_processor(self):
         """Initialize video processor based on model type from config."""

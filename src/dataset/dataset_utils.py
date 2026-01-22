@@ -57,6 +57,56 @@ def apply_minimap_mask(video_clip: torch.Tensor) -> torch.Tensor:
     return video_clip
 
 
+def apply_all_ui_mask(video_clip: torch.Tensor) -> torch.Tensor:
+    """
+    Apply UI mask for 'all' case:
+    - Minimap (top-left corner)
+    - Top-right corner (same size as minimap)
+    - Middle top (width 1/3, height 1/5)
+    - Lower left square (width 1/10, height 1/10)
+    - Low middle bar (width 1/3, height 1/10)
+    - Lower right bar (width 1/5, height 3/10)
+    """
+    num_frames, channels, height, width = video_clip.shape
+    
+    # Minimap mask dimensions (top-left)
+    mask_width = width // 6
+    mask_height = height * 3 // 10
+    
+    # Mask minimap (top-left corner)
+    video_clip[:, :, :mask_height, :mask_width] = 0
+    
+    # Mask top-right corner (same size as minimap)
+    top_right_mask_width = width // 6
+    top_right_mask_height = height * 3 // 10
+    video_clip[:, :, :mask_height, width - mask_width:] = 0
+    
+    # Mask middle top (width 1/3, height 1/5, centered horizontally)
+    middle_mask_width = width * 4 // 10
+    middle_mask_height = height // 6
+    middle_start_x = (width - middle_mask_width) // 2  # Center horizontally
+    
+    video_clip[:, :, :middle_mask_height, middle_start_x:middle_start_x + middle_mask_width] = 0
+    
+    # Mask lower left square (width 1/10, height 1/10)
+    lower_left_size = width // 12
+    lower_left_height = height // 13
+    video_clip[:, :, height - lower_left_height:, :lower_left_size] = 0
+    
+    # Mask low middle bar (width 1/3, height 1/10, centered horizontally)
+    low_middle_width = width * 5 // 10
+    low_middle_height = height // 9
+    low_middle_start_x = (width - low_middle_width) // 2  # Center horizontally
+    video_clip[:, :, height - low_middle_height:, low_middle_start_x:low_middle_start_x + low_middle_width] = 0
+    
+    # Mask lower right bar (width 1/5, height 3/10)
+    lower_right_width = width // 9
+    lower_right_height = height * 3 // 10
+    video_clip[:, :, height - lower_right_height:, width - lower_right_width:] = 0
+    
+    return video_clip
+
+
 def init_video_processor(cfg: Dict) -> Tuple[Any, str]:
     """
     Initialize video processor based on model type from config.
@@ -145,14 +195,12 @@ def load_video_clip(cfg: Dict, video_full_path: str, start_seconds: float, end_s
         video_clip = torch.from_numpy(video_clip.asnumpy()).permute(0, 3, 1, 2).half()
         
         # Apply UI masking based on configuration
-        ui_mask = getattr(cfg.data, 'ui_mask', 'none')
+        ui_mask = cfg.data.ui_mask
         
         if ui_mask == 'minimap_only':
             video_clip = apply_minimap_mask(video_clip)
         elif ui_mask == 'all':
-            # TODO: Implement full UI masking
-            raise NotImplementedError("ui_mask='all' is not yet implemented")
-        # elif ui_mask == 'none': no masking applied
+            video_clip = apply_all_ui_mask(video_clip)
         
         return video_clip
     except Exception as e:

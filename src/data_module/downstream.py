@@ -59,7 +59,7 @@ class DownstreamDataModule(BaseDataModule):
     
     def _store_dataset_info(self, base_dataset):
         """Store dataset information."""
-        rprint(f"[green]CHECK[/green] Task: [bold]{base_dataset.cfg.task.task_id}[/bold]")
+        rprint(f"[green]OK[/green] Task: [bold]{base_dataset.cfg.task.task_id}[/bold]")
         rprint(f"  ML form: [cyan]{base_dataset.cfg.task.ml_form}[/cyan]")
         rprint(f"  Output dim: [bold]{base_dataset.cfg.task.output_dim}[/bold]")
         rprint(f"  Num classes: [bold]{base_dataset.cfg.task.num_classes}[/bold]")

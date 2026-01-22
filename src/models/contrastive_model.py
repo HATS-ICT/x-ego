@@ -343,6 +343,16 @@ class ContrastiveModel(L.LightningModule):
         
         return {'optimizer': optimizer}
     
+    def on_load_checkpoint(self, checkpoint: dict) -> None:
+        """
+        Handle checkpoint loading, stripping torch.compile _orig_mod prefix.
+        
+        Called by Lightning before load_state_dict. We modify the checkpoint
+        in-place to handle compiled model state dicts.
+        """
+        if 'state_dict' in checkpoint:
+            checkpoint['state_dict'] = self._strip_orig_mod_prefix(checkpoint['state_dict'])
+    
     def get_encoder_state_dict(self):
         """
         Get state dict of the encoder components for Stage 2.
@@ -375,6 +385,9 @@ class ContrastiveModel(L.LightningModule):
         checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
         state_dict = checkpoint['state_dict']
         
+        # Handle torch.compile _orig_mod prefix in state dict keys
+        state_dict = cls._strip_orig_mod_prefix(state_dict)
+        
         # Create model to get architecture
         model = cls(cfg)
         
@@ -382,3 +395,28 @@ class ContrastiveModel(L.LightningModule):
         model.load_state_dict(state_dict)
         
         return model.video_encoder, model.video_projector, model.contrastive
+    
+    @staticmethod
+    def _strip_orig_mod_prefix(state_dict: dict) -> dict:
+        """
+        Strip '_orig_mod.' prefix from state dict keys.
+        
+        torch.compile wraps modules and adds '_orig_mod.' prefix to state dict keys.
+        This method removes that prefix to allow loading compiled checkpoints into
+        non-compiled models.
+        
+        Args:
+            state_dict: State dict potentially containing '_orig_mod.' prefixed keys
+            
+        Returns:
+            State dict with '_orig_mod.' prefix stripped from all keys
+        """
+        new_state_dict = {}
+        for k, v in state_dict.items():
+            # Replace all occurrences of '_orig_mod.' in the key
+            new_key = k.replace("._orig_mod.", ".")
+            # Also handle case where _orig_mod is at the start
+            if new_key.startswith("_orig_mod."):
+                new_key = new_key[len("_orig_mod."):]
+            new_state_dict[new_key] = v
+        return new_state_dict

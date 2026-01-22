@@ -331,7 +331,7 @@ class ContrastiveModel(L.LightningModule):
         return loss
     
     def configure_optimizers(self):
-        """Configure optimizer."""
+        """Configure optimizer and learning rate scheduler."""
         opt_config = self.cfg.optimization
         
         optimizer = AdamW(
@@ -340,6 +340,54 @@ class ContrastiveModel(L.LightningModule):
             weight_decay=opt_config.weight_decay,
             fused=opt_config.fused_optimizer,
         )
+        
+        # Check if scheduler is configured
+        if not hasattr(opt_config, 'scheduler') or opt_config.scheduler is None:
+            return {'optimizer': optimizer}
+        
+        sched_config = opt_config.scheduler
+        
+        if sched_config.type == 'cosine':
+            from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
+            
+            warmup_steps = sched_config.warmup_steps
+            min_lr_ratio = sched_config.min_lr_ratio
+            
+            # Total steps from trainer (set by Lightning)
+            # Use max_steps if specified, otherwise estimate from max_epochs
+            total_steps = self.trainer.estimated_stepping_batches
+            
+            # Warmup scheduler: linear warmup from 0 to initial LR
+            warmup_scheduler = LinearLR(
+                optimizer,
+                start_factor=1e-8 / opt_config.lr,  # Start from near-zero
+                end_factor=1.0,
+                total_iters=warmup_steps
+            )
+            
+            # Cosine decay scheduler: decay from initial LR to min_lr
+            cosine_steps = max(total_steps - warmup_steps, 1)
+            cosine_scheduler = CosineAnnealingLR(
+                optimizer,
+                T_max=cosine_steps,
+                eta_min=opt_config.lr * min_lr_ratio
+            )
+            
+            # Combine warmup and cosine decay
+            scheduler = SequentialLR(
+                optimizer,
+                schedulers=[warmup_scheduler, cosine_scheduler],
+                milestones=[warmup_steps]
+            )
+            
+            return {
+                'optimizer': optimizer,
+                'lr_scheduler': {
+                    'scheduler': scheduler,
+                    'interval': 'step',
+                    'frequency': 1,
+                }
+            }
         
         return {'optimizer': optimizer}
     

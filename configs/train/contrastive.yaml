@@ -19,8 +19,8 @@ data:
   video_folder: video_306x306_4fps
   persistent_workers: true
   pin_mem: true
-  batch_size: 2
-  num_workers: 0
+  batch_size: 16
+  num_workers: 10
   prefetch_factor: 2
   data_path_csv_filename: video_partitioned_chunked_downsized.csv
   fixed_duration_seconds: 5
@@ -59,7 +59,7 @@ training:
   strategy: auto
   precision: bf16-mixed
   gradient_clip_val: 1.0
-  accumulate_grad_batches: 1
+  accumulate_grad_batches: 4
   val_check_interval: null
   check_val_every_n_epoch: 1
   log_every_n_steps: 10
@@ -74,9 +74,13 @@ training:
   limit_test_batches: 1.0
 
 optimization:
-  lr: 0.00001
+  lr: 0.0001
   weight_decay: 0.01
   fused_optimizer: true
+  scheduler:
+    type: cosine
+    warmup_steps: 500
+    min_lr_ratio: 0.1  # final_lr = min_lr_ratio * lr
 
 wandb:
   enabled: true

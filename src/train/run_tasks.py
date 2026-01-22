@@ -1,12 +1,3 @@
-# Local imports
-from src.models.contrastive_model import ContrastiveModel
-from src.models.downstream import LinearProbeModel
-from src.data_module.contrastive import ContrastiveDataModule
-from src.data_module.downstream import DownstreamDataModule
-from src.train.train_pipeline import run_training_pipeline
-from src.train.test_pipeline import run_test_only_pipeline
-
-
 # ============================================================================
 # Stage 1: Contrastive Learning (Team Alignment)
 # ============================================================================
@@ -18,6 +9,10 @@ def train_contrastive(cfg):
     This trains a video encoder to produce embeddings where agents from
     the same team are aligned in the embedding space.
     """
+    from src.models.contrastive_model import ContrastiveModel
+    from src.data_module.contrastive import ContrastiveDataModule
+    from src.train.train_pipeline import run_training_pipeline
+    
     run_training_pipeline(
         cfg=cfg,
         model_class=ContrastiveModel,
@@ -29,6 +24,10 @@ def train_contrastive(cfg):
 
 def test_contrastive(cfg):
     """Test-only mode for contrastive learning model."""
+    from src.models.contrastive_model import ContrastiveModel
+    from src.data_module.contrastive import ContrastiveDataModule
+    from src.train.test_pipeline import run_test_only_pipeline
+    
     run_test_only_pipeline(
         cfg=cfg,
         model_class=ContrastiveModel,
@@ -50,6 +49,10 @@ def train_downstream(cfg):
     
     Supports task types: binary_cls, multi_cls, multi_label_cls, regression.
     """
+    from src.models.downstream import LinearProbeModel
+    from src.data_module.downstream import DownstreamDataModule
+    from src.train.train_pipeline import run_training_pipeline
+    
     task_id = cfg.task.task_id
     ml_form = cfg.task.ml_form
     
@@ -64,6 +67,10 @@ def train_downstream(cfg):
 
 def test_downstream(cfg):
     """Test-only mode for linear probe model."""
+    from src.models.downstream import LinearProbeModel
+    from src.data_module.downstream import DownstreamDataModule
+    from src.train.test_pipeline import run_test_only_pipeline
+    
     run_test_only_pipeline(
         cfg=cfg,
         model_class=LinearProbeModel,

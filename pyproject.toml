@@ -13,6 +13,7 @@ dependencies = [
     "h5py>=3.14.0",
     "lightning>=2.5.5",
     "omegaconf>=2.3.0",
+    "polars>=1.37.1",
     "scikit-learn>=1.7.2",
     "seaborn>=0.13.2",
     "sentencepiece>=0.2.1",

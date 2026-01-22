@@ -27,8 +27,8 @@ data:
   fixed_duration_seconds: 5
   target_fps: 4
   video_column_name: video_path
-  mask_minimap: true
-  time_jitter_max_seconds: 0.3
+  ui_mask: minimap_only  # options: none, minimap_only, all (all not implemented yet)
+  time_jitter_max_seconds: 0
   labels_filename: downstream_labels.csv
 
 model:

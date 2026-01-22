@@ -115,13 +115,6 @@ def _process_single_round(args: Tuple) -> List[Dict]:
     global_min_tick = min(all_min_ticks)
     global_max_tick = max(all_max_ticks)
     
-    # Get map name
-    map_name = 'de_mirage'
-    for df in player_trajectories.values():
-        if 'map_name' in df.columns and not df.empty:
-            map_name = df.iloc[0]['map_name']
-            break
-    
     # Group players by side
     t_players = {}
     ct_players = {}
@@ -171,7 +164,6 @@ def _process_single_round(args: Tuple) -> List[Dict]:
                     'end_seconds': norm_end_seconds,
                     'match_id': match_id,
                     'round_num': round_num,
-                    'map_name': map_name,
                     'teammates_data': teammates,
                     'num_alive_teammates': len(teammates)
                 }
@@ -256,7 +248,6 @@ class ContrastiveDataCreator:
                 'end_seconds': segment['end_seconds'],
                 'match_id': segment['match_id'],
                 'round_num': segment['round_num'],
-                'map_name': segment['map_name'],
                 'num_alive_teammates': segment['num_alive_teammates']
             }
             

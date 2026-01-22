@@ -154,7 +154,7 @@ class ContrastiveDataset(Dataset):
             video_clip = load_video_clip(self.cfg, video_path, start_seconds, end_seconds) # [T, C, H, W]
             
             ## Temporary: Debug, plot each video clip and save png
-            plot_video_example(video_clip, f"debug_video_{agent_id}.png")
+            # plot_video_example(video_clip, f"debug_video_{agent_id}.png")
             
             video_features = transform_video(self.video_processor, self.processor_type, video_clip)
             agent_videos.append(video_features)

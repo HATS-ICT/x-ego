@@ -28,9 +28,8 @@ data:
   video_column_name: video_path
   num_pov_agents: 5
   ui_mask: minimap_only  # options: none, minimap_only, all (all not implemented yet)
-  time_jitter_max_seconds: 0.3
+  time_jitter_max_seconds: 0
   labels_filename: contrastive.csv
-  min_agents: 2
 
 model:
   activation: gelu

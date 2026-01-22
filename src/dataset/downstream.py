@@ -7,12 +7,12 @@ Loads video and task-specific labels based on task_id from task_definitions.csv.
 No precomputed embeddings - video is processed through the model's encoder.
 """
 
-import logging
 from pathlib import Path
 from typing import Dict
 import polars as pl
 import torch
 from torch.utils.data import Dataset
+from rich import print as rprint
 
 from .dataset_utils import (
     init_video_processor,
@@ -20,10 +20,6 @@ from .dataset_utils import (
     load_video_clip,
     transform_video,
 )
-
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 
 class DownstreamDataset(Dataset):
@@ -58,7 +54,7 @@ class DownstreamDataset(Dataset):
             raise FileNotFoundError(f"Labels file not found: {label_path}")
         
         self.df = pl.read_csv(label_path, null_values=[])
-        logger.info(f"Loaded {len(self.df)} samples from {label_path}")
+        rprint(f"[green]✓[/green] Loaded [bold]{len(self.df):,}[/bold] samples from [dim]{label_path}[/dim]")
         
         # Add original CSV index
         self.df = self.df.with_row_index("original_csv_idx")
@@ -68,7 +64,7 @@ class DownstreamDataset(Dataset):
             initial_count = len(self.df)
             self.df = self.df.filter(pl.col('partition') == cfg.data.partition)
             filtered_count = len(self.df)
-            logger.info(f"Filtered dataset from {initial_count} to {filtered_count} samples for partition '{cfg.data.partition}'")
+            rprint(f"[blue]→[/blue] Filtered dataset from [bold]{initial_count:,}[/bold] to [bold]{filtered_count:,}[/bold] samples for partition [cyan]'{cfg.data.partition}'[/cyan]")
         
         # Initialize video processor
         self._init_video_processor()
@@ -76,8 +72,8 @@ class DownstreamDataset(Dataset):
         # Parse label column configuration
         self._parse_label_columns()
         
-        logger.info(f"Task: {cfg.task.task_id} ({cfg.task.ml_form})")
-        logger.info(f"Output dim: {cfg.task.output_dim}, Num classes: {cfg.task.num_classes}")
+        rprint(f"[green]✓[/green] Task: [bold]{cfg.task.task_id}[/bold] ([cyan]{cfg.task.ml_form}[/cyan])")
+        rprint(f"  Output dim: [bold]{cfg.task.output_dim}[/bold], Num classes: [bold]{cfg.task.num_classes}[/bold]")
     
     def _init_video_processor(self):
         """Initialize video processor based on model type from config."""
@@ -103,7 +99,7 @@ class DownstreamDataset(Dataset):
             if col not in df_columns:
                 raise ValueError(f"Label column '{col}' not found in CSV. Available: {list(df_columns)}")
         
-        logger.info(f"Label columns: {self.label_columns}")
+        rprint(f"  Label columns: [magenta]{self.label_columns}[/magenta]")
     
     
     def _get_label(self, row: Dict) -> torch.Tensor:
@@ -213,4 +209,4 @@ class DownstreamDataset(Dataset):
 
 
 if __name__ == "__main__":
-    print("DownstreamDataset test placeholder")
+    rprint("[dim]DownstreamDataset test placeholder[/dim]")

@@ -1,15 +1,11 @@
 import copy
-import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional, Dict, Any, Callable
 from torch.utils.data import DataLoader
 import lightning as L
 import polars as pl
-
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from rich import print as rprint
 
 
 class BaseDataModule(L.LightningDataModule, ABC):
@@ -62,13 +58,13 @@ class BaseDataModule(L.LightningDataModule, ABC):
             data_cfg.label_path = label_path
             
             if not label_path.exists():
-                logger.error(f"Label CSV file not found: {label_path}")
+                rprint(f"[red]✗[/red] Label CSV file not found: [bold]{label_path}[/bold]")
                 raise FileNotFoundError(f"Label CSV file not found: {label_path}")
         
         # Check data root
         data_root = self._build_data_root_path()
         if not data_root.exists():
-            logger.error(f"Data directory not found: {data_root}")
+            rprint(f"[red]✗[/red] Data directory not found: [bold]{data_root}[/bold]")
             raise FileNotFoundError(f"Data directory not found: {data_root}")
         
         # Additional path validation can be overridden by subclasses
@@ -109,7 +105,7 @@ class BaseDataModule(L.LightningDataModule, ABC):
     def _print_partition_info(self, df, partition_name: str) -> None:
         """Print partition information. Override for custom info."""
         total_samples = len(df)
-        logger.info(f"{partition_name} partition: {total_samples} samples")
+        rprint(f"[cyan]{partition_name}[/cyan] partition: [bold]{total_samples:,}[/bold] samples")
     
     def _create_dataloader(
         self, 
@@ -160,7 +156,7 @@ class BaseDataModule(L.LightningDataModule, ABC):
     def setup(self, stage: Optional[str] = None) -> None:
         """Setup datasets for each stage."""
         if stage == "fit" or stage is None:
-            logger.info(f"Loading {self.__class__.__name__} dataset and initializing processors...")
+            rprint(f"[blue]→[/blue] Loading [bold]{self.__class__.__name__}[/bold] dataset and initializing processors...")
             base_dataset = self._create_base_dataset()
             
             # Store dataset info for model configuration
@@ -173,10 +169,10 @@ class BaseDataModule(L.LightningDataModule, ABC):
             # Apply any previously loaded states
             self._apply_saved_states()
             
-            logger.info(f"Dataset split - Train: {len(self.train_dataset)}, Val: {len(self.val_dataset)}")
+            rprint(f"[green]✓[/green] Dataset split - [cyan]Train[/cyan]: [bold]{len(self.train_dataset):,}[/bold], [cyan]Val[/cyan]: [bold]{len(self.val_dataset):,}[/bold]")
         
         elif stage == "test":
-            logger.info(f"Loading {self.__class__.__name__} dataset for testing...")
+            rprint(f"[blue]→[/blue] Loading [bold]{self.__class__.__name__}[/bold] dataset for testing...")
             base_dataset = self._create_base_dataset()
             
             # Store dataset info for model configuration
@@ -184,9 +180,9 @@ class BaseDataModule(L.LightningDataModule, ABC):
             
             try:
                 self.test_dataset = self._create_partition_dataset(base_dataset, 'test')
-                logger.info(f"Test dataset size: {len(self.test_dataset)}")
+                rprint(f"[green]✓[/green] Test dataset size: [bold]{len(self.test_dataset):,}[/bold]")
             except Exception as e:
-                logger.warning(f"No test split found: {e}")
+                rprint(f"[yellow]⚠[/yellow] No test split found: [dim]{e}[/dim]")
                 self.test_dataset = None
     
     def _store_dataset_info(self, base_dataset) -> None:
@@ -267,7 +263,9 @@ class BaseDataModule(L.LightningDataModule, ABC):
         # Apply states if datasets are already created
         self._apply_saved_states()
         
-        logger.info(f"Loaded DataModule state for {'train' if self._train_state else 'no train'} and {'val' if self._val_state else 'no val'}")
+        train_status = "[green]train[/green]" if self._train_state else "[dim]no train[/dim]"
+        val_status = "[green]val[/green]" if self._val_state else "[dim]no val[/dim]"
+        rprint(f"[blue]→[/blue] Loaded DataModule state for {train_status} and {val_status}")
     
     # Optional epoch hooks
     def on_train_epoch_start(self) -> None:

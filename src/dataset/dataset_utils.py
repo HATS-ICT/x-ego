@@ -5,9 +5,7 @@ import torch
 import numpy as np
 from typing import Tuple, Any, Dict
 from decord import VideoReader, cpu
-import logging
-
-logger = logging.getLogger(__name__)
+from rich import print as rprint
 
 
 def get_random_segment(full_duration, fixed_segment_duration):
@@ -80,7 +78,7 @@ def init_video_processor(cfg: Dict) -> Tuple[Any, str]:
     # Different models need different processors and have different output formats
     if model_type in ['siglip', 'siglip2', 'clip', 'dinov2']:
         # Image-based models: AutoImageProcessor, returns pixel_values
-        video_processor = AutoImageProcessor.from_pretrained(pretrained_model)
+        video_processor = AutoImageProcessor.from_pretrained(pretrained_model, use_fast=True)
         processor_type = 'image'
     elif model_type == 'vivit':
         # ViViT: specific image processor, returns pixel_values
@@ -158,7 +156,7 @@ def load_video_clip(cfg: Dict, video_full_path: str, start_seconds: float, end_s
         
         return video_clip
     except Exception as e:
-        logger.warning(f"Failed to load video {video_full_path}: {e}, using placeholder")
+        rprint(f"[yellow]⚠[/yellow] Failed to load video [bold]{video_full_path}[/bold]: [dim]{e}[/dim], using placeholder")
         return torch.zeros(expected_frames, 3, 306, 544, dtype=torch.float16)
 
 

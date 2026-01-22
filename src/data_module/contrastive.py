@@ -6,11 +6,7 @@ Handles variable number of agents per sample.
 """
 
 from typing import Dict, Any
-import logging
-
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from rich import print as rprint
 
 from .base import BaseDataModule
 from ..dataset.contrastive import ContrastiveDataset
@@ -54,15 +50,16 @@ class ContrastiveDataModule(BaseDataModule):
     def _print_partition_info(self, df, partition_name: str):
         """Print partition information."""
         total_samples = len(df)
-        logger.info(f"{partition_name} partition: {total_samples} samples")
+        rprint(f"[cyan]{partition_name}[/cyan] partition: [bold]{total_samples:,}[/bold] samples")
         
         if 'pov_team_side' in df.columns:
             team_counts = df['pov_team_side'].value_counts()
-            logger.info(f"  Team distribution: {dict(team_counts)}")
+            team_dict = dict(team_counts)
+            rprint(f"  Team distribution: [magenta]{team_dict}[/magenta]")
     
     def _store_dataset_info(self, base_dataset):
         """Store dataset information."""
-        logger.info(f"Full contrastive dataset: {len(base_dataset)} samples")
+        rprint(f"[green]✓[/green] Full contrastive dataset: [bold]{len(base_dataset):,}[/bold] samples")
     
     def _get_val_drop_last(self) -> bool:
         """Drop last batch in validation for consistent batch sizes."""

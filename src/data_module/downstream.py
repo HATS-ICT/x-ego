@@ -6,14 +6,11 @@ Uses single-agent raw video input.
 """
 
 from typing import Dict, Any
-import logging
+from rich import print as rprint
 
 from .base import BaseDataModule
 from ..dataset.downstream import DownstreamDataset
 from ..dataset.collate import downstream_collate_fn
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 class DownstreamDataModule(BaseDataModule):
     """
@@ -55,16 +52,17 @@ class DownstreamDataModule(BaseDataModule):
     def _print_partition_info(self, df, partition_name: str):
         """Print partition information."""
         total_samples = len(df)
-        logger.info(f"{partition_name} partition: {total_samples} samples")
+        rprint(f"[cyan]{partition_name}[/cyan] partition: [bold]{total_samples:,}[/bold] samples")
         
         if 'pov_team_side' in df.columns:
             team_counts = df['pov_team_side'].value_counts()
-            logger.info(f"  Team distribution: {dict(team_counts)}")
+            team_dict = dict(team_counts)
+            rprint(f"  Team distribution: [magenta]{team_dict}[/magenta]")
     
     def _store_dataset_info(self, base_dataset):
         """Store dataset information."""
-        logger.info(f"Task: {base_dataset.task_id}")
-        logger.info(f"ML form: {base_dataset.ml_form}")
-        logger.info(f"Output dim: {base_dataset.output_dim}")
-        logger.info(f"Num classes: {base_dataset.num_classes}")
-        logger.info(f"Full dataset: {len(base_dataset)} samples")
+        rprint(f"[green]✓[/green] Task: [bold]{base_dataset.task_id}[/bold]")
+        rprint(f"  ML form: [cyan]{base_dataset.ml_form}[/cyan]")
+        rprint(f"  Output dim: [bold]{base_dataset.output_dim}[/bold]")
+        rprint(f"  Num classes: [bold]{base_dataset.num_classes}[/bold]")
+        rprint(f"  Full dataset: [bold]{len(base_dataset):,}[/bold] samples")

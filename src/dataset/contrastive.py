@@ -12,7 +12,6 @@ Key features:
 - Example: batch with samples having [3, 2] agents -> video tensor [5, T, C, H, W]
 """
 
-import logging
 from pathlib import Path
 from typing import Any, Dict, List, Union
 
@@ -21,6 +20,7 @@ import numpy as np
 import polars as pl
 import torch
 from torch.utils.data import Dataset
+from rich import print as rprint
 
 from .dataset_utils import (
     init_video_processor,
@@ -48,7 +48,7 @@ def plot_video_example(
     
     n_frames = video_clip.shape[0]
     if n_frames != 20:
-        logger.warning(f"plot_video_example expects 20 frames, got {n_frames}; grid may be incomplete")
+        rprint(f"[yellow]⚠[/yellow] plot_video_example expects 20 frames, got [bold]{n_frames}[/bold]; grid may be incomplete")
 
     # [T, C, H, W] -> numpy, then [T, H, W, C] for imshow
     arr = video_clip.detach().float().numpy()
@@ -66,12 +66,7 @@ def plot_video_example(
     plt.tight_layout()
     plt.savefig(full_save_path, dpi=150, bbox_inches="tight")
     plt.close()
-    logger.info(f"Saved video example to {full_save_path}")
-
-
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+    rprint(f"[green]✓[/green] Saved video example to [bold]{full_save_path}[/bold]")
 
 
 class ContrastiveDataset(Dataset):
@@ -103,12 +98,12 @@ class ContrastiveDataset(Dataset):
             initial_count = len(self.df)
             self.df = self.df.filter(pl.col('partition') == self.cfg.data.partition)
             filtered_count = len(self.df)
-            logger.info(f"Filtered dataset from {initial_count} to {filtered_count} samples for partition '{self.cfg.data.partition}'")
+            rprint(f"[blue]→[/blue] Filtered dataset from [bold]{initial_count:,}[/bold] to [bold]{filtered_count:,}[/bold] samples for partition [cyan]'{self.cfg.data.partition}'[/cyan]")
         
         # Initialize video processor
         self._init_video_processor()
         
-        logger.info(f"Contrastive dataset initialized with {len(self.df)} samples")
+        rprint(f"[green]✓[/green] Contrastive dataset initialized with [bold]{len(self.df):,}[/bold] samples")
     
     def _init_video_processor(self):
         """Initialize video processor based on model type from config."""

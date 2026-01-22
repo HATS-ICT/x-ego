@@ -7,8 +7,9 @@ and negative pairs are agents from different teams/times.
 
 Key features:
 - Loads from contrastive.csv (no labels, just metadata and teammate info)
-- Allows variable number of agents (supports dead teammates)
-- Creates alignment matrix where positive pairs are teammate squares
+- Variable number of agents per sample (no padding for dead agents)
+- Batch collation flattens all agents into first dimension with agent_counts tracking
+- Example: batch with samples having [3, 2] agents -> video tensor [5, T, C, H, W]
 """
 
 import logging
@@ -131,11 +132,12 @@ class ContrastiveDataset(Dataset):
         
         Returns:
             dict: Dictionary containing:
-                - 'video': Multi-agent video features [A, ...] where A is variable
-                - 'num_agents': Number of valid agents
+                - 'videos': List of video tensors, one per agent [T, C, H, W] each
+                - 'num_agents': Number of alive agents in this sample
                 - 'pov_team_side': Team side (string)
                 - 'pov_team_side_encoded': Team side encoded as int
                 - 'agent_ids': List of agent IDs
+                - 'original_csv_idx': Original CSV index for reference
         """
         row = self.df.row(idx, named=True)
         
@@ -157,15 +159,14 @@ class ContrastiveDataset(Dataset):
             # plot_video_example(video_clip, f"debug_video_{agent_id}.png")
             
             video_features = transform_video(self.video_processor, self.processor_type, video_clip)
-            agent_videos.append(video_features)
-        
-        multi_agent_video = torch.stack(agent_videos, dim=0)  # [A, T, C, H, W]
+            agent_videos.append(video_features)  # Each is [T, C, H, W]
         
         # Encode team side
         pov_team_side_encoded = 1 if pov_team_side == 'CT' else 0
         
+        # Return list of videos (not stacked) - collate will concatenate across batch
         return {
-            'video': multi_agent_video,
+            'videos': agent_videos,  # List of [T, C, H, W] tensors
             'num_agents': len(agent_ids),
             'pov_team_side': pov_team_side,
             'pov_team_side_encoded': torch.tensor(pov_team_side_encoded, dtype=torch.long),

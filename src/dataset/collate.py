@@ -5,62 +5,52 @@ def contrastive_collate_fn(batch):
     """
     Custom collate function for contrastive learning dataset.
     
-    Handles variable number of agents per sample by padding to max agents in batch.
+    Concatenates all agents across the batch into the first dimension (no padding).
+    Uses agent_counts to track how many agents belong to each sample for reconstruction.
     
     Args:
         batch: List of dictionaries containing:
-            - 'video': Video features tensor [A, ...] where A is variable
-            - 'num_agents': Number of valid agents in this sample
+            - 'videos': List of video tensors [T, C, H, W] per agent
+            - 'num_agents': Number of alive agents in this sample
             - 'pov_team_side': String indicating team side
             - 'pov_team_side_encoded': Team side encoded as int
             - 'agent_ids': List of agent IDs
     
     Returns:
-        Dictionary with batched tensors, including agent_mask for variable agents
+        Dictionary with:
+            - 'video': Concatenated video tensor [total_agents, T, C, H, W]
+            - 'agent_counts': Tensor [B] with number of agents per sample
+            - Other metadata fields
+    
+    Example:
+        If batch has 2 samples with [3, 2] agents respectively:
+        - video shape: [5, T, C, H, W] (3 + 2 = 5 total agents)
+        - agent_counts: tensor([3, 2])
     """
     collated = {}
     
-    # Find max agents in batch
-    max_agents = max(item['video'].shape[0] for item in batch)
-    
-    # Pad videos to max_agents
-    padded_videos = []
-    agent_masks = []
+    # Collect all agent videos and counts
+    all_videos = []
+    agent_counts = []
+    all_agent_ids = []
     
     for item in batch:
-        video = item['video']
-        num_agents = video.shape[0]
-        
-        if num_agents < max_agents:
-            # Pad with zeros: [A, T, C, H, W] -> [max_agents, T, C, H, W]
-            pad_shape = (max_agents - num_agents,) + video.shape[1:]
-            padding = torch.zeros(pad_shape, dtype=video.dtype)
-            video = torch.cat([video, padding], dim=0)
-        
-        padded_videos.append(video)
-        
-        # Create agent mask: True for valid agents, False for padding
-        mask = torch.zeros(max_agents, dtype=torch.bool)
-        mask[:num_agents] = True
-        agent_masks.append(mask)
+        videos = item['videos']  # List of [T, C, H, W] tensors
+        agent_counts.append(len(videos))
+        all_videos.extend(videos)  # Flatten into single list
+        all_agent_ids.extend(item['agent_ids'])
     
-    collated['video'] = torch.stack(padded_videos, dim=0)  # [B, max_A, ...]
-    collated['agent_mask'] = torch.stack(agent_masks, dim=0)  # [B, max_A]
-    collated['num_agents'] = torch.tensor([item['num_agents'] for item in batch])  # [B]
+    # Stack all videos: [total_agents, T, C, H, W]
+    collated['video'] = torch.stack(all_videos, dim=0)
+    collated['agent_counts'] = torch.tensor(agent_counts, dtype=torch.long)  # [B]
+    collated['agent_ids'] = all_agent_ids  # Flat list of all agent IDs
     
-    # Handle other keys
-    for key in batch[0].keys():
-        if key in ['video', 'num_agents']:
-            continue
-        
-        values = [item[key] for item in batch]
-        
-        if key in ['pov_team_side', 'agent_ids']:
-            # Keep string/list values as lists
-            collated[key] = values
-        else:
-            # For tensors, use default collate
-            collated[key] = torch.utils.data.default_collate(values)
+    # Handle other keys (per-sample metadata)
+    collated['pov_team_side'] = [item['pov_team_side'] for item in batch]
+    collated['pov_team_side_encoded'] = torch.stack(
+        [item['pov_team_side_encoded'] for item in batch], dim=0
+    )  # [B]
+    collated['original_csv_idx'] = [item['original_csv_idx'] for item in batch]
     
     return collated
 

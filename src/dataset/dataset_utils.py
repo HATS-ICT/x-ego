@@ -10,11 +10,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def to_absolute_path(path: str) -> str:
-    if not Path(path).is_absolute():
-        path = str(Path(__file__).parent.parent.parent.parent / path)
-    return path
-
 def get_random_segment(full_duration, fixed_segment_duration):
     """
     Get a random segment with fixed duration.

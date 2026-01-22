@@ -39,10 +39,6 @@ model:
   hidden_dim: 256
   num_hidden_layers: 3
   dropout: 0.1
-  class_weights: null
-  stage1_checkpoint: null
-  freeze_encoder: true
-  loss_fn: bce
   encoder:
     video:
       freeze_backbone: false
@@ -54,7 +50,6 @@ model:
     logit_bias_init: -3
     turn_off_bias: false
     loss_weight: 1.0
-    mode: contrastive_only
 
 training:
   max_epochs: 20
@@ -71,7 +66,7 @@ training:
   enable_checkpointing: true
   enable_progress_bar: true
   enable_model_summary: true
-  torch_compile: false
+  torch_compile: true
   deterministic: false
   num_sanity_val_steps: 0
   limit_train_batches: 1.0

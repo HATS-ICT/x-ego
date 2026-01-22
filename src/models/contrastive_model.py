@@ -7,9 +7,10 @@ from the same team. It's the first stage of the two-stage training pipeline:
   Stage 2: Linear probing on downstream tasks with frozen encoder
 
 Key features:
-- Supports variable number of agents per sample (dead teammates)
-- Creates alignment matrix where positive pairs are agents from same batch
-- No prediction head, only contrastive alignment loss
+- Variable agents per sample with no padding (agents concatenated in first dim)
+- Uses agent_counts to track sample boundaries for alignment matrix
+- Example: batch with [3, 2] agents -> video [5, T, C, H, W], agent_counts [3, 2]
+- Creates alignment matrix where positive pairs are agents from same sample
 """
 
 import torch
@@ -34,8 +35,8 @@ class ContrastiveModel(L.LightningModule):
     
     Variable Agent Support:
         Supports batches with variable number of agents per sample.
-        Uses agent_mask to properly compute contrastive loss only
-        over valid agents.
+        Agents are concatenated in the first dimension (no padding).
+        Uses agent_counts tensor to track sample boundaries.
     """
     
     def __init__(self, cfg):
@@ -75,32 +76,35 @@ class ContrastiveModel(L.LightningModule):
         # Output directory
         self.output_dir = cfg.path.exp
     
-    def create_alignment_matrix_variable(self, batch_size: int, num_agents: torch.Tensor, 
-                                         agent_mask: torch.Tensor, device: torch.device) -> torch.Tensor:
+    def create_alignment_matrix(self, agent_counts: torch.Tensor, device: torch.device) -> torch.Tensor:
         """
         Create alignment matrix for variable number of agents per sample.
         
-        For contrastive learning, positive pairs are agents from the same batch.
+        For contrastive learning, positive pairs are agents from the same sample.
         This creates a block-diagonal matrix where each block corresponds to 
         agents from the same sample.
         
         Args:
-            batch_size: Number of samples in batch
-            num_agents: [B] Number of valid agents per sample
-            agent_mask: [B, max_A] Boolean mask for valid agents
+            agent_counts: [B] Number of agents per sample
             device: Device to create tensor on
             
         Returns:
-            labels: [total_valid_agents, total_valid_agents] alignment matrix
+            labels: [total_agents, total_agents] alignment matrix
                    1 for same-sample pairs, 0 otherwise
+                   
+        Example:
+            agent_counts = [3, 2] -> 5x5 matrix with two blocks:
+            [[1,1,1,0,0],
+             [1,1,1,0,0],
+             [1,1,1,0,0],
+             [0,0,0,1,1],
+             [0,0,0,1,1]]
         """
-        # Create batch assignment for each valid agent
-        batch_indices = []
-        for b in range(batch_size):
-            n_agents = num_agents[b].item()
-            batch_indices.extend([b] * n_agents)
-        
-        batch_indices = torch.tensor(batch_indices, device=device)
+        # Create batch assignment for each agent using repeat_interleave
+        batch_indices = torch.repeat_interleave(
+            torch.arange(len(agent_counts), device=device),
+            agent_counts
+        )
         
         # Create alignment matrix: 1 if same batch, 0 otherwise
         labels = (batch_indices.unsqueeze(0) == batch_indices.unsqueeze(1)).float()
@@ -113,46 +117,38 @@ class ContrastiveModel(L.LightningModule):
         
         Args:
             batch: Dictionary containing:
-                - video: [B, max_A, T, C, H, W] video tensors (padded)
-                - agent_mask: [B, max_A] boolean mask for valid agents
-                - num_agents: [B] number of valid agents per sample
+                - video: [total_agents, T, C, H, W] concatenated video tensors
+                - agent_counts: [B] number of agents per sample
                 
         Returns:
             Dictionary containing:
-                - embeddings: [total_valid_agents, proj_dim] projected embeddings
+                - embeddings: [total_agents, proj_dim] projected embeddings
                 - loss: Contrastive loss scalar
                 - metrics: Dictionary of contrastive metrics
         """
-        video = batch['video']  # [B, max_A, T, C, H, W]
-        agent_mask = batch['agent_mask']  # [B, max_A]
-        num_agents = batch['num_agents']  # [B]
+        video = batch['video']  # [total_agents, T, C, H, W]
+        agent_counts = batch['agent_counts']  # [B]
         
-        B, max_A = agent_mask.shape
         device = video.device
         
-        # Process videos: [B, max_A, T, C, H, W]
-        if len(video.shape) != 6:
-            raise ValueError(f"Expected video shape [B, max_A, T, C, H, W], got {video.shape}")
+        # Process videos: [total_agents, T, C, H, W]
+        if len(video.shape) != 5:
+            raise ValueError(f"Expected video shape [total_agents, T, C, H, W], got {video.shape}")
         
-        T, C, H, W = video.shape[2:]
-        flat_video = video.view(B * max_A, T, C, H, W)
-        flat_video = self.video_encoder(flat_video)  # [B*max_A, embed_dim]
+        # Encode videos
+        embeddings = self.video_encoder(video)  # [total_agents, embed_dim]
         
         # Project embeddings
-        flat_projected = self.video_projector(flat_video)  # [B*max_A, proj_dim]
-        projected = flat_projected.view(B, max_A, -1)  # [B, max_A, proj_dim]
+        projected = self.video_projector(embeddings)  # [total_agents, proj_dim]
         
-        # Extract only valid agents
-        valid_embeddings = projected[agent_mask]  # [total_valid_agents, proj_dim]
-        
-        # Create alignment labels for valid agents
-        labels = self.create_alignment_matrix_variable(B, num_agents, agent_mask, device)
+        # Create alignment labels
+        labels = self.create_alignment_matrix(agent_counts, device)
         
         # Compute contrastive loss
-        loss, metrics = self.compute_contrastive_loss(valid_embeddings, labels)
+        loss, metrics = self.compute_contrastive_loss(projected, labels)
         
         return {
-            'embeddings': valid_embeddings,
+            'embeddings': projected,
             'loss': loss,
             'metrics': metrics,
             'labels': labels,
@@ -268,17 +264,17 @@ class ContrastiveModel(L.LightningModule):
     
     def training_step(self, batch, batch_idx):
         """Training step.
-        batch.video.shape: [B, max_A, T, C, H, W] e.g. [2, 5, 20, 3, 224, 224]
-        batch.agent_mask.shape: [B, max_A] e.g. [2, 5]
-        batch.num_agents.shape: [B] e.g. [2]
+        batch.video.shape: [total_agents, T, C, H, W] e.g. [5, 20, 3, 224, 224]
+        batch.agent_counts.shape: [B] e.g. [3, 2] (3+2=5 total agents)
         batch.pov_team_side_encoded.shape: [B] e.g. [2]
         """
         outputs = self.forward(batch)
         loss = outputs['loss']
         metrics = outputs['metrics']
         
-        batch_size = batch['num_agents'].shape[0]
-        total_agents = batch['agent_mask'].sum().item()
+        agent_counts = batch['agent_counts']
+        batch_size = len(agent_counts)
+        total_agents = agent_counts.sum().item()
         
         # Log loss
         self.safe_log('train/contrastive_loss', loss, batch_size=batch_size,
@@ -305,7 +301,7 @@ class ContrastiveModel(L.LightningModule):
         loss = outputs['loss']
         metrics = outputs['metrics']
         
-        batch_size = batch['num_agents'].shape[0]
+        batch_size = len(batch['agent_counts'])
         
         # Log loss
         self.safe_log('val/contrastive_loss', loss, batch_size=batch_size,
@@ -326,7 +322,7 @@ class ContrastiveModel(L.LightningModule):
         loss = outputs['loss']
         metrics = outputs['metrics']
         
-        batch_size = batch['num_agents'].shape[0]
+        batch_size = len(batch['agent_counts'])
         checkpoint_name = getattr(self, 'checkpoint_name', 'last')
         prefix = f'test/{checkpoint_name}'
         

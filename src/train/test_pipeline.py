@@ -4,7 +4,7 @@ import torch
 from pathlib import Path
 
 # Local imports
-from utils.training_utils import setup_logger, print_task_info, setup_test_model_with_dataset_info
+from .training_utils import setup_logger, print_task_info, setup_test_model_with_dataset_info
 
 
 

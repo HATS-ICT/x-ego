@@ -28,8 +28,12 @@ from typing import Optional
 # CONFIGURATION - Modify these settings as needed
 # =============================================================================
 
+# Resume from a specific task (set to None to start from beginning)
+# Example: "self_inCombat" to start from task 24/35
+START_FROM_TASK: Optional[str] = "self_inCombat"
+
 # Model type to use for the encoder
-MODEL_TYPE = "dinov2"
+MODEL_TYPE = "siglip2"
 
 # UI mask setting: "none", "minimap_only", or "all"
 UI_MASK = "none"
@@ -226,7 +230,18 @@ def main():
     
     results: list[TrainResult] = []
     
-    for i, task in enumerate(implemented_tasks, 1):
+    # Find starting index if resuming
+    start_idx = 0
+    if START_FROM_TASK is not None:
+        for idx, t in enumerate(implemented_tasks):
+            if t.task_id == START_FROM_TASK:
+                start_idx = idx
+                print(f"\nResuming from task: {START_FROM_TASK} (index {start_idx + 1}/{len(implemented_tasks)})")
+                break
+        else:
+            print(f"\nWARNING: Task '{START_FROM_TASK}' not found, starting from beginning")
+    
+    for i, task in enumerate(implemented_tasks[start_idx:], start_idx + 1):
         print(f"\n{'#'*80}")
         print(f"# Task {i}/{len(implemented_tasks)}: {task.task_id}")
         print(f"# Category: {task.category} | ML Form: {task.ml_form}")

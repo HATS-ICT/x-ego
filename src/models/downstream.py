@@ -11,6 +11,10 @@ Supports task types (ml_form):
 - regression: Regression (MSE loss)
 """
 
+import json
+from pathlib import Path
+from datetime import datetime
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -343,6 +347,55 @@ class LinearProbeModel(L.LightningModule):
     
     def test_step(self, batch, batch_idx):
         return self._step(batch, 'test')
+    
+    def on_test_epoch_end(self):
+        """Save test results to JSON file after test epoch completes."""
+        # Collect all test metrics
+        test_results = {
+            'task_id': self.task_id,
+            'ml_form': self.ml_form,
+            'num_classes': self.num_classes,
+            'output_dim': self.output_dim,
+            'checkpoint_name': getattr(self, 'checkpoint_name', 'unknown'),
+            'timestamp': datetime.now().isoformat(),
+            'metrics': {}
+        }
+        
+        # Extract computed metric values based on task type
+        if self.ml_form == 'binary_cls':
+            test_results['metrics']['acc'] = self.test_acc.compute().item()
+            test_results['metrics']['f1'] = self.test_f1.compute().item()
+            test_results['metrics']['auroc'] = self.test_auroc.compute().item()
+        
+        elif self.ml_form == 'multi_cls':
+            test_results['metrics']['acc'] = self.test_acc.compute().item()
+            test_results['metrics']['f1'] = self.test_f1.compute().item()
+            if self.num_classes >= 3:
+                test_results['metrics']['acc_top3'] = self.test_acc_top3.compute().item()
+            if self.num_classes >= 5:
+                test_results['metrics']['acc_top5'] = self.test_acc_top5.compute().item()
+        
+        elif self.ml_form == 'multi_label_cls':
+            test_results['metrics']['acc_subset'] = self.test_acc_subset.compute().item()
+            test_results['metrics']['acc_hamming'] = self.test_acc_hamming.compute().item()
+            test_results['metrics']['f1'] = self.test_f1.compute().item()
+            test_results['metrics']['auroc'] = self.test_auroc.compute().item()
+        
+        elif self.ml_form == 'regression':
+            test_results['metrics']['mse'] = self.test_mse.compute().item()
+            test_results['metrics']['mae'] = self.test_mae.compute().item()
+            test_results['metrics']['r2'] = self.test_r2.compute().item()
+        
+        # Save to JSON file
+        output_dir = Path(self.output_dir)
+        checkpoint_name = getattr(self, 'checkpoint_name', 'unknown')
+        results_file = output_dir / f'test_results_{checkpoint_name}.json'
+        
+        with open(results_file, 'w') as f:
+            json.dump(test_results, f, indent=2)
+        
+        print(f"\nTest results saved to: {results_file}")
+        print(f"Test metrics: {test_results['metrics']}")
     
     def on_load_checkpoint(self, checkpoint: dict) -> None:
         """

@@ -17,12 +17,17 @@ if sys.platform == 'win32':
         sys.stderr.reconfigure(encoding='utf-8', errors='replace')
     import os
     os.environ['PYTHONIOENCODING'] = 'utf-8'
+else:
+    import os
 
 import csv
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional
+from dotenv import load_dotenv
 
+# Load environment variables from .env file
+load_dotenv()
 
 # =============================================================================
 # CONFIGURATION - Modify these settings as needed
@@ -30,7 +35,8 @@ from typing import Optional
 
 # Resume from a specific task (set to None to start from beginning)
 # Example: "self_inCombat" to start from task 24/35
-START_FROM_TASK: Optional[str] = "self_inCombat"
+# START_FROM_TASK: Optional[str] = "self_inCombat"
+START_FROM_TASK: Optional[str] = None
 
 # Model type to use for the encoder
 MODEL_TYPE = "siglip2"
@@ -50,7 +56,12 @@ EXTRA_OVERRIDES: list[str] = []
 
 # =============================================================================
 
-TASK_DEFINITIONS_PATH = Path(__file__).parent / "data" / "labels" / "task_definitions.csv"
+# Read DATA_BASE_PATH from .env file
+DATA_BASE_PATH = os.getenv("DATA_BASE_PATH")
+if DATA_BASE_PATH is None:
+    raise ValueError("DATA_BASE_PATH not found in .env file")
+
+TASK_DEFINITIONS_PATH = Path(DATA_BASE_PATH) / "labels" / "task_definitions.csv"
 
 
 @dataclass

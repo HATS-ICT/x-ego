@@ -78,10 +78,14 @@ def parse_args() -> argparse.Namespace:
 
 # =============================================================================
 
-# Read DATA_BASE_PATH from .env file
+# Read paths from .env file
 DATA_BASE_PATH = os.getenv("DATA_BASE_PATH")
 if DATA_BASE_PATH is None:
     raise ValueError("DATA_BASE_PATH not found in .env file")
+
+OUTPUT_BASE_PATH = os.getenv("OUTPUT_BASE_PATH")
+if OUTPUT_BASE_PATH is None:
+    raise ValueError("OUTPUT_BASE_PATH not found in .env file")
 
 TASK_DEFINITIONS_PATH = Path(DATA_BASE_PATH) / "labels" / "task_definitions.csv"
 
@@ -166,7 +170,11 @@ def train_task(task: TaskDefinition, args: argparse.Namespace) -> TrainResult:
     
     # Add stage 1 checkpoint if specified
     if args.stage1_checkpoint is not None:
-        cmd.append(f"model.stage1_checkpoint={args.stage1_checkpoint}")
+        # Prepend OUTPUT_BASE_PATH if checkpoint is a relative path
+        checkpoint_path = Path(args.stage1_checkpoint)
+        if not checkpoint_path.is_absolute():
+            checkpoint_path = Path(OUTPUT_BASE_PATH) / checkpoint_path
+        cmd.append(f"model.stage1_checkpoint={checkpoint_path}")
     
     # Add WandB group if specified
     if args.wandb_group is not None:

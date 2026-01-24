@@ -6,6 +6,7 @@ Runs downstream training (stage 2) on all tasks defined in
 data/labels/task_definitions.csv in train mode.
 """
 
+import argparse
 import subprocess
 import sys
 
@@ -29,30 +30,51 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-# =============================================================================
-# CONFIGURATION - Modify these settings as needed
-# =============================================================================
 
-# Resume from a specific task (set to None to start from beginning)
-# Example: "self_inCombat" to start from task 24/35
-# START_FROM_TASK: Optional[str] = "self_inCombat"
-START_FROM_TASK: Optional[str] = None
-
-# Model type to use for the encoder
-MODEL_TYPE = "siglip2"
-
-# UI mask setting: "none", "minimap_only", or "all"
-UI_MASK = "none"
-
-# Stage 1 checkpoint path (set to None for baseline/off-the-shelf HuggingFace)
-# Example: "contra-siglip2-260115-123456-abc1/checkpoints/last.ckpt"
-STAGE1_CHECKPOINT: Optional[str] = None
-
-# WandB group name (optional, set to None to disable)
-WANDB_GROUP: Optional[str] = None
-
-# Additional config overrides (list of "key=value" strings)
-EXTRA_OVERRIDES: list[str] = []
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Train downstream tasks on all implemented tasks."
+    )
+    parser.add_argument(
+        "--model-type",
+        type=str,
+        default="siglip2",
+        help="Model type to use for the encoder (default: siglip2)",
+    )
+    parser.add_argument(
+        "--ui-mask",
+        type=str,
+        default="none",
+        choices=["none", "minimap_only", "all"],
+        help="UI mask setting (default: none)",
+    )
+    parser.add_argument(
+        "--stage1-checkpoint",
+        type=str,
+        default=None,
+        help="Stage 1 checkpoint path (default: None for baseline/off-the-shelf)",
+    )
+    parser.add_argument(
+        "--start-from-task",
+        type=str,
+        default=None,
+        help="Resume from a specific task (default: None to start from beginning)",
+    )
+    parser.add_argument(
+        "--wandb-group",
+        type=str,
+        default=None,
+        help="WandB group name (default: None to disable)",
+    )
+    parser.add_argument(
+        "--extra-overrides",
+        type=str,
+        nargs="*",
+        default=[],
+        help="Additional config overrides as key=value strings",
+    )
+    return parser.parse_args()
 
 # =============================================================================
 
@@ -127,35 +149,35 @@ def run_command(cmd: list[str], description: str) -> tuple[bool, str]:
         return False, str(e)
 
 
-def train_task(task: TaskDefinition) -> TrainResult:
+def train_task(task: TaskDefinition, args: argparse.Namespace) -> TrainResult:
     """Train downstream on a single task."""
     # Build run name: model-task-ui_mask
-    run_name = f"probe-{MODEL_TYPE}-{task.task_id}-{UI_MASK}"
+    run_name = f"probe-{args.model_type}-{task.task_id}-{args.ui_mask}"
     
     cmd = [
         sys.executable, "main.py",
         "--mode", "train",
         "--task", "downstream",
         f"task.task_id={task.task_id}",
-        f"model.encoder.model_type={MODEL_TYPE}",
-        f"data.ui_mask={UI_MASK}",
+        f"model.encoder.model_type={args.model_type}",
+        f"data.ui_mask={args.ui_mask}",
         f"meta.run_name={run_name}",
     ]
     
     # Add stage 1 checkpoint if specified
-    if STAGE1_CHECKPOINT is not None:
-        cmd.append(f"model.stage1_checkpoint={STAGE1_CHECKPOINT}")
+    if args.stage1_checkpoint is not None:
+        cmd.append(f"model.stage1_checkpoint={args.stage1_checkpoint}")
     
     # Add WandB group if specified
-    if WANDB_GROUP is not None:
-        cmd.append(f"wandb.group={WANDB_GROUP}")
+    if args.wandb_group is not None:
+        cmd.append(f"wandb.group={args.wandb_group}")
     
     # Add any extra overrides
-    cmd.extend(EXTRA_OVERRIDES)
+    cmd.extend(args.extra_overrides)
     
-    description = f"Downstream training ({MODEL_TYPE}) on {task.task_id} [ui_mask={UI_MASK}]"
-    if STAGE1_CHECKPOINT:
-        description += f" [stage1: {Path(STAGE1_CHECKPOINT).parent.name}]"
+    description = f"Downstream training ({args.model_type}) on {task.task_id} [ui_mask={args.ui_mask}]"
+    if args.stage1_checkpoint:
+        description += f" [stage1: {Path(args.stage1_checkpoint).parent.name}]"
     
     success, error_msg = run_command(cmd, description)
     
@@ -216,16 +238,18 @@ def print_summary(results: list[TrainResult]):
 
 def main():
     """Run downstream training on all tasks sequentially."""
+    args = parse_args()
+    
     print("="*80)
     print("X-EGO Downstream Training: All Tasks")
-    print(f"Model: {MODEL_TYPE}")
-    print(f"UI Mask: {UI_MASK}")
-    if STAGE1_CHECKPOINT:
-        print(f"Stage 1 Checkpoint: {STAGE1_CHECKPOINT}")
+    print(f"Model: {args.model_type}")
+    print(f"UI Mask: {args.ui_mask}")
+    if args.stage1_checkpoint:
+        print(f"Stage 1 Checkpoint: {args.stage1_checkpoint}")
     else:
         print("Stage 1 Checkpoint: None (baseline/off-the-shelf)")
-    if WANDB_GROUP:
-        print(f"WandB Group: {WANDB_GROUP}")
+    if args.wandb_group:
+        print(f"WandB Group: {args.wandb_group}")
     print(f"Task definitions: {TASK_DEFINITIONS_PATH}")
     print("="*80)
     
@@ -243,14 +267,14 @@ def main():
     
     # Find starting index if resuming
     start_idx = 0
-    if START_FROM_TASK is not None:
+    if args.start_from_task is not None:
         for idx, t in enumerate(implemented_tasks):
-            if t.task_id == START_FROM_TASK:
+            if t.task_id == args.start_from_task:
                 start_idx = idx
-                print(f"\nResuming from task: {START_FROM_TASK} (index {start_idx + 1}/{len(implemented_tasks)})")
+                print(f"\nResuming from task: {args.start_from_task} (index {start_idx + 1}/{len(implemented_tasks)})")
                 break
         else:
-            print(f"\nWARNING: Task '{START_FROM_TASK}' not found, starting from beginning")
+            print(f"\nWARNING: Task '{args.start_from_task}' not found, starting from beginning")
     
     for i, task in enumerate(implemented_tasks[start_idx:], start_idx + 1):
         print(f"\n{'#'*80}")
@@ -258,7 +282,7 @@ def main():
         print(f"# Category: {task.category} | ML Form: {task.ml_form}")
         print('#'*80)
         
-        result = train_task(task)
+        result = train_task(task, args)
         results.append(result)
     
     # Print summary

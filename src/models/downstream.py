@@ -22,7 +22,7 @@ import lightning as L
 from torch.optim import AdamW
 import torch._dynamo
 from torchmetrics.classification import (
-    MultilabelAccuracy, MultilabelF1Score, MultilabelAUROC,
+    MultilabelExactMatch, MultilabelHammingDistance, MultilabelF1Score, MultilabelAUROC,
     MulticlassAccuracy, MulticlassF1Score,
     BinaryAccuracy, BinaryF1Score, BinaryAUROC
 )
@@ -184,8 +184,10 @@ class LinearProbeModel(L.LightningModule):
         
         elif self.ml_form == 'multi_label_cls':
             for split in ['train', 'val', 'test']:
-                setattr(self, f'{split}_acc_subset', MultilabelAccuracy(num_labels=self.num_classes, average='micro', threshold=0.5))
-                setattr(self, f'{split}_acc_hamming', MultilabelAccuracy(num_labels=self.num_classes, average='micro', threshold=0.5, multidim_average='global'))
+                # Exact match / Subset accuracy - ALL labels must match exactly
+                setattr(self, f'{split}_acc_exact', MultilabelExactMatch(num_labels=self.num_classes, threshold=0.5))
+                # Hamming distance - fraction of incorrect labels (lower is better)
+                setattr(self, f'{split}_hamming_dist', MultilabelHammingDistance(num_labels=self.num_classes, threshold=0.5, average='micro'))
                 setattr(self, f'{split}_f1', MultilabelF1Score(num_labels=self.num_classes, average='macro'))
                 setattr(self, f'{split}_auroc', MultilabelAUROC(num_labels=self.num_classes, average='macro'))
         
@@ -301,18 +303,18 @@ class LinearProbeModel(L.LightningModule):
             self.safe_log(f'{split}/f1', f1, batch_size=batch_size, on_epoch=True)
         
         elif self.ml_form == 'multi_label_cls':
-            acc_subset = getattr(self, f'{split}_acc_subset')
-            acc_hamming = getattr(self, f'{split}_acc_hamming')
+            acc_exact = getattr(self, f'{split}_acc_exact')
+            hamming_dist = getattr(self, f'{split}_hamming_dist')
             f1 = getattr(self, f'{split}_f1')
             auroc = getattr(self, f'{split}_auroc')
             
-            acc_subset(preds, targets.int())
-            acc_hamming(preds, targets.int())
+            acc_exact(preds, targets.int())
+            hamming_dist(preds, targets.int())
             f1(preds, targets.int())
             auroc(preds, targets.int())
             
-            self.safe_log(f'{split}/acc_subset', acc_subset, batch_size=batch_size, on_epoch=True)
-            self.safe_log(f'{split}/acc_hamming', acc_hamming, batch_size=batch_size, on_epoch=True)
+            self.safe_log(f'{split}/acc_exact', acc_exact, batch_size=batch_size, on_epoch=True)
+            self.safe_log(f'{split}/hamming_dist', hamming_dist, batch_size=batch_size, on_epoch=True)
             self.safe_log(f'{split}/f1', f1, batch_size=batch_size, on_epoch=True)
             self.safe_log(f'{split}/auroc', auroc, batch_size=batch_size, on_epoch=True)
         
@@ -376,8 +378,8 @@ class LinearProbeModel(L.LightningModule):
                 test_results['metrics']['acc_top5'] = self.test_acc_top5.compute().item()
         
         elif self.ml_form == 'multi_label_cls':
-            test_results['metrics']['acc_subset'] = self.test_acc_subset.compute().item()
-            test_results['metrics']['acc_hamming'] = self.test_acc_hamming.compute().item()
+            test_results['metrics']['acc_exact'] = self.test_acc_exact.compute().item()
+            test_results['metrics']['hamming_dist'] = self.test_hamming_dist.compute().item()
             test_results['metrics']['f1'] = self.test_f1.compute().item()
             test_results['metrics']['auroc'] = self.test_auroc.compute().item()
         
@@ -451,8 +453,8 @@ def get_metrics_for_task(ml_form: str, num_classes: int = None, num_labels: int 
     
     elif ml_form == 'multi_label_cls':
         return {
-            'acc_subset': MultilabelAccuracy(num_labels=num_labels, average='micro', threshold=0.5),
-            'acc_hamming': MultilabelAccuracy(num_labels=num_labels, average='micro', threshold=0.5, multidim_average='global'),
+            'acc_exact': MultilabelExactMatch(num_labels=num_labels, threshold=0.5),
+            'hamming_dist': MultilabelHammingDistance(num_labels=num_labels, threshold=0.5, average='micro'),
             'f1_macro': MultilabelF1Score(num_labels=num_labels, average='macro'),
             'f1_micro': MultilabelF1Score(num_labels=num_labels, average='micro'),
             'auroc': MultilabelAUROC(num_labels=num_labels, average='macro'),

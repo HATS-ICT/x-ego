@@ -59,3 +59,9 @@ python test_all_model_setup.py
 # Test all tasks (35 tasks with siglip baseline)
 python test_all_tasks.py
 ```
+
+
+Run standalong test model on existing experiment
+```
+python main.py --mode test --task downstream meta.resume_exp=probe-siglip2-teammate_aliveCount-none-260122-214354-ky6j
+```

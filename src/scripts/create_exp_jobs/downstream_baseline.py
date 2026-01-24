@@ -69,16 +69,16 @@ uv run python train_all_downstream.py \\
 SBATCH_ALL_HEADER = """#!/bin/bash
 set -euo pipefail
 
-dir="$(cd "$(dirname "${{BASH_SOURCE[0]}}")" && pwd)"
+dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 shopt -s nullglob
 
 jobs=("$dir"/*.job)
-if (( ${{#jobs[@]}} == 0 )); then
+if (( ${#jobs[@]} == 0 )); then
   echo "No .job files found in $dir"
   exit 1
 fi
 
-for f in "${{jobs[@]}}"; do
+for f in "${jobs[@]}"; do
   echo "sbatch $f"
   sbatch "$f"
 done

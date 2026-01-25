@@ -128,6 +128,7 @@ class ContrastiveDataset(Dataset):
         Returns:
             dict: Dictionary containing:
                 - 'videos': List of video tensors, one per agent [T, C, H, W] each
+                - 'videos_unmasked': List of unmasked video tensors (only if random_mask enabled)
                 - 'num_agents': Number of alive agents in this sample
                 - 'pov_team_side': Team side (string)
                 - 'pov_team_side_encoded': Team side encoded as int
@@ -145,22 +146,34 @@ class ContrastiveDataset(Dataset):
         original_csv_idx = row['idx']
         agent_ids = self._get_alive_agent_ids(row)
         
+        # Check if random mask is enabled
+        random_mask_enabled = self.cfg.data.random_mask.enable
+        
         agent_videos = []
+        agent_videos_unmasked = []
         for agent_id in agent_ids:
             video_path = construct_video_path(self.cfg, match_id, agent_id, round_num)
-            video_clip = load_video_clip(self.cfg, video_path, start_seconds, end_seconds) # [T, C, H, W]
+            video_result = load_video_clip(self.cfg, video_path, start_seconds, end_seconds)
+            
+            video_clip = video_result['video']  # [T, C, H, W]
             
             ## Temporary: Debug, plot each video clip and save png
             # plot_video_example(video_clip, f"debug_video_{agent_id}.png")
             
             video_features = transform_video(self.video_processor, self.processor_type, video_clip)
             agent_videos.append(video_features)  # Each is [T, C, H, W]
+            
+            # If random mask is enabled, also store unmasked version for reconstruction
+            if random_mask_enabled:
+                video_unmasked = video_result['video_unmasked']
+                video_features_unmasked = transform_video(self.video_processor, self.processor_type, video_unmasked)
+                agent_videos_unmasked.append(video_features_unmasked)
         
         # Encode team side
         pov_team_side_encoded = 1 if pov_team_side == 'CT' else 0
         
         # Return list of videos (not stacked) - collate will concatenate across batch
-        return {
+        result = {
             'videos': agent_videos,  # List of [T, C, H, W] tensors
             'num_agents': len(agent_ids),
             'pov_team_side': pov_team_side,
@@ -168,3 +181,8 @@ class ContrastiveDataset(Dataset):
             'agent_ids': agent_ids,
             'original_csv_idx': original_csv_idx,
         }
+        
+        if random_mask_enabled:
+            result['videos_unmasked'] = agent_videos_unmasked  # List of [T, C, H, W] tensors
+        
+        return result

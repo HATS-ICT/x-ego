@@ -18,7 +18,12 @@ data:
   fixed_duration_seconds: 5
   target_fps: 4
   video_column_name: video_path
-  ui_mask: all  # options: none, minimap_only, all (all not implemented yet)
+  ui_mask: all  # options: none, minimap_only, all
+  random_mask:
+    enable: true  # enable random tube masking (applied consistently across all frames)
+    num_tubes: 3  # number of random rectangular tubes to mask
+    min_size_ratio: 0.15  # minimum tube size as ratio of frame dimensions
+    max_size_ratio: 0.35  # maximum tube size as ratio of frame dimensions (target ~30-70% total masked area)
   time_jitter_max_seconds: 0
   labels_filename: contrastive.csv
 
@@ -36,6 +41,20 @@ model:
     logit_bias_init: -3
     turn_off_bias: false
     loss_weight: 1.0
+  reconstruction:
+    enable: false  # enable video reconstruction auxiliary loss
+    loss_weight: 0.001  # lambda scaling factor (start small, e.g., 0.001)
+    target_frame_size: 64  # reconstruct to smaller resolution for efficiency
+    num_reconstruct_frames: 4  # number of frames to reconstruct (temporally sampled)
+    # Transformer decoder settings
+    d_model: 512  # transformer hidden dimension
+    n_heads: 8  # number of attention heads
+    depth: 4  # number of transformer layers
+    n_latents: 1  # number of latent tokens
+    patch_size: 8  # patch size for reconstruction
+    dropout: 0.0  # dropout rate
+    mlp_ratio: 4.0  # MLP hidden dimension ratio
+    time_every: 2  # apply temporal attention every N layers
 
 training:
   max_epochs: 40

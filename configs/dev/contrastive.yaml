@@ -12,5 +12,13 @@ training:
   log_every_n_steps: 1
   accumulate_grad_batches: 4
 
+model:
+  reconstruction:
+    enable: true
+    loss_weight: 0.001
+    target_frame_size: 64
+    num_reconstruct_frames: 4
+
+
 wandb:
   enabled: false

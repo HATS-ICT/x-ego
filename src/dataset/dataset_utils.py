@@ -107,6 +107,45 @@ def apply_all_ui_mask(video_clip: torch.Tensor) -> torch.Tensor:
     return video_clip
 
 
+def apply_random_tube_mask(
+    video_clip: torch.Tensor,
+    num_tubes: int = 2,
+    min_size_ratio: float = 0.1,
+    max_size_ratio: float = 0.3,
+) -> torch.Tensor:
+    """
+    Apply random tube masks to the video clip.
+    
+    A tube mask is a rectangular region that is masked consistently across all frames,
+    creating a "tube" through the temporal dimension. This encourages the model to
+    learn from context rather than relying on specific spatial regions.
+    
+    Args:
+        video_clip: Video tensor of shape [T, C, H, W]
+        num_tubes: Number of random tube masks to apply
+        min_size_ratio: Minimum size of each tube as a ratio of frame dimensions
+        max_size_ratio: Maximum size of each tube as a ratio of frame dimensions
+        
+    Returns:
+        Masked video tensor of shape [T, C, H, W]
+    """
+    num_frames, channels, height, width = video_clip.shape
+    
+    for _ in range(num_tubes):
+        # Random tube dimensions
+        tube_width = random.randint(int(width * min_size_ratio), int(width * max_size_ratio))
+        tube_height = random.randint(int(height * min_size_ratio), int(height * max_size_ratio))
+        
+        # Random tube position (ensure it fits within frame)
+        tube_x = random.randint(0, width - tube_width)
+        tube_y = random.randint(0, height - tube_height)
+        
+        # Apply mask across all frames (tube through time)
+        video_clip[:, :, tube_y:tube_y + tube_height, tube_x:tube_x + tube_width] = 0
+    
+    return video_clip
+
+
 def init_video_processor(cfg: Dict) -> Tuple[Any, str]:
     """
     Initialize video processor based on model type from config.
@@ -156,7 +195,7 @@ def construct_video_path(cfg: Dict, match_id: str, player_id: str, round_num: in
     return str(video_path)
 
 
-def load_video_clip(cfg: Dict, video_full_path: str, start_seconds: float, end_seconds: float) -> torch.Tensor:
+def load_video_clip(cfg: Dict, video_full_path: str, start_seconds: float, end_seconds: float) -> Dict[str, torch.Tensor]:
     """
     Load video clip using decord.
     
@@ -167,7 +206,10 @@ def load_video_clip(cfg: Dict, video_full_path: str, start_seconds: float, end_s
         end_seconds: End time of the clip (not used, kept for compatibility)
         
     Returns:
-        Video tensor of shape (num_frames, channels, height, width)
+        Dictionary containing:
+            - 'video': Video tensor of shape (num_frames, channels, height, width)
+            - 'video_unmasked': Unmasked video (only UI mask applied) for reconstruction target,
+                               only present if random_mask is enabled
     """
     expected_frames = int(cfg.data.fixed_duration_seconds * cfg.data.target_fps)
     
@@ -194,7 +236,7 @@ def load_video_clip(cfg: Dict, video_full_path: str, start_seconds: float, end_s
         video_clip = decoder.get_batch(frame_indices.tolist())
         video_clip = torch.from_numpy(video_clip.asnumpy()).permute(0, 3, 1, 2).half()
         
-        # Apply UI masking based on configuration
+        # Apply UI masking based on configuration (this is a "hard" mask - as if original video has no UI)
         ui_mask = cfg.data.ui_mask
         
         if ui_mask == 'minimap_only':
@@ -202,10 +244,30 @@ def load_video_clip(cfg: Dict, video_full_path: str, start_seconds: float, end_s
         elif ui_mask == 'all':
             video_clip = apply_all_ui_mask(video_clip)
         
-        return video_clip
+        result = {'video': video_clip}
+        
+        # Apply random tube mask if configured
+        # Random mask is for augmentation - reconstruction target should be unmasked
+        if cfg.data.random_mask.enable:
+            # Keep a copy of the unmasked video (with UI mask only) for reconstruction target
+            result['video_unmasked'] = video_clip.clone()
+            
+            # Apply random tube mask to the main video
+            result['video'] = apply_random_tube_mask(
+                video_clip,
+                num_tubes=cfg.data.random_mask.num_tubes,
+                min_size_ratio=cfg.data.random_mask.min_size_ratio,
+                max_size_ratio=cfg.data.random_mask.max_size_ratio,
+            )
+        
+        return result
     except Exception as e:
         rprint(f"[yellow]WARN[/yellow] Failed to load video [bold]{video_full_path}[/bold]: [dim]{e}[/dim], using placeholder")
-        return torch.zeros(expected_frames, 3, 306, 544, dtype=torch.float16)
+        placeholder = torch.zeros(expected_frames, 3, 306, 544, dtype=torch.float16)
+        result = {'video': placeholder}
+        if cfg.data.random_mask.enable:
+            result['video_unmasked'] = placeholder.clone()
+        return result
 
 
 def transform_video(video_processor: Any, processor_type: str, video_clip: torch.Tensor) -> torch.Tensor:

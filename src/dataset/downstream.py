@@ -181,7 +181,8 @@ class DownstreamDataset(Dataset):
         
         # Construct video path and load video
         video_path = construct_video_path(self.cfg, match_id, player_id, round_num)
-        video_clip = load_video_clip(self.cfg, video_path, start_seconds, end_seconds)
+        video_result = load_video_clip(self.cfg, video_path, start_seconds, end_seconds)
+        video_clip = video_result['video']  # Extract video tensor from result dict
         video = transform_video(self.video_processor, self.processor_type, video_clip)  # [T, C, H, W]
         
         # Get label

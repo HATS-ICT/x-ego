@@ -28,6 +28,11 @@ data:
   video_column_name: video_path
   ui_mask: all  # options: none, minimap_only, all (all not implemented yet)
   time_jitter_max_seconds: 0
+  random_mask:
+    enable: false
+    num_tubes: 3 
+    min_size_ratio: 0.15  
+    max_size_ratio: 0.35 
 
 model:
   activation: gelu

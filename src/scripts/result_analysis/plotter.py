@@ -10,12 +10,9 @@ import sys
 
 from results_collector import ResultsCollector
 from plotting_utils import (
-    plot_performance_by_category,
-    plot_temporal_horizon_performance,
-    plot_metric_distributions,
-    plot_category_heatmap,
-    plot_ml_form_comparison,
-    plot_model_comparison
+    plot_baseline_vs_finetuned_per_model,
+    plot_by_task_prefix,
+    plot_time_horizon_lines,
 )
 
 
@@ -42,6 +39,13 @@ class ResultsPlotter:
         """
         Generate all plots for both best and last checkpoints.
         
+        Organizes plots into subfolders: {checkpoint_type}/{ui_mask}/
+        
+        For each ML form, for each UI setting:
+        1. Baseline vs finetuned on all tasks (one plot per model)
+        2. Group by prefix: enemy, self, global, teammate
+        3. Line plots for tasks with time horizon suffix
+        
         Args:
             collector: ResultsCollector instance
             all_results: Results dictionary from collector
@@ -64,61 +68,48 @@ class ResultsPlotter:
                 print(f"No data for {checkpoint_type} checkpoint")
                 continue
             
-            # Determine primary metric based on most common ML form
-            primary_metric = self._get_primary_metric(df)
+            # Get unique ML forms and UI masks
+            ml_forms = df['ml_form'].unique()
+            ui_masks = df['ui_mask'].unique()
             
-            # 1. Performance by category
-            output_path = self.artifacts_dir / f'performance_by_category_{checkpoint_type}.png'
-            plot_performance_by_category(df, checkpoint_type, output_path, primary_metric)
+            print(f"ML forms: {list(ml_forms)}")
+            print(f"UI masks: {list(ui_masks)}")
             
-            # 2. Temporal horizon performance
-            output_path = self.artifacts_dir / f'temporal_horizon_{checkpoint_type}.png'
-            plot_temporal_horizon_performance(df, checkpoint_type, output_path, primary_metric)
-            
-            # 3. Metric distributions
-            output_path = self.artifacts_dir / f'metric_distributions_{checkpoint_type}.png'
-            plot_metric_distributions(df, checkpoint_type, output_path)
-            
-            # 4. Category heatmap
-            output_path = self.artifacts_dir / f'category_heatmap_{checkpoint_type}.png'
-            plot_category_heatmap(df, checkpoint_type, output_path, primary_metric)
-            
-            # 5. ML form comparison
-            output_path = self.artifacts_dir / f'ml_form_comparison_{checkpoint_type}.png'
-            plot_ml_form_comparison(df, checkpoint_type, output_path)
-            
-            # 6. Model comparison (if multiple models)
-            if len(df['model_type'].unique()) > 1:
-                output_path = self.artifacts_dir / f'model_comparison_{checkpoint_type}.png'
-                plot_model_comparison(df, checkpoint_type, output_path)
+            # For each UI setting
+            for ui_mask in ui_masks:
+                # Create subfolder for this checkpoint/ui_mask combination
+                subfolder = self.artifacts_dir / checkpoint_type / ui_mask
+                subfolder.mkdir(parents=True, exist_ok=True)
+                
+                print(f"\n  UI Mask: {ui_mask}")
+                
+                # For each ML form
+                for ml_form in ml_forms:
+                    df_filtered = df[(df['ml_form'] == ml_form) & (df['ui_mask'] == ui_mask)]
+                    
+                    if df_filtered.empty:
+                        continue
+                    
+                    print(f"    ML Form: {ml_form}")
+                    
+                    # 1. Baseline vs finetuned per model
+                    plot_baseline_vs_finetuned_per_model(
+                        df_filtered, ml_form, ui_mask, checkpoint_type, subfolder
+                    )
+                    
+                    # 2. Group by task prefix
+                    plot_by_task_prefix(
+                        df_filtered, ml_form, ui_mask, checkpoint_type, subfolder
+                    )
+                    
+                    # 3. Time horizon line plots
+                    plot_time_horizon_lines(
+                        df_filtered, ml_form, ui_mask, checkpoint_type, subfolder
+                    )
         
         print("\n" + "="*60)
         print(f"All plots saved to: {self.artifacts_dir}")
         print("="*60 + "\n")
-    
-    def _get_primary_metric(self, df):
-        """
-        Determine primary metric based on ML forms present.
-        
-        Args:
-            df: DataFrame with results
-        
-        Returns:
-            Primary metric name
-        """
-        # Count ML forms
-        ml_form_counts = df['ml_form'].value_counts()
-        most_common = ml_form_counts.index[0]
-        
-        # Map to primary metric
-        metric_map = {
-            'binary_cls': 'acc',
-            'multi_cls': 'acc',
-            'multi_label_cls': 'acc_subset',
-            'regression': 'mae'
-        }
-        
-        return metric_map.get(most_common, 'acc')
 
 
 def main():

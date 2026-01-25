@@ -1,0 +1,16 @@
+name: video_critic
+
+video_encoder_cfg:
+  model_type: siglip
+  freeze_backbone: true
+
+video_key: video
+aux_keys: null
+
+fusion: concat
+
+head_hidden_sizes: [256, 256]
+activation_class: torch.nn.Tanh
+dropout: 0.0
+layer_norm: false
+return_temporal_features: false

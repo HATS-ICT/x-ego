@@ -1,0 +1,77 @@
+defaults:
+  - experiment_config
+  - _self_
+
+# High-throughput GPU-focused experiment config.
+# Tune further based on GPU memory and CPU cores.
+
+# Devices
+sampling_device: "cuda"
+train_device: "cuda"
+buffer_device: "cuda"
+
+# Policy + collection
+share_policy_params: True
+prefer_continuous_actions: True
+collect_with_grad: False
+parallel_collection: False
+
+# Optimizer
+gamma: 0.99
+lr: 0.00005
+adam_eps: 0.000001
+adam_extra_kwargs: {}
+clip_grad_norm: True
+clip_grad_val: 5
+
+# Target updates
+soft_target_update: True
+polyak_tau: 0.005
+hard_target_update_frequency: 5
+
+# Exploration
+exploration_eps_init: 0.8
+exploration_eps_end: 0.01
+exploration_anneal_frames: null
+
+# Termination
+max_n_iters: null
+max_n_frames: 3_000_000
+
+# On-policy collection
+on_policy_collected_frames_per_batch: 64_000
+on_policy_n_envs_per_worker: 8
+on_policy_n_minibatch_iters: 10
+on_policy_minibatch_size: 4_096
+
+# Off-policy defaults (unused for MAPPO)
+off_policy_collected_frames_per_batch: 6000
+off_policy_n_envs_per_worker: 10
+off_policy_n_optimizer_steps: 1000
+off_policy_train_batch_size: 128
+off_policy_memory_size: 1_000_000
+off_policy_init_random_frames: 0
+off_policy_use_prioritized_replay_buffer: False
+off_policy_prb_alpha: 0.6
+off_policy_prb_beta: 0.4
+
+# Evaluation/logging (disabled for speed)
+evaluation: False
+render: False
+evaluation_interval: 120_000
+evaluation_episodes: 10
+evaluation_deterministic_actions: True
+evaluation_static: False
+
+loggers: [csv]
+project_name: "benchmarl"
+wandb_extra_kwargs: {}
+create_json: False
+
+save_folder: "./results"
+restore_file: null
+restore_map_location: null
+checkpoint_interval: 0
+checkpoint_at_end: False
+keep_checkpoints_num: 3
+exclude_buffer_from_checkpoint: False

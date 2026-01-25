@@ -1,0 +1,22 @@
+config_path: "deadly_corridor.cfg"
+num_players: 4
+host_ip: 127.0.0.1
+
+mode: PLAYER
+ticrate: 35
+skip: 1
+screen_resolution: RES_320X240
+window_visible: false
+console_enabled: false
+
+timelimit_minutes: null
+extra_game_args: ""
+
+tile_windows: false
+win_x: 80
+win_y: 80
+
+frame_stack: 1
+max_steps: null
+
+wrapper_kwargs: {}

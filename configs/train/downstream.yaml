@@ -20,7 +20,7 @@ data:
   persistent_workers: true
   pin_mem: true
   batch_size: 16
-  num_workers: 16
+  num_workers: 8
   prefetch_factor: 2
   data_path_csv_filename: video_partitioned_chunked_downsized.csv
   fixed_duration_seconds: 5

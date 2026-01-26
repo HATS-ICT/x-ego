@@ -142,6 +142,14 @@ class ResultsCollector:
             if not self._is_new_format(exp_dir.name):
                 continue
             
+            # Parse experiment name to get task_id
+            parsed = self.parse_experiment_name(exp_dir.name)
+            task_id = parsed['task_id']
+            
+            # Skip if task_id is not in task_definitions.csv
+            if task_id not in self.task_info:
+                continue
+            
             # Look for test results files
             best_results = exp_dir / 'test_results_best.json'
             last_results = exp_dir / 'test_results_last.json'

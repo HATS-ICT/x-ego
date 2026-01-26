@@ -159,6 +159,40 @@ def main():
 
     all_jobs = []
 
+    # ===== Slow model (vjepa2): 1 job per seed (submitted first) =====
+    for model in MODELS_SLOW:
+        stage1_checkpoint = f"{STAGE1_CHECKPOINTS[model]}/checkpoint/last.ckpt"
+
+        for seed in SEEDS:
+            # Baseline job for this seed
+            job_name = f"{EXP_PREFIX}-{model}-baseline-seed{seed}"
+            commands = [
+                TRAIN_CMD_BASELINE.format(
+                    model=model,
+                    ui_mask=UI_MASK,
+                    seed=seed,
+                )
+            ]
+            job_path = create_job_file(
+                jobs_root, log_root, job_name, commands, mail_block, project_src
+            )
+            all_jobs.append(job_path)
+
+            # Finetuned job for this seed
+            job_name = f"{EXP_PREFIX}-{model}-finetuned-seed{seed}"
+            commands = [
+                TRAIN_CMD_FINETUNED.format(
+                    model=model,
+                    ui_mask=UI_MASK,
+                    stage1_checkpoint=stage1_checkpoint,
+                    seed=seed,
+                )
+            ]
+            job_path = create_job_file(
+                jobs_root, log_root, job_name, commands, mail_block, project_src
+            )
+            all_jobs.append(job_path)
+
     # ===== Fast models (siglip2, dinov2): 1 job per model, all seeds =====
     for model in MODELS_FAST:
         stage1_checkpoint = f"{STAGE1_CHECKPOINTS[model]}/checkpoint/last.ckpt"
@@ -193,40 +227,6 @@ def main():
             jobs_root, log_root, job_name, commands, mail_block, project_src
         )
         all_jobs.append(job_path)
-
-    # ===== Slow model (vjepa2): 1 job per seed =====
-    for model in MODELS_SLOW:
-        stage1_checkpoint = f"{STAGE1_CHECKPOINTS[model]}/checkpoint/last.ckpt"
-
-        for seed in SEEDS:
-            # Baseline job for this seed
-            job_name = f"{EXP_PREFIX}-{model}-baseline-seed{seed}"
-            commands = [
-                TRAIN_CMD_BASELINE.format(
-                    model=model,
-                    ui_mask=UI_MASK,
-                    seed=seed,
-                )
-            ]
-            job_path = create_job_file(
-                jobs_root, log_root, job_name, commands, mail_block, project_src
-            )
-            all_jobs.append(job_path)
-
-            # Finetuned job for this seed
-            job_name = f"{EXP_PREFIX}-{model}-finetuned-seed{seed}"
-            commands = [
-                TRAIN_CMD_FINETUNED.format(
-                    model=model,
-                    ui_mask=UI_MASK,
-                    stage1_checkpoint=stage1_checkpoint,
-                    seed=seed,
-                )
-            ]
-            job_path = create_job_file(
-                jobs_root, log_root, job_name, commands, mail_block, project_src
-            )
-            all_jobs.append(job_path)
 
     # Generate sbatch_all script
     sbatch_all_path = jobs_root / f"sbatch_all_{EXP_PREFIX}.sh"

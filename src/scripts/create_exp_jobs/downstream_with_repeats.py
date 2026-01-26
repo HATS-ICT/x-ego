@@ -78,13 +78,13 @@ cd {project_src}
 TRAIN_CMD_BASELINE = """uv run python train_all_downstream.py \\
   --model-type {model} \\
   --ui-mask {ui_mask} \\
-  --extra-overrides meta.seed={seed}"""
+  --extra-overrides meta.seed={seed} data.num_workers=8"""
 
 TRAIN_CMD_FINETUNED = """uv run python train_all_downstream.py \\
   --model-type {model} \\
   --ui-mask {ui_mask} \\
   --stage1-checkpoint {stage1_checkpoint} \\
-  --extra-overrides meta.seed={seed}"""
+  --extra-overrides meta.seed={seed} data.num_workers=8"""
 
 SBATCH_ALL_HEADER = """#!/bin/bash
 set -euo pipefail

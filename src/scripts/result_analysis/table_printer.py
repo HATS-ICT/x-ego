@@ -174,10 +174,11 @@ class TablePrinter:
             List of metric column names
         """
         # Define expected metrics for each ML form
+        # For multi_label_cls: acc_exact, hamming_acc (derived from hamming_dist), f1, auroc
         metric_map = {
             'binary_cls': ['acc', 'f1', 'auroc'],
             'multi_cls': ['acc', 'f1', 'acc_top3', 'acc_top5'],
-            'multi_label_cls': ['acc_subset', 'acc_hamming', 'f1', 'auroc'],
+            'multi_label_cls': ['acc_exact', 'hamming_acc', 'f1', 'auroc'],
             'regression': ['mse', 'mae', 'r2']
         }
         

@@ -88,6 +88,33 @@ def get_task_base_name(task_id: str) -> str:
     return re.sub(r'_\d+s$', '', task_id)
 
 
+def _get_best_experiment_value(df_subset: pd.DataFrame, metric_name: str) -> float:
+    """
+    Get the metric value from the best experiment when there are duplicates.
+    
+    Uses the most recent experiment based on exp_name timestamp.
+    Experiment names contain timestamps like: probe-model-task-ui-DDMMYY-HHMMSS-hash
+    
+    Args:
+        df_subset: DataFrame subset for a specific task/init_type combination
+        metric_name: Name of the metric to extract
+    
+    Returns:
+        Metric value from the most recent experiment, or np.nan if empty
+    """
+    if df_subset.empty:
+        return np.nan
+    
+    if len(df_subset) == 1:
+        return df_subset[metric_name].values[0]
+    
+    # Multiple experiments - take the most recent one based on exp_name
+    # Sort by exp_name descending (later timestamps come later alphabetically for same date)
+    # The timestamp format is DDMMYY-HHMMSS, so we need to extract and compare
+    df_sorted = df_subset.sort_values('exp_name', ascending=False)
+    return df_sorted[metric_name].values[0]
+
+
 def plot_baseline_vs_finetuned_per_model(
     df: pd.DataFrame,
     ml_form: str,
@@ -146,11 +173,11 @@ def plot_baseline_vs_finetuned_per_model(
             for task in tasks:
                 df_task = df_model[df_model['task_id'] == task]
                 
-                baseline = df_task[df_task['init_type'] == 'baseline'][metric_name].values
-                finetuned = df_task[df_task['init_type'] == 'finetuned'][metric_name].values
+                df_baseline = df_task[df_task['init_type'] == 'baseline']
+                df_finetuned = df_task[df_task['init_type'] == 'finetuned']
                 
-                baseline_val = baseline[0] if len(baseline) > 0 else np.nan
-                finetuned_val = finetuned[0] if len(finetuned) > 0 else np.nan
+                baseline_val = _get_best_experiment_value(df_baseline, metric_name)
+                finetuned_val = _get_best_experiment_value(df_finetuned, metric_name)
                 
                 baseline_vals.append(baseline_val)
                 finetuned_vals.append(finetuned_val)
@@ -266,7 +293,17 @@ def plot_by_task_prefix(
                     df_subset = df[(df['task_prefix'] == prefix) & 
                                   (df['model_type'] == model) & 
                                   (df['init_type'] == init_type)]
-                    mean_val = df_subset[metric_name].mean() if not df_subset.empty else np.nan
+                    # Deduplicate: for each task_id, take the most recent experiment
+                    if not df_subset.empty:
+                        deduped_vals = []
+                        for task_id in df_subset['task_id'].unique():
+                            df_task = df_subset[df_subset['task_id'] == task_id]
+                            val = _get_best_experiment_value(df_task, metric_name)
+                            if not np.isnan(val):
+                                deduped_vals.append(val)
+                        mean_val = np.mean(deduped_vals) if deduped_vals else np.nan
+                    else:
+                        mean_val = np.nan
                     vals.append(mean_val)
                 
                 offset = (bar_idx - n_groups/2 + 0.5) * width
@@ -382,11 +419,14 @@ def plot_time_horizon_lines(
                     if df_subset.empty:
                         continue
                     
-                    # Sort by time horizon
-                    df_subset = df_subset.sort_values('time_horizon')
-                    
-                    horizons = df_subset['time_horizon'].values
-                    values = df_subset[metric_name].values
+                    # Deduplicate: for each time_horizon, take the most recent experiment
+                    horizons = []
+                    values = []
+                    for horizon in sorted(df_subset['time_horizon'].unique()):
+                        df_horizon = df_subset[df_subset['time_horizon'] == horizon]
+                        val = _get_best_experiment_value(df_horizon, metric_name)
+                        horizons.append(horizon)
+                        values.append(val)
                     
                     ax.plot(horizons, values, 
                            linestyle=line_styles.get(init_type, '-'),

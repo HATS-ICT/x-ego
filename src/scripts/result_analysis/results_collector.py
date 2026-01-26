@@ -86,6 +86,31 @@ class ResultsCollector:
             return 'unknown'
         data_cfg = hparam.get('data', {})
         return data_cfg.get('ui_mask', 'unknown')
+    
+    def _is_new_format(self, exp_name: str) -> bool:
+        """
+        Check if experiment name matches the new format.
+        
+        New format: probe-{model}-{task_id}-{ui_mask}-{date}-{time}-{hash}
+        Example: probe-dinov2-enemy_location_0s-all-260124-121450-pp1i
+        
+        Old format: probe-{task_id}-{model}-{date}-{time}-{hash}
+        Example: probe-enemy_aliveCount-siglip2-260124-074908-h12m
+        
+        Args:
+            exp_name: Experiment directory name
+        
+        Returns:
+            True if new format, False otherwise
+        """
+        KNOWN_MODELS = {'clip', 'dinov2', 'siglip2', 'vjepa2'}
+        
+        parts = exp_name.split('-')
+        if len(parts) < 5:
+            return False
+        
+        # New format has model as the second part (parts[1])
+        return parts[1] in KNOWN_MODELS
 
     def collect_all_results(self, exclude_folders: Optional[set] = None) -> Dict[str, Dict]:
         """
@@ -111,6 +136,10 @@ class ResultsCollector:
             
             # Only process folders starting with 'probe-'
             if not exp_dir.name.startswith('probe-'):
+                continue
+            
+            # Only process new format: probe-{model}-{task}-{ui_mask}-{time}-{hash}
+            if not self._is_new_format(exp_dir.name):
                 continue
             
             # Look for test results files
@@ -291,6 +320,10 @@ class ResultsCollector:
             # Add all metrics
             for metric_name, metric_value in result['metrics'].items():
                 row[metric_name] = metric_value
+            
+            # For multi_label_cls: convert hamming_dist to hamming_acc (1 - hamming_dist)
+            if result['ml_form'] == 'multi_label_cls' and 'hamming_dist' in row:
+                row['hamming_acc'] = 1.0 - row['hamming_dist']
             
             rows.append(row)
         

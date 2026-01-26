@@ -58,7 +58,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--start-from-task",
         type=str,
-        default="teammate_inCombat",
+        default=None,
         help="Resume from a specific task (default: None to start from beginning)",
     )
     parser.add_argument(

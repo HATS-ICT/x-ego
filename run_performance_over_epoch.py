@@ -156,6 +156,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print commands without executing",
     )
+    parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=32,
+        help="Number of data loader workers (default: 32)",
+    )
     return parser.parse_args()
 
 
@@ -167,6 +173,7 @@ def run_experiment(
     repeat: int,
     index: int,
     total: int,
+    num_workers: int,
     dry_run: bool = False,
 ) -> bool:
     """Run a single downstream experiment."""
@@ -190,6 +197,7 @@ def run_experiment(
         f"model.stage1_checkpoint={checkpoint_path}",
         f"meta.run_name={run_name}",
         f"meta.seed={repeat}",
+        f"data.num_workers={num_workers}",
     ]
 
     print(f"Command: {' '.join(cmd)}")
@@ -285,6 +293,7 @@ def main():
                     repeat=repeat,
                     index=experiment_idx,
                     total=total_experiments,
+                    num_workers=args.num_workers,
                     dry_run=args.dry_run,
                 )
 

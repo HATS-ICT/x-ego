@@ -1,3 +1,18 @@
+import platform
+import pathlib
+
+# Fix for loading checkpoints saved on Linux when running on Windows
+# PosixPath objects in pickled checkpoints can't be instantiated on Windows
+# This must be done BEFORE any torch.load calls
+if platform.system() == "Windows":
+    pathlib.PosixPath = pathlib.WindowsPath
+    # Python 3.13+ moved PosixPath to pathlib._local
+    try:
+        import pathlib._local as pathlib_local
+        pathlib_local.PosixPath = pathlib.WindowsPath
+    except (ImportError, AttributeError):
+        pass
+
 import torch
 from pathlib import Path
 import warnings

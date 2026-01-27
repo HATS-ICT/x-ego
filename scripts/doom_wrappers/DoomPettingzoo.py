@@ -289,6 +289,8 @@ class VizDoomCoopParallelEnv(ParallelEnv):
         self._frame_stack = int(frame_stack)
         assert self._frame_stack >= 1, "frame_stack must be >= 1"
 
+        self._seconds_per_step = float(self.cfg.skip) / float(self.cfg.ticrate)
+
         self.possible_agents = [f"player_{i}" for i in range(cfg.num_players)]
         self.agents = self.possible_agents[:]
 
@@ -329,6 +331,12 @@ class VizDoomCoopParallelEnv(ParallelEnv):
                     ),
                     "video": spaces.Box(
                         low=0, high=255, shape=self._video_shape_tchw, dtype=np.uint8
+                    ),
+                    "obs_start_time": spaces.Box(
+                        low=0.0, high=np.finfo(np.float32).max, shape=(), dtype=np.float32
+                    ),
+                    "obs_end_time": spaces.Box(
+                        low=0.0, high=np.finfo(np.float32).max, shape=(), dtype=np.float32
                     ),
                 }
             )
@@ -379,6 +387,11 @@ class VizDoomCoopParallelEnv(ParallelEnv):
         # Convert each HWC frame to CHW, then stack along time: (T, C, H, W).
         frames_chw = [np.transpose(frame, (2, 0, 1)) for frame in buf]
         return np.stack(frames_chw, axis=0)
+
+    def _get_time_window(self, current_step_index: int) -> Tuple[float, float]:
+        end_time = current_step_index * self._seconds_per_step
+        start_time = max(0.0, end_time - (self._frame_stack - 1) * self._seconds_per_step)
+        return start_time, end_time
 
     def _start_workers(self):
         if self._started:
@@ -450,6 +463,8 @@ class VizDoomCoopParallelEnv(ParallelEnv):
             a: {
                 "observation": obs[a],
                 "video": self._get_stacked_obs(a),
+                "obs_start_time": np.float32(self._get_time_window(0)[0]),
+                "obs_end_time": np.float32(self._get_time_window(0)[1]),
             }
             for a in self.agents
         }
@@ -496,6 +511,8 @@ class VizDoomCoopParallelEnv(ParallelEnv):
             obs[a] = {
                 "observation": o,
                 "video": self._get_stacked_obs(a),
+                "obs_start_time": np.float32(self._get_time_window(self._step_count + 1)[0]),
+                "obs_end_time": np.float32(self._get_time_window(self._step_count + 1)[1]),
             }
             rewards[a] = float(r)
             terminations[a] = bool(done)
@@ -645,7 +662,7 @@ class DoomPettingZooEnv(TaskClass):
         for group in self.group_map(env):
             group_obs_spec = observation_spec[group]
             for key in list(group_obs_spec.keys()):
-                if key not in {"observation", "video"}:
+                if key not in {"observation", "video", "obs_start_time", "obs_end_time"}:
                     del group_obs_spec[key]
         if "state" in observation_spec.keys():
             del observation_spec["state"]

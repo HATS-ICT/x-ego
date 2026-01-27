@@ -1,0 +1,19 @@
+share_param_critic: true
+clip_epsilon: 0.2
+entropy_coef: 0.01
+critic_coef: 1.0
+loss_critic_type: "l2"
+lmbda: 0.95
+scale_mapping: "softplus"
+use_tanh_normal: false
+minibatch_advantage: false
+
+lambda_cecl: 0.05
+cecl_emb_key: cecl_emb
+cecl_use_logit_scale: true
+cecl_use_logit_bias: true
+cecl_logit_scale_key: logit_scale
+cecl_logit_bias_key: logit_bias
+cecl_use_time_mask: true
+cecl_start_time_key: obs_start_time
+cecl_end_time_key: obs_end_time

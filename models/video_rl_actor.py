@@ -70,6 +70,10 @@ class VideoPolicyModel(Model):
             is_critic=kwargs.pop("is_critic"),
         )
 
+        self.projector_key = self._resolve_group_key(self.projector_key)
+        self.logit_scale_key = self._resolve_group_key(self.logit_scale_key)
+        self.logit_bias_key = self._resolve_group_key(self.logit_bias_key)
+
         # ---- Store config ----
 
         # ---- Build frozen video encoder (generic factory) ----
@@ -164,6 +168,11 @@ class VideoPolicyModel(Model):
                     f"Video key '{self.video_key}' not found in input_spec keys: {input_keys}"
                 )
 
+    def _resolve_group_key(self, key: Any) -> Any:
+        if isinstance(key, str) and getattr(self, "agent_group", None) is not None:
+            return (self.agent_group, key)
+        return key
+
     def _encode_video(self, video: torch.Tensor) -> torch.Tensor:
         """
         Encodes a batch of videos -> embeddings.
@@ -253,9 +262,23 @@ class VideoPolicyModel(Model):
 
         tensordict.set(self.projector_key, h)
         if self.logit_scale is not None:
-            tensordict.set(self.logit_scale_key, self.logit_scale)
+            if isinstance(self.logit_scale_key, tuple):
+                batch_shape = tensordict.get(self.logit_scale_key[0]).batch_size
+            else:
+                batch_shape = tensordict.batch_size
+            tensordict.set(
+                self.logit_scale_key,
+                self.logit_scale.expand(*batch_shape),
+            )
         if self.logit_bias is not None:
-            tensordict.set(self.logit_bias_key, self.logit_bias)
+            if isinstance(self.logit_bias_key, tuple):
+                batch_shape = tensordict.get(self.logit_bias_key[0]).batch_size
+            else:
+                batch_shape = tensordict.batch_size
+            tensordict.set(
+                self.logit_bias_key,
+                self.logit_bias.expand(*batch_shape),
+            )
 
         # 2) Gather aux features (optional) and concatenate
         if self.aux_keys:

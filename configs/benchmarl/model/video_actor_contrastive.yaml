@@ -15,7 +15,7 @@ return_temporal_features: false
 # Contrastive projector settings
 projector_hidden_sizes: [512]
 projector_out_dim: 256
-projector_key: proj_embedding
+projector_key: cecl_emb
 use_logit_scale: true
 use_logit_bias: true
 logit_scale_init: 1.0

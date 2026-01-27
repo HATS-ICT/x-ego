@@ -103,9 +103,6 @@ MODEL_CHECKPOINTS = {
     },
 }
 
-# Number of repeats
-MAX_REPEATS = 3
-
 # UI mask setting
 UI_MASK = "all"
 
@@ -128,16 +125,10 @@ def parse_args() -> argparse.Namespace:
         help="Model type to run experiments for",
     )
     parser.add_argument(
-        "--repeats",
-        type=int,
-        default=MAX_REPEATS,
-        help=f"Number of repeats (default: {MAX_REPEATS})",
-    )
-    parser.add_argument(
-        "--start-repeat",
+        "--seed",
         type=int,
         default=1,
-        help="Starting repeat number (default: 1)",
+        help="Random seed for the experiment (default: 1)",
     )
     parser.add_argument(
         "--start-epoch",
@@ -170,17 +161,17 @@ def run_experiment(
     task_id: str,
     epoch: int,
     checkpoint_path: Path,
-    repeat: int,
+    seed: int,
     index: int,
     total: int,
     num_workers: int,
     dry_run: bool = False,
 ) -> bool:
     """Run a single downstream experiment."""
-    run_name = f"epoch_probe-{model_type}-{task_id}-all-e{epoch:02d}-r{repeat}"
+    run_name = f"epoch_probe-{model_type}-{task_id}-all-e{epoch:02d}-s{seed}"
 
     print(f"\n{'='*70}")
-    print(f"[{index}/{total}] repeat={repeat}, epoch={epoch}, task={task_id}")
+    print(f"[{index}/{total}] seed={seed}, epoch={epoch}, task={task_id}")
     print(f"Run name: {run_name}")
     print("=" * 70)
 
@@ -196,7 +187,7 @@ def run_experiment(
         f"data.ui_mask={UI_MASK}",
         f"model.stage1_checkpoint={checkpoint_path}",
         f"meta.run_name={run_name}",
-        f"meta.seed={repeat}",
+        f"meta.seed={seed}",
         f"data.num_workers={num_workers}",
     ]
 
@@ -228,6 +219,8 @@ def main():
     if args.start_epoch is not None:
         checkpoints = [(e, c) for e, c in checkpoints if e >= args.start_epoch]
 
+    seed = args.seed
+
     print("=" * 70)
     print("Performance Over Epoch Experiment")
     print("=" * 70)
@@ -235,7 +228,7 @@ def main():
     print(f"Checkpoint folder: {folder}")
     print(f"Epochs: {[e for e, _ in checkpoints]}")
     print(f"Tasks: {EVAL_TASKS}")
-    print(f"Repeats: {args.start_repeat} to {args.repeats}")
+    print(f"Seed: {seed}")
     print(f"UI mask: {UI_MASK}")
     if args.dry_run:
         print("[DRY RUN MODE]")
@@ -244,60 +237,47 @@ def main():
     # Calculate total experiments
     num_epochs = len(checkpoints)
     num_tasks = len(EVAL_TASKS)
-    num_repeats = args.repeats - args.start_repeat + 1
-    total_experiments = num_repeats * num_epochs * num_tasks
+    total_experiments = num_epochs * num_tasks
 
-    print(f"\nTotal experiments: {num_repeats} repeats × {num_epochs} epochs × {num_tasks} tasks = {total_experiments}")
+    print(f"\nTotal experiments: {num_epochs} epochs × {num_tasks} tasks = {total_experiments}")
 
     results = []
     experiment_idx = 0
 
-    # Outer loop: repeats
-    for repeat in range(args.start_repeat, args.repeats + 1):
-        print(f"\n{'#'*70}")
-        print(f"# REPEAT {repeat}/{args.repeats}")
-        print("#" * 70)
+    # Outer loop: epochs
+    for epoch, checkpoint_file in checkpoints:
+        checkpoint_path = Path(OUTPUT_BASE_PATH) / folder / "checkpoint" / checkpoint_file
 
-        # Middle loop: epochs
-        for epoch, checkpoint_file in checkpoints:
-            # Skip to start_epoch/start_task if specified
-            if args.start_epoch is not None and repeat == args.start_repeat:
-                if epoch < args.start_epoch:
+        print(f"\n{'-'*70}")
+        print(f"Epoch {epoch} checkpoint: {checkpoint_file}")
+        print("-" * 70)
+
+        # Inner loop: tasks
+        for task_id in EVAL_TASKS:
+            # Skip to start_task if specified (only for first epoch)
+            if (
+                args.start_task is not None
+                and args.start_epoch is not None
+                and epoch == args.start_epoch
+            ):
+                if EVAL_TASKS.index(task_id) < EVAL_TASKS.index(args.start_task):
                     continue
 
-            checkpoint_path = Path(OUTPUT_BASE_PATH) / folder / "checkpoint" / checkpoint_file
+            experiment_idx += 1
 
-            print(f"\n{'-'*70}")
-            print(f"Epoch {epoch} checkpoint: {checkpoint_file}")
-            print("-" * 70)
+            success = run_experiment(
+                model_type=model_type,
+                task_id=task_id,
+                epoch=epoch,
+                checkpoint_path=checkpoint_path,
+                seed=seed,
+                index=experiment_idx,
+                total=total_experiments,
+                num_workers=args.num_workers,
+                dry_run=args.dry_run,
+            )
 
-            # Inner loop: tasks
-            for task_id in EVAL_TASKS:
-                # Skip to start_task if specified (only for first epoch of first repeat)
-                if (
-                    args.start_task is not None
-                    and repeat == args.start_repeat
-                    and args.start_epoch is not None
-                    and epoch == args.start_epoch
-                ):
-                    if EVAL_TASKS.index(task_id) < EVAL_TASKS.index(args.start_task):
-                        continue
-
-                experiment_idx += 1
-
-                success = run_experiment(
-                    model_type=model_type,
-                    task_id=task_id,
-                    epoch=epoch,
-                    checkpoint_path=checkpoint_path,
-                    repeat=repeat,
-                    index=experiment_idx,
-                    total=total_experiments,
-                    num_workers=args.num_workers,
-                    dry_run=args.dry_run,
-                )
-
-                results.append((repeat, epoch, task_id, success))
+            results.append((seed, epoch, task_id, success))
 
     # Print summary
     print(f"\n{'='*70}")
@@ -309,9 +289,9 @@ def main():
 
     if failed > 0:
         print("\nFailed experiments:")
-        for repeat, epoch, task_id, success in results:
+        for seed, epoch, task_id, success in results:
             if not success:
-                print(f"  - repeat={repeat}, epoch={epoch}, task={task_id}")
+                print(f"  - seed={seed}, epoch={epoch}, task={task_id}")
 
     print(f"\nTotal: {passed} passed, {failed} failed out of {len(results)} experiments")
 

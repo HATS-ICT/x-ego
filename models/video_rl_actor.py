@@ -38,12 +38,23 @@ class VideoPolicyModel(Model):
         activation_class: Type[nn.Module] = kwargs.pop("activation_class")
         dropout: float = kwargs.pop("dropout", 0.0)
         return_temporal_features: bool = kwargs.pop("return_temporal_features", False)
+        projector_hidden_sizes: Sequence[int] = kwargs.pop("projector_hidden_sizes", ())
+        projector_out_dim: Optional[int] = kwargs.pop("projector_out_dim", None)
+        projector_key: str = kwargs.pop("projector_key", "proj_embedding")
+        use_logit_scale: bool = kwargs.pop("use_logit_scale", False)
+        use_logit_bias: bool = kwargs.pop("use_logit_bias", False)
+        logit_scale_init: float = kwargs.pop("logit_scale_init", 1.0)
+        logit_scale_key: str = kwargs.pop("logit_scale_key", "logit_scale")
+        logit_bias_key: str = kwargs.pop("logit_bias_key", "logit_bias")
 
         # Stash attributes needed by _perform_checks before super().__init__.
         self.video_key = video_key
         self.aux_keys: List[str] = list(aux_keys) if aux_keys is not None else []
         self.return_temporal_features = return_temporal_features
         self.activation_class = activation_class
+        self.projector_key = projector_key
+        self.logit_scale_key = logit_scale_key
+        self.logit_bias_key = logit_bias_key
 
         super().__init__(
             input_spec=kwargs.pop("input_spec"),
@@ -88,9 +99,26 @@ class VideoPolicyModel(Model):
                 )
             aux_dim += int(self.input_spec[k].shape[-1])
 
-        # ---- Build trainable head ----
-        # Head input = encoder embedding + aux features
-        head_in = self.embed_dim + aux_dim
+        # ---- Build projection head (optional) ----
+        proj_layers: List[nn.Module] = []
+        proj_prev = self.embed_dim
+        for hs in projector_hidden_sizes:
+            proj_layers.append(nn.Linear(proj_prev, int(hs)))
+            proj_layers.append(self.activation_class())
+            proj_prev = int(hs)
+        if projector_out_dim is not None:
+            proj_layers.append(nn.Linear(proj_prev, int(projector_out_dim)))
+            proj_prev = int(projector_out_dim)
+        self.projector = nn.Sequential(*proj_layers).to(self.device) if proj_layers else None
+        self.projector_out_dim = proj_prev
+
+        # Optional learnable contrastive scalars
+        self.logit_scale = nn.Parameter(torch.tensor(float(logit_scale_init))) if use_logit_scale else None
+        self.logit_bias = nn.Parameter(torch.zeros(())) if use_logit_bias else None
+
+        # ---- Build trainable policy head ----
+        # Head input = projected embedding + aux features
+        head_in = self.projector_out_dim + aux_dim
 
         layers: List[nn.Module] = []
         prev = head_in
@@ -212,6 +240,23 @@ class VideoPolicyModel(Model):
         video = tensordict.get(self.video_key)
         z = self._encode_video(video)  # [B, n_agents, D] if input_has_agent_dim else [B, D]
 
+        # 1b) Project encoder embeddings -> h (trainable)
+        if self.projector is not None:
+            if self.input_has_agent_dim:
+                z_flat = z.reshape(-1, z.shape[-1])
+                h_flat = self.projector(z_flat)
+                h = h_flat.reshape(-1, self.n_agents, h_flat.shape[-1])
+            else:
+                h = self.projector(z)
+        else:
+            h = z
+
+        tensordict.set(self.projector_key, h)
+        if self.logit_scale is not None:
+            tensordict.set(self.logit_scale_key, self.logit_scale)
+        if self.logit_bias is not None:
+            tensordict.set(self.logit_bias_key, self.logit_bias)
+
         # 2) Gather aux features (optional) and concatenate
         if self.aux_keys:
             aux_list = [tensordict.get(k).to(self.device) for k in self.aux_keys]
@@ -219,9 +264,9 @@ class VideoPolicyModel(Model):
 
             # If input has agent dim, aux should be [B, n_agents, aux_dim]
             # else [B, aux_dim]
-            x = torch.cat([z, aux], dim=-1)
+            x = torch.cat([h, aux], dim=-1)
         else:
-            x = z
+            x = h
 
         # 3) Run trainable head
         if self.input_has_agent_dim:
@@ -258,6 +303,14 @@ class VideoPolicyModelConfig(ModelConfig):
     dropout: float = 0.0
 
     return_temporal_features: bool = False
+    projector_hidden_sizes: Sequence[int] = ()
+    projector_out_dim: Optional[int] = None
+    projector_key: str = "proj_embedding"
+    use_logit_scale: bool = False
+    use_logit_bias: bool = False
+    logit_scale_init: float = 1.0
+    logit_scale_key: str = "logit_scale"
+    logit_bias_key: str = "logit_bias"
 
     @staticmethod
     def associated_class():

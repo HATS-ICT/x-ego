@@ -4,11 +4,15 @@ Results Collector
 
 Collects test results from all experiment directories and organizes them
 by task, checkpoint type, and model type.
+
+Supports aggregating results from multiple repeats (mean ± std).
 """
 
 import json
+from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
+import numpy as np
 import pandas as pd
 import yaml
 
@@ -279,7 +283,8 @@ class ResultsCollector:
     def create_results_dataframe(
         self, 
         all_results: Dict[str, Dict],
-        checkpoint_type: str = 'best'
+        checkpoint_type: str = 'best',
+        aggregate_repeats: bool = False
     ) -> pd.DataFrame:
         """
         Create a pandas DataFrame from collected results.
@@ -287,11 +292,14 @@ class ResultsCollector:
         Args:
             all_results: Raw results from collect_all_results()
             checkpoint_type: 'best' or 'last'
+            aggregate_repeats: If True, aggregate multiple repeats by computing mean/std
         
         Returns:
             DataFrame with columns: exp_name, task_id, model_type, ui_mask, 
                                    is_finetuned, ml_form, category, temporal_type, 
                                    horizon_sec, metrics...
+            If aggregate_repeats=True, metrics will have _mean and _std suffixes,
+            and a 'n_repeats' column will be added.
         """
         rows = []
         
@@ -341,7 +349,76 @@ class ResultsCollector:
         if not df.empty:
             df = df.sort_values(['ml_form', 'task_id', 'model_type', 'ui_mask', 'init_type']).reset_index(drop=True)
         
+        if aggregate_repeats and not df.empty:
+            df = self._aggregate_repeats(df)
+        
         return df
+    
+    def _aggregate_repeats(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Aggregate results from multiple repeats by computing mean and std.
+        
+        Groups by (task_id, model_type, ui_mask, init_type) and computes
+        mean and std for all numeric metric columns.
+        
+        Args:
+            df: DataFrame with individual experiment results
+        
+        Returns:
+            DataFrame with aggregated results (mean/std for metrics)
+        """
+        # Define grouping columns
+        group_cols = ['task_id', 'model_type', 'ui_mask', 'init_type']
+        
+        # Define columns to keep (non-metric, non-grouping)
+        keep_cols = ['ml_form', 'num_classes', 'output_dim', 'category', 
+                     'temporal_type', 'horizon_sec', 'is_finetuned']
+        
+        # Identify metric columns (numeric columns that are not in group_cols or keep_cols)
+        non_metric_cols = set(group_cols + keep_cols + ['exp_name'])
+        metric_cols = [col for col in df.columns 
+                       if col not in non_metric_cols and pd.api.types.is_numeric_dtype(df[col])]
+        
+        aggregated_rows = []
+        
+        for group_key, group_df in df.groupby(group_cols, dropna=False):
+            task_id, model_type, ui_mask, init_type = group_key
+            
+            # Start with group keys
+            row = {
+                'task_id': task_id,
+                'model_type': model_type,
+                'ui_mask': ui_mask,
+                'init_type': init_type,
+                'n_repeats': len(group_df),
+            }
+            
+            # Add non-metric columns (take first value, they should be the same)
+            for col in keep_cols:
+                if col in group_df.columns:
+                    row[col] = group_df[col].iloc[0]
+            
+            # Aggregate metrics
+            for metric in metric_cols:
+                values = group_df[metric].dropna()
+                if len(values) > 0:
+                    row[f'{metric}_mean'] = values.mean()
+                    row[f'{metric}_std'] = values.std() if len(values) > 1 else 0.0
+                else:
+                    row[f'{metric}_mean'] = np.nan
+                    row[f'{metric}_std'] = np.nan
+            
+            aggregated_rows.append(row)
+        
+        agg_df = pd.DataFrame(aggregated_rows)
+        
+        # Sort
+        if not agg_df.empty:
+            agg_df = agg_df.sort_values(
+                ['ml_form', 'task_id', 'model_type', 'ui_mask', 'init_type']
+            ).reset_index(drop=True)
+        
+        return agg_df
     
     def get_results_by_ml_form(
         self, 

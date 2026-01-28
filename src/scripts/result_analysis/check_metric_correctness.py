@@ -31,6 +31,9 @@ def main():
     
     # Track multi_label_cls folders with acc_subset metric
     multi_label_with_acc_subset: list[str] = []
+    
+    # Track folders with MAE > 5
+    high_mae_folders: list[tuple[str, float]] = []
 
     for folder in probe_folders:
         best_json = folder / "test_results_best.json"
@@ -64,6 +67,10 @@ def main():
             # Check for multi_label_cls with acc_subset
             if ml_form == "multi_label_cls" and "acc_subset" in metrics:
                 multi_label_with_acc_subset.append(folder.name)
+            
+            # Check for MAE > 5
+            if "mae" in metrics and metrics["mae"] > 5:
+                high_mae_folders.append((folder.name, metrics["mae"]))
         except (json.JSONDecodeError, KeyError) as e:
             print(f"Error reading {json_to_read}: {e}")
 
@@ -108,6 +115,17 @@ def main():
             print(f"  - {folder}")
     else:
         print("\nNo multi_label_cls folders with acc_subset metric.")
+
+    print("\n" + "=" * 60)
+    print("HIGH MAE (> 5) METRICS")
+    print("=" * 60)
+
+    if high_mae_folders:
+        print(f"\nFolders with MAE > 5 ({len(high_mae_folders)}):")
+        for folder, mae_value in sorted(high_mae_folders, key=lambda x: x[1], reverse=True):
+            print(f"  - {folder}: mae = {mae_value:.4f}")
+    else:
+        print("\nNo folders with MAE > 5.")
 
 
 if __name__ == "__main__":

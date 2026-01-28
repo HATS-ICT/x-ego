@@ -3,11 +3,13 @@
 Table Printer
 
 Print results tables using rich library, grouped by ML form.
+Supports displaying aggregated results with mean ± std for repeated experiments.
 """
 
 import argparse
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
+import numpy as np
 import pandas as pd
 from rich.console import Console
 from rich.table import Table
@@ -23,6 +25,71 @@ class TablePrinter:
         """Initialize table printer with console."""
         self.console = Console()
     
+    def _is_aggregated_df(self, df: pd.DataFrame) -> bool:
+        """Check if DataFrame has aggregated results (mean/std columns)."""
+        return 'n_repeats' in df.columns
+    
+    def _format_metric_value(
+        self, 
+        mean_val: Optional[float], 
+        std_val: Optional[float] = None,
+        precision: int = 4,
+        show_std: bool = True
+    ) -> str:
+        """
+        Format a metric value with optional std.
+        
+        Args:
+            mean_val: Mean value (or single value if not aggregated)
+            std_val: Standard deviation (None if not aggregated or single repeat)
+            precision: Number of decimal places
+            show_std: Whether to show std (if available)
+        
+        Returns:
+            Formatted string like "0.8234" or "0.8234±0.0123"
+        """
+        if mean_val is None or (isinstance(mean_val, float) and np.isnan(mean_val)):
+            return "N/A"
+        
+        if show_std and std_val is not None and not np.isnan(std_val) and std_val > 0:
+            return f"{mean_val:.{precision}f}±{std_val:.{precision}f}"
+        else:
+            return f"{mean_val:.{precision}f}"
+    
+    def _get_metric_value(
+        self, 
+        row: pd.Series, 
+        metric: str, 
+        is_aggregated: bool
+    ) -> Tuple[Optional[float], Optional[float]]:
+        """
+        Get metric value (mean and std) from a row.
+        
+        Args:
+            row: DataFrame row
+            metric: Metric name (base name without _mean/_std suffix)
+            is_aggregated: Whether the DataFrame is aggregated
+        
+        Returns:
+            Tuple of (mean_value, std_value)
+        """
+        if is_aggregated:
+            mean_col = f'{metric}_mean'
+            std_col = f'{metric}_std'
+            mean_val = row.get(mean_col)
+            std_val = row.get(std_col)
+        else:
+            mean_val = row.get(metric)
+            std_val = None
+        
+        # Handle NaN
+        if pd.isna(mean_val):
+            mean_val = None
+        if std_val is not None and pd.isna(std_val):
+            std_val = None
+            
+        return mean_val, std_val
+    
     def print_baseline_finetuned_table(
         self, 
         df: pd.DataFrame, 
@@ -34,7 +101,7 @@ class TablePrinter:
         Print a table comparing baseline vs finetuned for each task.
         
         Args:
-            df: DataFrame with results for this ML form
+            df: DataFrame with results for this ML form (can be aggregated or not)
             ml_form: ML form name (binary_cls, multi_cls, etc.)
             ui_mask: UI mask setting to filter
             checkpoint_type: 'best' or 'last'
@@ -42,6 +109,8 @@ class TablePrinter:
         if df.empty:
             self.console.print(f"[yellow]No results for {ml_form}[/yellow]")
             return
+        
+        is_aggregated = self._is_aggregated_df(df)
         
         # Determine metric columns based on ml_form
         metric_cols = self._get_metric_columns(ml_form, df)
@@ -51,8 +120,12 @@ class TablePrinter:
             return
         
         # Create rich table
+        title = f"{ml_form.upper()} | UI Mask: {ui_mask} | {checkpoint_type.upper()} Checkpoint"
+        if is_aggregated:
+            title += " (mean±std)"
+        
         table = Table(
-            title=f"{ml_form.upper()} | UI Mask: {ui_mask} | {checkpoint_type.upper()} Checkpoint",
+            title=title,
             box=box.ROUNDED,
             show_header=True,
             header_style="bold magenta"
@@ -61,6 +134,9 @@ class TablePrinter:
         # Add columns: Task ID, Model, then for each metric: Baseline, Finetuned, Delta
         table.add_column("Task ID", style="cyan", no_wrap=True)
         table.add_column("Model", style="green")
+        
+        if is_aggregated:
+            table.add_column("N", justify="center", style="dim")  # Number of repeats
         
         for metric in metric_cols:
             table.add_column(f"{metric.upper()} (B)", justify="right", style="dim")
@@ -74,20 +150,40 @@ class TablePrinter:
             for model in sorted(df_task['model_type'].unique()):
                 df_model = df_task[df_task['model_type'] == model]
                 
-                baseline_row = df_model[df_model['init_type'] == 'baseline']
-                finetuned_row = df_model[df_model['init_type'] == 'finetuned']
+                baseline_rows = df_model[df_model['init_type'] == 'baseline']
+                finetuned_rows = df_model[df_model['init_type'] == 'finetuned']
                 
                 row_values = [task_id, model]
                 
+                # Add repeat count if aggregated
+                if is_aggregated:
+                    b_n = baseline_rows['n_repeats'].values[0] if len(baseline_rows) > 0 else 0
+                    f_n = finetuned_rows['n_repeats'].values[0] if len(finetuned_rows) > 0 else 0
+                    row_values.append(f"{b_n}/{f_n}")
+                
                 for metric in metric_cols:
-                    baseline_val = baseline_row[metric].values[0] if len(baseline_row) > 0 and pd.notna(baseline_row[metric].values[0]) else None
-                    finetuned_val = finetuned_row[metric].values[0] if len(finetuned_row) > 0 and pd.notna(finetuned_row[metric].values[0]) else None
+                    # Get baseline values
+                    if len(baseline_rows) > 0:
+                        b_mean, b_std = self._get_metric_value(
+                            baseline_rows.iloc[0], metric, is_aggregated
+                        )
+                    else:
+                        b_mean, b_std = None, None
                     
-                    baseline_str = f"{baseline_val:.4f}" if baseline_val is not None else "N/A"
-                    finetuned_str = f"{finetuned_val:.4f}" if finetuned_val is not None else "N/A"
+                    # Get finetuned values
+                    if len(finetuned_rows) > 0:
+                        f_mean, f_std = self._get_metric_value(
+                            finetuned_rows.iloc[0], metric, is_aggregated
+                        )
+                    else:
+                        f_mean, f_std = None, None
                     
-                    if baseline_val is not None and finetuned_val is not None:
-                        delta = finetuned_val - baseline_val
+                    baseline_str = self._format_metric_value(b_mean, b_std, show_std=is_aggregated)
+                    finetuned_str = self._format_metric_value(f_mean, f_std, show_std=is_aggregated)
+                    
+                    # Compute delta (based on means)
+                    if b_mean is not None and f_mean is not None:
+                        delta = f_mean - b_mean
                         delta_style = "green" if delta > 0 else ("red" if delta < 0 else "white")
                         delta_str = f"[{delta_style}]{delta:+.4f}[/{delta_style}]"
                     else:
@@ -110,7 +206,7 @@ class TablePrinter:
         Print a table for a specific ML form.
         
         Args:
-            df: DataFrame with results for this ML form
+            df: DataFrame with results for this ML form (can be aggregated or not)
             ml_form: ML form name (binary_cls, multi_cls, etc.)
             checkpoint_type: 'best' or 'last'
         """
@@ -118,12 +214,18 @@ class TablePrinter:
             self.console.print(f"[yellow]No results for {ml_form}[/yellow]")
             return
         
+        is_aggregated = self._is_aggregated_df(df)
+        
         # Determine metric columns based on ml_form
         metric_cols = self._get_metric_columns(ml_form, df)
         
         # Create rich table
+        title = f"{ml_form.upper()} - {checkpoint_type.upper()} Checkpoint"
+        if is_aggregated:
+            title += " (mean±std)"
+        
         table = Table(
-            title=f"{ml_form.upper()} - {checkpoint_type.upper()} Checkpoint",
+            title=title,
             box=box.ROUNDED,
             show_header=True,
             header_style="bold magenta"
@@ -134,6 +236,8 @@ class TablePrinter:
         table.add_column("Model", style="green")
         table.add_column("UI Mask", style="blue")
         table.add_column("Init", style="yellow")
+        if is_aggregated:
+            table.add_column("N", justify="center", style="dim")
         table.add_column("Category", style="dim")
         
         # Add metric columns
@@ -142,22 +246,30 @@ class TablePrinter:
         
         # Add rows
         for _, row in df.iterrows():
-            metric_values = [
-                f"{row[metric]:.4f}" if pd.notna(row.get(metric)) else "N/A"
-                for metric in metric_cols
-            ]
+            metric_values = []
+            for metric in metric_cols:
+                mean_val, std_val = self._get_metric_value(row, metric, is_aggregated)
+                metric_values.append(
+                    self._format_metric_value(mean_val, std_val, show_std=is_aggregated)
+                )
             
             init_type = row.get('init_type', 'unknown')
             init_style = "green" if init_type == 'finetuned' else "dim"
             
-            table.add_row(
+            row_data = [
                 row['task_id'],
                 row['model_type'],
                 row.get('ui_mask', 'unknown'),
                 f"[{init_style}]{init_type}[/{init_style}]",
-                row['category'],
-                *metric_values
-            )
+            ]
+            
+            if is_aggregated:
+                row_data.append(str(row.get('n_repeats', 1)))
+            
+            row_data.append(row['category'])
+            row_data.extend(metric_values)
+            
+            table.add_row(*row_data)
         
         self.console.print(table)
         self.console.print()
@@ -171,7 +283,7 @@ class TablePrinter:
             df: DataFrame to check for available columns
         
         Returns:
-            List of metric column names
+            List of metric column names (base names without _mean/_std suffix)
         """
         # Define expected metrics for each ML form
         # For multi_label_cls: acc_exact, hamming_acc (derived from hamming_dist), f1, auroc
@@ -184,8 +296,19 @@ class TablePrinter:
         
         expected_metrics = metric_map.get(ml_form, [])
         
+        # Check if this is an aggregated DataFrame (has _mean suffix columns)
+        is_aggregated = self._is_aggregated_df(df)
+        
         # Only return metrics that exist in the dataframe
-        available_metrics = [m for m in expected_metrics if m in df.columns]
+        available_metrics = []
+        for m in expected_metrics:
+            if is_aggregated:
+                # Check for _mean column
+                if f'{m}_mean' in df.columns:
+                    available_metrics.append(m)
+            else:
+                if m in df.columns:
+                    available_metrics.append(m)
         
         return available_metrics
     
@@ -252,7 +375,7 @@ class TablePrinter:
         Print comparison across different models (if multiple exist).
         
         Args:
-            df: DataFrame with all results
+            df: DataFrame with all results (can be aggregated or not)
             checkpoint_type: 'best' or 'last'
         """
         if df.empty:
@@ -263,6 +386,8 @@ class TablePrinter:
         if len(model_types) <= 1:
             self.console.print("[yellow]Only one model type found, skipping comparison[/yellow]")
             return
+        
+        is_aggregated = self._is_aggregated_df(df)
         
         self.console.rule(f"[bold blue]Model Comparison - {checkpoint_type.upper()}[/bold blue]")
         self.console.print()
@@ -291,10 +416,16 @@ class TablePrinter:
             for model in sorted(df_ml['model_type'].unique()):
                 df_model = df_ml[df_ml['model_type'] == model]
                 
-                metric_avgs = [
-                    f"{df_model[metric].mean():.4f}" if metric in df_model.columns else "N/A"
-                    for metric in metric_cols
-                ]
+                metric_avgs = []
+                for metric in metric_cols:
+                    if is_aggregated:
+                        col = f'{metric}_mean'
+                    else:
+                        col = metric
+                    if col in df_model.columns:
+                        metric_avgs.append(f"{df_model[col].mean():.4f}")
+                    else:
+                        metric_avgs.append("N/A")
                 
                 table.add_row(
                     model,
@@ -310,7 +441,7 @@ class TablePrinter:
         Print comparison between baseline and finetuned models.
         
         Args:
-            df: DataFrame with all results
+            df: DataFrame with all results (can be aggregated or not)
             checkpoint_type: 'best' or 'last'
         """
         if df.empty:
@@ -324,6 +455,8 @@ class TablePrinter:
         if len(init_types) <= 1:
             self.console.print(f"[yellow]Only {init_types[0]} results found, skipping comparison[/yellow]")
             return
+        
+        is_aggregated = self._is_aggregated_df(df)
         
         self.console.rule(f"[bold blue]Baseline vs Finetuned Comparison - {checkpoint_type.upper()}[/bold blue]")
         self.console.print()
@@ -364,10 +497,16 @@ class TablePrinter:
                         if df_init.empty:
                             continue
                         
-                        metric_avgs = [
-                            f"{df_init[metric].mean():.4f}" if metric in df_init.columns else "N/A"
-                            for metric in metric_cols
-                        ]
+                        metric_avgs = []
+                        for metric in metric_cols:
+                            if is_aggregated:
+                                col = f'{metric}_mean'
+                            else:
+                                col = metric
+                            if col in df_init.columns:
+                                metric_avgs.append(f"{df_init[col].mean():.4f}")
+                            else:
+                                metric_avgs.append("N/A")
                         
                         init_style = "green" if init_type == 'finetuned' else "dim"
                         
@@ -387,7 +526,7 @@ class TablePrinter:
         Print detailed task-level comparison between baseline and finetuned.
         
         Args:
-            df: DataFrame with all results
+            df: DataFrame with all results (can be aggregated or not)
             checkpoint_type: 'best' or 'last'
         """
         if df.empty:
@@ -396,7 +535,10 @@ class TablePrinter:
         if 'init_type' not in df.columns:
             return
         
-        self.console.rule(f"[bold blue]Task-Level Baseline vs Finetuned - {checkpoint_type.upper()}[/bold blue]")
+        is_aggregated = self._is_aggregated_df(df)
+        
+        title_suffix = " (mean±std)" if is_aggregated else ""
+        self.console.rule(f"[bold blue]Task-Level Baseline vs Finetuned - {checkpoint_type.upper()}{title_suffix}[/bold blue]")
         self.console.print()
         
         # For each ML form
@@ -420,6 +562,8 @@ class TablePrinter:
             table.add_column("Task ID", style="cyan", no_wrap=True)
             table.add_column("Model", style="green")
             table.add_column("UI Mask", style="blue")
+            if is_aggregated:
+                table.add_column("N", justify="center", style="dim")
             table.add_column("Baseline", justify="right")
             table.add_column("Finetuned", justify="right")
             table.add_column("Delta", justify="right")
@@ -434,27 +578,42 @@ class TablePrinter:
                     for ui_mask in sorted(df_model['ui_mask'].unique()):
                         df_ui = df_model[df_model['ui_mask'] == ui_mask]
                         
-                        baseline_val = df_ui[df_ui['init_type'] == 'baseline'][primary_metric].values
-                        finetuned_val = df_ui[df_ui['init_type'] == 'finetuned'][primary_metric].values
+                        baseline_rows = df_ui[df_ui['init_type'] == 'baseline']
+                        finetuned_rows = df_ui[df_ui['init_type'] == 'finetuned']
                         
-                        baseline_str = f"{baseline_val[0]:.4f}" if len(baseline_val) > 0 else "N/A"
-                        finetuned_str = f"{finetuned_val[0]:.4f}" if len(finetuned_val) > 0 else "N/A"
+                        # Get values
+                        if len(baseline_rows) > 0:
+                            b_mean, b_std = self._get_metric_value(
+                                baseline_rows.iloc[0], primary_metric, is_aggregated
+                            )
+                        else:
+                            b_mean, b_std = None, None
                         
-                        if len(baseline_val) > 0 and len(finetuned_val) > 0:
-                            delta = finetuned_val[0] - baseline_val[0]
+                        if len(finetuned_rows) > 0:
+                            f_mean, f_std = self._get_metric_value(
+                                finetuned_rows.iloc[0], primary_metric, is_aggregated
+                            )
+                        else:
+                            f_mean, f_std = None, None
+                        
+                        baseline_str = self._format_metric_value(b_mean, b_std, show_std=is_aggregated)
+                        finetuned_str = self._format_metric_value(f_mean, f_std, show_std=is_aggregated)
+                        
+                        if b_mean is not None and f_mean is not None:
+                            delta = f_mean - b_mean
                             delta_style = "green" if delta > 0 else ("red" if delta < 0 else "white")
                             delta_str = f"[{delta_style}]{delta:+.4f}[/{delta_style}]"
                         else:
                             delta_str = "N/A"
                         
-                        table.add_row(
-                            task_id,
-                            model,
-                            ui_mask,
-                            baseline_str,
-                            finetuned_str,
-                            delta_str
-                        )
+                        row_data = [task_id, model, ui_mask]
+                        if is_aggregated:
+                            b_n = baseline_rows['n_repeats'].values[0] if len(baseline_rows) > 0 else 0
+                            f_n = finetuned_rows['n_repeats'].values[0] if len(finetuned_rows) > 0 else 0
+                            row_data.append(f"{b_n}/{f_n}")
+                        row_data.extend([baseline_str, finetuned_str, delta_str])
+                        
+                        table.add_row(*row_data)
             
             self.console.print(table)
             self.console.print()
@@ -491,6 +650,11 @@ def parse_args():
         action='store_true',
         help='Show detailed tables with all columns'
     )
+    parser.add_argument(
+        '--aggregate', '-a',
+        action='store_true',
+        help='Aggregate results from repeated experiments (show mean±std)'
+    )
     return parser.parse_args()
 
 
@@ -513,7 +677,11 @@ def main():
     printer = TablePrinter()
     
     # Create dataframe and filter by ui_mask
-    df = collector.create_results_dataframe(all_results, args.checkpoint)
+    df = collector.create_results_dataframe(
+        all_results, 
+        args.checkpoint,
+        aggregate_repeats=args.aggregate
+    )
     
     if df.empty:
         print(f"No results for checkpoint type: {args.checkpoint}")
@@ -534,9 +702,10 @@ def main():
             print(f"No results for model: {args.model}")
             return
     
+    agg_str = " (aggregated)" if args.aggregate else ""
     printer.console.print("\n")
     printer.console.rule(
-        f"[bold blue]Results: UI Mask={args.ui_mask} | Checkpoint={args.checkpoint.upper()}[/bold blue]"
+        f"[bold blue]Results: UI Mask={args.ui_mask} | Checkpoint={args.checkpoint.upper()}{agg_str}[/bold blue]"
     )
     printer.console.print()
     
@@ -573,7 +742,13 @@ def main():
     n_tasks = df_filtered['task_id'].nunique()
     n_models = df_filtered['model_type'].nunique()
     
-    printer.console.print(f"  Total experiments: {len(df_filtered)}")
+    if args.aggregate:
+        # For aggregated results, show unique experiment settings
+        printer.console.print(f"  Unique experiment settings: {len(df_filtered)}")
+        total_repeats = df_filtered['n_repeats'].sum() if 'n_repeats' in df_filtered.columns else len(df_filtered)
+        printer.console.print(f"  Total experiment runs: {int(total_repeats)}")
+    else:
+        printer.console.print(f"  Total experiments: {len(df_filtered)}")
     printer.console.print(f"  Unique tasks: {n_tasks}")
     printer.console.print(f"  Models: {df_filtered['model_type'].unique().tolist()}")
     printer.console.print(f"  Baseline results: {n_baseline}")

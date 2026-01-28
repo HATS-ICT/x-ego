@@ -8,6 +8,7 @@ where init_type is 'baseline' or 'finetuned' based on model.stage1_checkpoint in
 """
 
 import argparse
+import shutil
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -161,8 +162,12 @@ def print_experiment_status(
     task_ids: List[str],
     ui_mask: str,
     console: Console
-):
-    """Print experiment status tables."""
+) -> Dict[Tuple[str, str, str], List[Dict]]:
+    """Print experiment status tables.
+    
+    Returns:
+        Dict of incomplete experiments for potential deletion.
+    """
     
     # Build expected experiments
     expected = set()
@@ -274,45 +279,91 @@ def print_experiment_status(
         console.print()
     
     # Print incomplete experiments (has folder but missing result files)
-    if incomplete_experiments:
-        console.rule("[bold yellow]Incomplete Experiments (Missing Result Files)[/bold yellow]")
+    if not incomplete_experiments:
+        return {}
+    
+    console.rule("[bold yellow]Incomplete Experiments (Missing Result Files)[/bold yellow]")
+    console.print()
+    
+    incomplete_table = Table(
+        title="Incomplete Experiments",
+        box=box.ROUNDED,
+        show_header=True,
+        header_style="bold magenta"
+    )
+    
+    incomplete_table.add_column("Model", style="cyan")
+    incomplete_table.add_column("Task ID", style="green")
+    incomplete_table.add_column("Init Type", style="yellow")
+    incomplete_table.add_column("Folder", style="dim")
+    incomplete_table.add_column("Best", justify="center")
+    incomplete_table.add_column("Last", justify="center")
+    
+    for key in sorted(incomplete_experiments.keys()):
+        for exp in incomplete_experiments[key]:
+            model, task_id, init_type = key
+            best_status = "[green]Y[/green]" if exp['has_best'] else "[red]N[/red]"
+            last_status = "[green]Y[/green]" if exp['has_last'] else "[red]N[/red]"
+            
+            incomplete_table.add_row(
+                model,
+                task_id,
+                init_type,
+                exp['folder'],
+                best_status,
+                last_status
+            )
+    
+    console.print(incomplete_table)
+    console.print()
+    
+    total_incomplete_runs = sum(len(v) for v in incomplete_experiments.values())
+    console.print(f"[yellow]Total incomplete runs: {total_incomplete_runs}[/yellow]")
+    console.print()
+    
+    return incomplete_experiments
+
+
+def prompt_delete_incomplete(
+    incomplete_experiments: Dict[Tuple[str, str, str], List[Dict]],
+    output_dir: Path,
+    console: Console
+) -> None:
+    """Prompt user to delete incomplete experiment folders."""
+    if not incomplete_experiments:
+        return
+    
+    # Collect all incomplete folders
+    incomplete_folders = []
+    for exp_list in incomplete_experiments.values():
+        for exp in exp_list:
+            incomplete_folders.append(exp['folder'])
+    
+    console.print()
+    console.rule("[bold red]Delete Incomplete Experiments?[/bold red]")
+    console.print()
+    console.print(f"Found [yellow]{len(incomplete_folders)}[/yellow] incomplete experiment folders.")
+    console.print()
+    
+    response = console.input("[bold]Do you want to delete these folders? (y/N): [/bold]")
+    
+    if response.lower() in ['y', 'yes']:
         console.print()
-        
-        incomplete_table = Table(
-            title="Incomplete Experiments",
-            box=box.ROUNDED,
-            show_header=True,
-            header_style="bold magenta"
-        )
-        
-        incomplete_table.add_column("Model", style="cyan")
-        incomplete_table.add_column("Task ID", style="green")
-        incomplete_table.add_column("Init Type", style="yellow")
-        incomplete_table.add_column("Folder", style="dim")
-        incomplete_table.add_column("Best", justify="center")
-        incomplete_table.add_column("Last", justify="center")
-        
-        for key in sorted(incomplete_experiments.keys()):
-            for exp in incomplete_experiments[key]:
-                model, task_id, init_type = key
-                best_status = "[green]Y[/green]" if exp['has_best'] else "[red]N[/red]"
-                last_status = "[green]Y[/green]" if exp['has_last'] else "[red]N[/red]"
-                
-                incomplete_table.add_row(
-                    model,
-                    task_id,
-                    init_type,
-                    exp['folder'],
-                    best_status,
-                    last_status
-                )
-        
-        console.print(incomplete_table)
+        deleted_count = 0
+        for folder_name in incomplete_folders:
+            folder_path = output_dir / folder_name
+            if folder_path.exists():
+                try:
+                    shutil.rmtree(folder_path)
+                    console.print(f"  [red]Deleted:[/red] {folder_name}")
+                    deleted_count += 1
+                except Exception as e:
+                    console.print(f"  [red]Failed to delete {folder_name}: {e}[/red]")
         console.print()
-        
-        total_incomplete_runs = sum(len(v) for v in incomplete_experiments.values())
-        console.print(f"[yellow]Total incomplete runs: {total_incomplete_runs}[/yellow]")
+        console.print(f"[green]Successfully deleted {deleted_count} folders.[/green]")
+    else:
         console.print()
+        console.print("[dim]No folders deleted.[/dim]")
 
 
 def parse_args():
@@ -349,7 +400,10 @@ def main():
     console.print(f"Found {len(experiments)} unique experiment settings with folders")
     
     # Print status
-    print_experiment_status(experiments, task_ids, args.ui_mask, console)
+    incomplete_experiments = print_experiment_status(experiments, task_ids, args.ui_mask, console)
+    
+    # Prompt to delete incomplete experiments
+    prompt_delete_incomplete(incomplete_experiments, output_dir, console)
 
 
 if __name__ == '__main__':

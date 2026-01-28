@@ -115,6 +115,83 @@ def _get_best_experiment_value(df_subset: pd.DataFrame, metric_name: str) -> flo
     return df_sorted[metric_name].values[0]
 
 
+def _aggregate_repeat_experiments(
+    df_subset: pd.DataFrame, 
+    metric_name: str
+) -> tuple[float, float, int]:
+    """
+    Aggregate metric values from repeat experiments (same model, task, init_type).
+    
+    Args:
+        df_subset: DataFrame subset for a specific task/init_type combination
+        metric_name: Name of the metric to extract
+    
+    Returns:
+        Tuple of (mean, std, count) for the metric across repeats.
+        Returns (np.nan, np.nan, 0) if empty.
+    """
+    if df_subset.empty:
+        return np.nan, np.nan, 0
+    
+    values = df_subset[metric_name].dropna().values
+    
+    if len(values) == 0:
+        return np.nan, np.nan, 0
+    
+    mean_val = np.mean(values)
+    std_val = np.std(values, ddof=1) if len(values) > 1 else 0.0
+    
+    return mean_val, std_val, len(values)
+
+
+def _aggregate_group_repeats(
+    df_subset: pd.DataFrame,
+    metric_name: str,
+    group_col: str = 'task_id'
+) -> tuple[float, float, int]:
+    """
+    Aggregate metric values across tasks within a group (e.g., task prefix),
+    accounting for repeats within each task.
+    
+    For each unique task, first computes the mean across repeats,
+    then averages across tasks in the group.
+    The std is computed by pooling std across repeats for all tasks.
+    
+    Args:
+        df_subset: DataFrame subset for a group (e.g., specific prefix, model, init_type)
+        metric_name: Name of the metric to extract
+        group_col: Column to group by (default: 'task_id')
+    
+    Returns:
+        Tuple of (mean, std, count) where:
+        - mean: average of per-task means
+        - std: pooled std across all repeats
+        - count: total number of repeat experiments
+    """
+    if df_subset.empty:
+        return np.nan, np.nan, 0
+    
+    # Collect all repeat values and per-task means
+    all_values = []
+    task_means = []
+    for task_id in df_subset[group_col].unique():
+        df_task = df_subset[df_subset[group_col] == task_id]
+        values = df_task[metric_name].dropna().values
+        if len(values) > 0:
+            task_means.append(np.mean(values))
+            all_values.extend(values)
+    
+    if len(task_means) == 0:
+        return np.nan, np.nan, 0
+    
+    # Mean is average of per-task means
+    mean_val = np.mean(task_means)
+    # Std is computed from all individual repeat values (pooled std)
+    std_val = np.std(all_values, ddof=1) if len(all_values) > 1 else 0.0
+    
+    return mean_val, std_val, len(all_values)
+
+
 def plot_baseline_vs_finetuned_per_model(
     df: pd.DataFrame,
     ml_form: str,
@@ -125,6 +202,7 @@ def plot_baseline_vs_finetuned_per_model(
     """
     Plot baseline vs finetuned comparison for each model.
     Creates one plot per model with subplots for each metric.
+    Shows error bars (standard deviation) for repeat experiments.
     
     Args:
         df: DataFrame filtered by ml_form and ui_mask
@@ -165,9 +243,11 @@ def plot_baseline_vs_finetuned_per_model(
             axes = [axes]
         
         for ax, metric_name in zip(axes, available_metrics):
-            # Prepare data for plotting
-            baseline_vals = []
-            finetuned_vals = []
+            # Prepare data for plotting with mean and std from repeats
+            baseline_means = []
+            baseline_stds = []
+            finetuned_means = []
+            finetuned_stds = []
             task_labels = []
             
             for task in tasks:
@@ -176,20 +256,26 @@ def plot_baseline_vs_finetuned_per_model(
                 df_baseline = df_task[df_task['init_type'] == 'baseline']
                 df_finetuned = df_task[df_task['init_type'] == 'finetuned']
                 
-                baseline_val = _get_best_experiment_value(df_baseline, metric_name)
-                finetuned_val = _get_best_experiment_value(df_finetuned, metric_name)
+                # Aggregate across repeats
+                baseline_mean, baseline_std, _ = _aggregate_repeat_experiments(df_baseline, metric_name)
+                finetuned_mean, finetuned_std, _ = _aggregate_repeat_experiments(df_finetuned, metric_name)
                 
-                baseline_vals.append(baseline_val)
-                finetuned_vals.append(finetuned_val)
+                baseline_means.append(baseline_mean)
+                baseline_stds.append(baseline_std if not np.isnan(baseline_std) else 0)
+                finetuned_means.append(finetuned_mean)
+                finetuned_stds.append(finetuned_std if not np.isnan(finetuned_std) else 0)
                 task_labels.append(task)
             
             x = np.arange(len(tasks))
             width = 0.35
             
-            ax.bar(x - width/2, baseline_vals, width, label='Baseline', 
-                   color='steelblue', edgecolor='black', alpha=0.8)
-            ax.bar(x + width/2, finetuned_vals, width, label='Finetuned', 
-                   color='coral', edgecolor='black', alpha=0.8)
+            # Plot bars with error bars
+            ax.bar(x - width/2, baseline_means, width, label='Baseline', 
+                   color='steelblue', edgecolor='black', alpha=0.8,
+                   yerr=baseline_stds, capsize=3, error_kw={'linewidth': 1.5, 'capthick': 1.5})
+            ax.bar(x + width/2, finetuned_means, width, label='Finetuned', 
+                   color='coral', edgecolor='black', alpha=0.8,
+                   yerr=finetuned_stds, capsize=3, error_kw={'linewidth': 1.5, 'capthick': 1.5})
             
             ax.set_xlabel('Task', fontsize=10)
             ax.set_ylabel(f'{metric_name.upper()}', fontsize=10)
@@ -200,7 +286,7 @@ def plot_baseline_vs_finetuned_per_model(
             ax.grid(True, alpha=0.3, axis='y')
             
             # Add horizontal line at mean
-            all_vals = [v for v in baseline_vals + finetuned_vals if not np.isnan(v)]
+            all_vals = [v for v in baseline_means + finetuned_means if not np.isnan(v)]
             if all_vals:
                 ax.axhline(np.mean(all_vals), color='gray', linestyle='--', alpha=0.5)
         
@@ -228,6 +314,7 @@ def plot_by_task_prefix(
     Plot results grouped by task prefix (enemy, self, global, teammate).
     Uses two colors for baseline/finetuned and hatch patterns for models.
     Creates subplots for each metric.
+    Shows error bars (std across tasks within each prefix).
     
     Args:
         df: DataFrame filtered by ml_form and ui_mask
@@ -288,31 +375,26 @@ def plot_by_task_prefix(
         bar_idx = 0
         for model in models:
             for init_type in init_types:
-                vals = []
+                means = []
+                stds = []
                 for prefix in prefixes:
                     df_subset = df[(df['task_prefix'] == prefix) & 
                                   (df['model_type'] == model) & 
                                   (df['init_type'] == init_type)]
-                    # Deduplicate: for each task_id, take the most recent experiment
-                    if not df_subset.empty:
-                        deduped_vals = []
-                        for task_id in df_subset['task_id'].unique():
-                            df_task = df_subset[df_subset['task_id'] == task_id]
-                            val = _get_best_experiment_value(df_task, metric_name)
-                            if not np.isnan(val):
-                                deduped_vals.append(val)
-                        mean_val = np.mean(deduped_vals) if deduped_vals else np.nan
-                    else:
-                        mean_val = np.nan
-                    vals.append(mean_val)
+                    # Aggregate: for each task_id, compute mean across repeats,
+                    # then compute mean and std across tasks in prefix
+                    mean_val, std_val, _ = _aggregate_group_repeats(df_subset, metric_name, 'task_id')
+                    means.append(mean_val)
+                    stds.append(std_val if not np.isnan(std_val) else 0)
                 
                 offset = (bar_idx - n_groups/2 + 0.5) * width
-                ax.bar(x + offset, vals, width, 
+                ax.bar(x + offset, means, width, 
                        label=f'{model}-{init_type}', 
                        color=colors[init_type], 
                        edgecolor='black', 
                        hatch=hatches.get(model, ''),
-                       alpha=0.85)
+                       alpha=0.85,
+                       yerr=stds, capsize=3, error_kw={'linewidth': 1.5, 'capthick': 1.5})
                 bar_idx += 1
         
         ax.set_xlabel('Task Category', fontsize=10)
@@ -349,6 +431,7 @@ def plot_time_horizon_lines(
     """
     Plot line plots for tasks with time horizon suffix (_0s, _10s, etc.).
     Creates a grid with rows for each task base and columns for each metric.
+    Shows shaded std region for repeat experiments.
     
     Args:
         df: DataFrame filtered by ml_form and ui_mask
@@ -419,23 +502,36 @@ def plot_time_horizon_lines(
                     if df_subset.empty:
                         continue
                     
-                    # Deduplicate: for each time_horizon, take the most recent experiment
+                    # Aggregate across repeats for each time horizon
                     horizons = []
-                    values = []
+                    means = []
+                    stds = []
                     for horizon in sorted(df_subset['time_horizon'].unique()):
                         df_horizon = df_subset[df_subset['time_horizon'] == horizon]
-                        val = _get_best_experiment_value(df_horizon, metric_name)
+                        mean_val, std_val, _ = _aggregate_repeat_experiments(df_horizon, metric_name)
                         horizons.append(horizon)
-                        values.append(val)
+                        means.append(mean_val)
+                        stds.append(std_val if not np.isnan(std_val) else 0)
                     
-                    ax.plot(horizons, values, 
+                    horizons = np.array(horizons)
+                    means = np.array(means)
+                    stds = np.array(stds)
+                    
+                    color = colors.get(model, 'gray')
+                    
+                    # Plot line with markers
+                    ax.plot(horizons, means, 
                            linestyle=line_styles.get(init_type, '-'),
                            marker=markers.get(model, 'o'),
-                           color=colors.get(model, 'gray'),
+                           color=color,
                            label=f'{model}-{init_type}',
                            markersize=5,
                            linewidth=1.5,
-                           alpha=0.8)
+                           alpha=0.9)
+                    
+                    # Add shaded std region
+                    ax.fill_between(horizons, means - stds, means + stds,
+                                   color=color, alpha=0.15)
             
             ax.set_xlabel('Time Horizon (s)', fontsize=9)
             ax.set_ylabel(f'{metric_name.upper()}', fontsize=9)

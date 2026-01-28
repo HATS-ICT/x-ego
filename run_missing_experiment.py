@@ -6,6 +6,7 @@ Configure missing experiments in MISSING_EXPERIMENTS below.
 """
 
 import os
+import random
 import subprocess
 import sys
 from pathlib import Path
@@ -23,8 +24,10 @@ if OUTPUT_BASE_PATH is None:
 #   init_type: "baseline" (no checkpoint) or "finetuned" (with checkpoint)
 # ============================================================
 MISSING_EXPERIMENTS = [
-    ("clip", "self_speed", "finetuned"),
-    ("clip", "teammate_speed", "finetuned"),
+    ("vjepa2", "global_roundWinner", "finetuned"),
+    ("vjepa2", "global_roundWinner", "finetuned"),
+    ("vjepa2", "global_roundOutcome", "finetuned"),
+    ("vjepa2", "global_roundOutcome", "finetuned"),
 ]
 
 # Stage1 checkpoints for finetuned experiments
@@ -44,6 +47,7 @@ def run_experiment(model: str, task_id: str, init_type: str, index: int, total: 
     print(f"[{index}/{total}] {model} - {task_id} - {init_type}")
     print("=" * 60)
 
+    seed = random.randint(0, 2**31 - 1)
     cmd = [
         sys.executable, "main.py",
         "--mode", "train",
@@ -51,6 +55,7 @@ def run_experiment(model: str, task_id: str, init_type: str, index: int, total: 
         f"task.task_id={task_id}",
         f"model.encoder.model_type={model}",
         "data.ui_mask=all",
+        f"meta.seed={seed}",
     ]
 
     if init_type == "baseline":

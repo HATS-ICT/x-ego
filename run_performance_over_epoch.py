@@ -300,3 +300,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# Resume
+# python run_performance_over_epoch.py --model-type siglip2 --seed 3 --start-epoch 1 --start-task global_anyKill_10s

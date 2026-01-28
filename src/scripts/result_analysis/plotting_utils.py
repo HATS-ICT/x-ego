@@ -24,6 +24,17 @@ plt.rcParams['font.size'] = 10
 # Task prefix categories
 TASK_PREFIXES = ['enemy', 'self', 'global', 'teammate']
 
+# Shortest time horizon for each task base (used to filter prefix aggregation)
+# Tasks not listed here have no time horizon variants
+SHORTEST_HORIZON_MAP = {
+    'self_location': 0,
+    'teammate_location': 0,
+    'enemy_location': 0,
+    'self_kill': 5,
+    'self_death': 5,
+    'global_anyKill': 5,
+}
+
 # Metrics available for each ML form
 METRICS_BY_ML_FORM = {
     'binary_cls': ['acc', 'f1', 'auroc'],
@@ -120,6 +131,35 @@ def extract_time_horizon(task_id: str) -> Optional[int]:
 def get_task_base_name(task_id: str) -> str:
     """Get task name without time horizon suffix."""
     return re.sub(r'_\d+s$', '', task_id)
+
+
+def is_shortest_horizon_task(task_id: str) -> bool:
+    """
+    Check if a task is the shortest horizon variant for its task base.
+    
+    For tasks with multiple time horizons (e.g., self_location_0s, self_location_5s),
+    returns True only for the shortest horizon variant.
+    For tasks without time horizons, always returns True.
+    
+    Args:
+        task_id: Task identifier (e.g., 'self_location_0s', 'self_kill_5s')
+    
+    Returns:
+        True if this is the shortest horizon variant or has no horizon
+    """
+    task_base = get_task_base_name(task_id)
+    time_horizon = extract_time_horizon(task_id)
+    
+    # If task has no time horizon suffix, include it
+    if time_horizon is None:
+        return True
+    
+    # If task base is in the shortest horizon map, check if this is the shortest
+    if task_base in SHORTEST_HORIZON_MAP:
+        return time_horizon == SHORTEST_HORIZON_MAP[task_base]
+    
+    # For task bases not in the map, include all variants
+    return True
 
 
 def _get_best_experiment_value(df_subset: pd.DataFrame, metric_name: str) -> float:
@@ -348,6 +388,9 @@ def plot_by_task_prefix(
     Creates subplots for each metric.
     Shows error bars (std across tasks within each prefix).
     
+    For tasks with multiple time horizons, only includes the shortest horizon
+    variant in the aggregation (longer horizons are shown in time horizon plots).
+    
     Args:
         df: DataFrame filtered by ml_form and ui_mask
         ml_form: ML form type
@@ -368,6 +411,9 @@ def plot_by_task_prefix(
     # Add prefix column
     df = df.copy()
     df['task_prefix'] = df['task_id'].apply(get_task_prefix)
+    
+    # Filter to only include shortest horizon tasks for prefix aggregation
+    df = df[df['task_id'].apply(is_shortest_horizon_task)]
     
     # Filter to known prefixes
     df = df[df['task_prefix'].notna()]

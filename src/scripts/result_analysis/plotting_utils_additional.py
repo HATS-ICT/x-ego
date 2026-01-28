@@ -884,6 +884,214 @@ def plot_improvement_by_perspective_grouped_bar(
     plt.close()
 
 
+def plot_combined_scatter_boxplot(
+    df: pd.DataFrame,
+    ui_mask: str,
+    checkpoint_type: str,
+    output_dir: Path,
+    model_type: Optional[str] = None,
+    aggregate_repeats: bool = True
+):
+    """
+    Combined plot: Baseline vs Finetuned Scatter (left) + Improvement by Perspective Boxplot (right)
+    
+    Side-by-side subplot for paper figure.
+    No title, simplified legend, no annotations.
+    
+    Args:
+        df: DataFrame with results
+        ui_mask: UI mask setting
+        checkpoint_type: 'best' or 'last'
+        output_dir: Directory to save plots
+        model_type: If specified, filter to this model only
+        aggregate_repeats: If True, each point is mean across repeats.
+    """
+    improvement_df = compute_improvement_dataframe(df, model_type, aggregate_repeats=aggregate_repeats)
+    
+    if improvement_df.empty:
+        print("No data for combined plot")
+        return
+    
+    # Filter out NaN values
+    improvement_df_scatter = improvement_df.dropna(subset=['baseline_val', 'finetuned_val'])
+    improvement_df_box = improvement_df.dropna(subset=['improvement_pct'])
+    
+    if improvement_df_scatter.empty or improvement_df_box.empty:
+        print("No valid data for combined plot")
+        return
+    
+    # === Normalize values for scatter plot ===
+    improvement_df_scatter = improvement_df_scatter.copy()
+    improvement_df_scatter['baseline_norm'] = np.nan
+    improvement_df_scatter['finetuned_norm'] = np.nan
+    
+    for ml_form in improvement_df_scatter['ml_form'].unique():
+        mask = improvement_df_scatter['ml_form'] == ml_form
+        df_ml = improvement_df_scatter[mask]
+        
+        metric_name = df_ml['metric_name'].iloc[0]
+        
+        all_vals = pd.concat([df_ml['baseline_val'], df_ml['finetuned_val']]).dropna()
+        
+        if len(all_vals) == 0:
+            continue
+        
+        min_val = all_vals.min()
+        max_val = all_vals.max()
+        
+        if max_val - min_val < 1e-10:
+            improvement_df_scatter.loc[mask, 'baseline_norm'] = 0.5
+            improvement_df_scatter.loc[mask, 'finetuned_norm'] = 0.5
+        else:
+            baseline_norm = (df_ml['baseline_val'] - min_val) / (max_val - min_val)
+            finetuned_norm = (df_ml['finetuned_val'] - min_val) / (max_val - min_val)
+            
+            if metric_name in LOWER_IS_BETTER_METRICS:
+                baseline_norm = 1 - baseline_norm
+                finetuned_norm = 1 - finetuned_norm
+            
+            improvement_df_scatter.loc[mask, 'baseline_norm'] = baseline_norm.values
+            improvement_df_scatter.loc[mask, 'finetuned_norm'] = finetuned_norm.values
+    
+    # === Create figure with two subplots ===
+    fig, (ax_scatter, ax_box) = plt.subplots(1, 2, figsize=(8, 3.5))
+    
+    # === LEFT: Scatter Plot ===
+    # Plot identity line
+    ax_scatter.plot([0, 1], [0, 1], 'k--', linewidth=1.5, alpha=0.5, zorder=1)
+    
+    # Fill regions
+    ax_scatter.fill_between([0, 1], [0, 1], [1, 1], alpha=0.1, color='green')
+    ax_scatter.fill_between([0, 1], [0, 0], [0, 1], alpha=0.1, color='red')
+    
+    marker_size = 40 if aggregate_repeats else 25
+    marker_alpha = 0.7 if aggregate_repeats else 0.5
+    
+    # Plot points by perspective and ML form
+    for perspective in ['self', 'teammate', 'enemy', 'global']:
+        for ml_form in improvement_df_scatter['ml_form'].unique():
+            mask = (improvement_df_scatter['perspective'] == perspective) & (improvement_df_scatter['ml_form'] == ml_form)
+            df_subset = improvement_df_scatter[mask]
+            
+            if df_subset.empty:
+                continue
+            
+            ax_scatter.scatter(
+                df_subset['baseline_norm'],
+                df_subset['finetuned_norm'],
+                c=PERSPECTIVE_COLORS.get(perspective, 'gray'),
+                marker=ML_FORM_MARKERS.get(ml_form, 'o'),
+                s=marker_size,
+                alpha=marker_alpha,
+                edgecolors='black',
+                linewidths=0.5,
+                zorder=2
+            )
+    
+    # Labels (no title)
+    ax_scatter.set_xlabel('Baseline Performance (Normalized)', fontsize=9, fontweight='bold')
+    ax_scatter.set_ylabel('Finetuned Performance (Normalized)', fontsize=9, fontweight='bold')
+    ax_scatter.tick_params(axis='both', labelsize=8)
+    
+    ax_scatter.set_xlim(-0.05, 1.05)
+    ax_scatter.set_ylim(-0.05, 1.05)
+    ax_scatter.set_aspect('equal')
+    
+    # Combined legend at top right
+    legend_elements = []
+    
+    # Perspective colors
+    for p in ['self', 'teammate', 'enemy', 'global']:
+        legend_elements.append(
+            mpatches.Patch(color=PERSPECTIVE_COLORS[p], label=PERSPECTIVE_DISPLAY[p])
+        )
+    
+    # Add a separator (invisible patch with empty label)
+    # legend_elements.append(mpatches.Patch(color='none', label=''))
+    
+    # ML form markers
+    for ml, marker in ML_FORM_MARKERS.items():
+        if ml in improvement_df_scatter['ml_form'].unique():
+            legend_elements.append(
+                plt.Line2D([0], [0], marker=marker, color='gray', 
+                           linestyle='', markersize=6, label=ml.replace('_', ' ').title())
+            )
+    
+    # Add separator
+    # legend_elements.append(mpatches.Patch(color='none', label=''))
+    
+    # Region legend
+    legend_elements.append(mpatches.Patch(color='green', alpha=0.3, label='Improvement'))
+    legend_elements.append(mpatches.Patch(color='red', alpha=0.3, label='Degradation'))
+    
+    ax_scatter.legend(
+        handles=legend_elements,
+        loc='upper left',
+        fontsize=6,
+        framealpha=0.9,
+        handlelength=1.0,
+        handleheight=0.8,
+        labelspacing=0.3,
+        borderpad=0.3
+    )
+    
+    ax_scatter.grid(True, alpha=0.3)
+    
+    # === RIGHT: Boxplot ===
+    perspective_order = ['self', 'teammate', 'enemy', 'global']
+    improvement_df_box = improvement_df_box.copy()
+    improvement_df_box['perspective'] = pd.Categorical(
+        improvement_df_box['perspective'],
+        categories=perspective_order,
+        ordered=True
+    )
+    
+    palette = [PERSPECTIVE_COLORS[p] for p in perspective_order]
+    
+    sns.boxplot(
+        data=improvement_df_box,
+        x='perspective',
+        y='improvement_pct',
+        palette=palette,
+        ax=ax_box,
+        width=0.6,
+        flierprops={'marker': 'o', 'markersize': 3, 'alpha': 0.5}
+    )
+    
+    # Add individual points (strip plot)
+    sns.stripplot(
+        data=improvement_df_box,
+        x='perspective',
+        y='improvement_pct',
+        color='black',
+        alpha=0.4,
+        size=3,
+        ax=ax_box,
+        jitter=True
+    )
+    
+    # Add horizontal line at y=0 (no change)
+    ax_box.axhline(y=0, color='gray', linestyle='--', linewidth=1.5, alpha=0.8, zorder=0)
+    
+    # Labels (no title, no annotation)
+    ax_box.set_xlabel('', fontsize=9, fontweight='bold')
+    ax_box.set_ylabel('Relative Improvement (%)', fontsize=9, fontweight='bold')
+    ax_box.set_xticklabels([PERSPECTIVE_DISPLAY[p] for p in perspective_order], fontsize=8)
+    ax_box.tick_params(axis='y', labelsize=8)
+    
+    ax_box.grid(True, axis='y', alpha=0.3)
+    ax_box.set_axisbelow(True)
+    
+    plt.tight_layout()
+    
+    # Save
+    model_suffix = f'_{model_type}' if model_type else '_all'
+    agg_suffix = '_aggregated' if aggregate_repeats else '_individual'
+    filename_base = f'combined_scatter_boxplot{model_suffix}{agg_suffix}'
+    save_plot_multi_format(fig, output_dir, filename_base)
+    plt.close()
+
+
 def generate_all_narrative_plots(
     df: pd.DataFrame,
     ui_mask: str,
@@ -968,6 +1176,23 @@ def generate_all_narrative_plots(
     plot_improvement_by_perspective_grouped_bar(
         df, ui_mask, checkpoint_type, output_dir
     )
+    
+    # 5. Combined scatter + boxplot (side by side)
+    print("\n--- Plot 5: Combined Scatter + Boxplot ---")
+    for aggregate in [True, False]:
+        agg_label = "aggregated" if aggregate else "individual"
+        print(f"  Generating {agg_label} versions...")
+        
+        plot_combined_scatter_boxplot(
+            df, ui_mask, checkpoint_type, output_dir, model_type=None,
+            aggregate_repeats=aggregate
+        )
+        
+        for model in models:
+            plot_combined_scatter_boxplot(
+                df, ui_mask, checkpoint_type, output_dir, model_type=model,
+                aggregate_repeats=aggregate
+            )
     
     print(f"\n{'='*60}")
     print(f"All narrative plots saved to: {output_dir}")

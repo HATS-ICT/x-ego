@@ -43,7 +43,7 @@ class TablePrinter:
         self, 
         mean_val: Optional[float], 
         std_val: Optional[float] = None,
-        precision: int = 1,
+        precision: int = 3,
         show_std: bool = True,
         as_percentage: bool = False
     ) -> str:
@@ -209,7 +209,7 @@ class TablePrinter:
                         if as_pct:
                             delta = delta * 100
                         delta_style = "green" if delta > 0 else ("red" if delta < 0 else "white")
-                        delta_str = f"[{delta_style}]{delta:+.1f}[/{delta_style}]"
+                        delta_str = f"[{delta_style}]{delta:+.3f}[/{delta_style}]"
                     else:
                         delta_str = "N/A"
                     
@@ -453,7 +453,7 @@ class TablePrinter:
                         val = df_model[col].mean()
                         if self._is_percentage_metric(metric):
                             val = val * 100
-                        metric_avgs.append(f"{val:.1f}")
+                        metric_avgs.append(f"{val:.3f}")
                     else:
                         metric_avgs.append("N/A")
                 
@@ -537,7 +537,7 @@ class TablePrinter:
                                 val = df_init[col].mean()
                                 if self._is_percentage_metric(metric):
                                     val = val * 100
-                                metric_avgs.append(f"{val:.1f}")
+                                metric_avgs.append(f"{val:.3f}")
                             else:
                                 metric_avgs.append("N/A")
                         
@@ -642,7 +642,7 @@ class TablePrinter:
                             if as_pct:
                                 delta = delta * 100
                             delta_style = "green" if delta > 0 else ("red" if delta < 0 else "white")
-                            delta_str = f"[{delta_style}]{delta:+.1f}[/{delta_style}]"
+                            delta_str = f"[{delta_style}]{delta:+.3f}[/{delta_style}]"
                         else:
                             delta_str = "N/A"
                         
@@ -657,6 +657,353 @@ class TablePrinter:
             
             self.console.print(table)
             self.console.print()
+    
+    def _get_task_perspective(self, task_id: str) -> Optional[str]:
+        """Extract perspective (self, teammate, enemy, global) from task_id."""
+        PERSPECTIVES = ['self', 'teammate', 'enemy', 'global']
+        for perspective in PERSPECTIVES:
+            if task_id.startswith(perspective):
+                return perspective
+        return None
+    
+    def _compute_relative_improvement(
+        self, 
+        baseline_val: float, 
+        finetuned_val: float, 
+        metric: str
+    ) -> float:
+        """
+        Compute relative percentage improvement.
+        
+        For metrics where lower is better (MSE, MAE), invert the sign so
+        positive always means "better".
+        
+        Formula: ((Finetuned - Baseline) / |Baseline|) * 100
+        """
+        LOWER_IS_BETTER = {'mse', 'mae', 'hamming_dist'}
+        
+        if np.isnan(baseline_val) or np.isnan(finetuned_val):
+            return np.nan
+        
+        if abs(baseline_val) < 1e-10:
+            return np.nan
+        
+        if metric in LOWER_IS_BETTER:
+            # For lower-is-better: reduction is improvement
+            improvement = ((baseline_val - finetuned_val) / abs(baseline_val)) * 100
+        else:
+            # For higher-is-better: increase is improvement
+            improvement = ((finetuned_val - baseline_val) / abs(baseline_val)) * 100
+        
+        return improvement
+    
+    def _get_primary_metric(self, ml_form: str) -> str:
+        """Get the primary metric for a given ML form."""
+        PRIMARY_METRIC_MAP = {
+            'binary_cls': 'acc',
+            'multi_cls': 'acc',
+            'multi_label_cls': 'hamming_acc',
+            'regression': 'mae'
+        }
+        return PRIMARY_METRIC_MAP.get(ml_form, 'acc')
+    
+    def print_categorical_summary_table(
+        self,
+        df: pd.DataFrame,
+        model_type: Optional[str] = None,
+        checkpoint_type: str = 'best'
+    ):
+        """
+        Print a summary table grouped by perspective (Global, Self, Teammate, Enemy).
+        
+        Shows:
+        - Number of tasks per perspective
+        - Average relative improvement (%)
+        - Win rate vs baseline
+        - Top task name and its delta
+        
+        This table supports the "Global vs Self trade-off" narrative.
+        
+        Args:
+            df: DataFrame with results (should be aggregated if from repeated experiments)
+            model_type: Filter to specific model, or None for all models
+            checkpoint_type: 'best' or 'last'
+        """
+        if df.empty:
+            self.console.print("[yellow]No results to summarize[/yellow]")
+            return
+        
+        is_aggregated = self._is_aggregated_df(df)
+        
+        # Filter by model if specified
+        if model_type:
+            df = df[df['model_type'] == model_type]
+        
+        if df.empty:
+            self.console.print(f"[yellow]No results for model: {model_type}[/yellow]")
+            return
+        
+        # Add perspective column
+        df = df.copy()
+        df['perspective'] = df['task_id'].apply(self._get_task_perspective)
+        df = df[df['perspective'].notna()]
+        
+        if df.empty:
+            self.console.print("[yellow]No tasks with recognized perspectives[/yellow]")
+            return
+        
+        # Build title
+        model_str = model_type.upper() if model_type else "All Models"
+        title = f"Categorical Summary | {model_str} | {checkpoint_type.upper()}"
+        
+        table = Table(
+            title=title,
+            box=box.ROUNDED,
+            show_header=True,
+            header_style="bold magenta"
+        )
+        
+        table.add_column("Perspective", style="cyan", no_wrap=True)
+        table.add_column("# Tasks", justify="center")
+        table.add_column("Avg Improv. (%)", justify="right")
+        table.add_column("Win Rate", justify="center")
+        table.add_column("Top Task", style="dim")
+        table.add_column("Top Δ (%)", justify="right")
+        
+        # Process each perspective
+        PERSPECTIVE_ORDER = ['global', 'enemy', 'teammate', 'self']
+        PERSPECTIVE_DISPLAY = {
+            'global': 'Global',
+            'enemy': 'Enemy',
+            'teammate': 'Teammate',
+            'self': 'Self'
+        }
+        
+        for perspective in PERSPECTIVE_ORDER:
+            df_persp = df[df['perspective'] == perspective]
+            
+            if df_persp.empty:
+                continue
+            
+            # Get unique tasks in this perspective
+            task_ids = df_persp['task_id'].unique()
+            n_tasks = len(task_ids)
+            
+            improvements = []
+            wins = 0
+            top_task = None
+            top_delta = -np.inf
+            
+            for task_id in task_ids:
+                df_task = df_persp[df_persp['task_id'] == task_id]
+                
+                if df_task.empty:
+                    continue
+                
+                ml_form = df_task['ml_form'].iloc[0]
+                primary_metric = self._get_primary_metric(ml_form)
+                
+                # Get baseline and finetuned values
+                baseline_rows = df_task[df_task['init_type'] == 'baseline']
+                finetuned_rows = df_task[df_task['init_type'] == 'finetuned']
+                
+                if baseline_rows.empty or finetuned_rows.empty:
+                    continue
+                
+                if is_aggregated:
+                    b_val = baseline_rows[f'{primary_metric}_mean'].values[0]
+                    f_val = finetuned_rows[f'{primary_metric}_mean'].values[0]
+                else:
+                    b_val = baseline_rows[primary_metric].values[0]
+                    f_val = finetuned_rows[primary_metric].values[0]
+                
+                # Compute relative improvement
+                improvement = self._compute_relative_improvement(b_val, f_val, primary_metric)
+                
+                if not np.isnan(improvement):
+                    improvements.append(improvement)
+                    if improvement > 0:
+                        wins += 1
+                    
+                    if improvement > top_delta:
+                        top_delta = improvement
+                        top_task = task_id
+            
+            if not improvements:
+                continue
+            
+            avg_improvement = np.mean(improvements)
+            win_rate = f"{wins}/{len(improvements)}"
+            
+            # Format improvement with color
+            if avg_improvement > 0:
+                improv_style = "green"
+            elif avg_improvement < 0:
+                improv_style = "red"
+            else:
+                improv_style = "white"
+            
+            improv_str = f"[{improv_style}]{avg_improvement:+.3f}[/{improv_style}]"
+            
+            top_delta_str = f"[green]{top_delta:+.3f}[/green]" if top_delta > 0 else f"[red]{top_delta:+.3f}[/red]"
+            
+            table.add_row(
+                PERSPECTIVE_DISPLAY.get(perspective, perspective),
+                str(n_tasks),
+                improv_str,
+                win_rate,
+                top_task or "N/A",
+                top_delta_str if top_task else "N/A"
+            )
+        
+        self.console.print(table)
+        self.console.print()
+    
+    def print_flagship_tasks_table(
+        self,
+        df: pd.DataFrame,
+        flagship_tasks: Optional[List[str]] = None,
+        model_type: Optional[str] = None,
+        checkpoint_type: str = 'best'
+    ):
+        """
+        Print a table showing raw metrics for key/flagship tasks.
+        
+        Shows baseline, finetuned, and delta for each flagship task.
+        Good for providing "anchor points" with raw accuracy numbers.
+        
+        Args:
+            df: DataFrame with results (should be aggregated if from repeated experiments)
+            flagship_tasks: List of task_ids to show. If None, uses default flagship tasks.
+            model_type: Filter to specific model, or None for all models
+            checkpoint_type: 'best' or 'last'
+        """
+        if df.empty:
+            self.console.print("[yellow]No results to display[/yellow]")
+            return
+        
+        is_aggregated = self._is_aggregated_df(df)
+        
+        # Default flagship tasks if not specified
+        if flagship_tasks is None:
+            flagship_tasks = [
+                'global_roundWinner',
+                'global_bombSite',
+                'global_anyKill_5s',
+                'enemy_location_0s',
+                'teammate_location_0s',
+                'self_location_0s',
+                'self_death_5s',
+            ]
+        
+        # Filter by model if specified
+        if model_type:
+            df = df[df['model_type'] == model_type]
+        
+        if df.empty:
+            self.console.print(f"[yellow]No results for model: {model_type}[/yellow]")
+            return
+        
+        # Filter to flagship tasks that exist in the data
+        available_tasks = df['task_id'].unique()
+        tasks_to_show = [t for t in flagship_tasks if t in available_tasks]
+        
+        if not tasks_to_show:
+            self.console.print("[yellow]No flagship tasks found in results[/yellow]")
+            self.console.print(f"Available tasks: {list(available_tasks)[:10]}...")
+            return
+        
+        # Build title
+        model_str = model_type.upper() if model_type else "All Models"
+        title = f"Flagship Tasks | {model_str} | {checkpoint_type.upper()}"
+        
+        table = Table(
+            title=title,
+            box=box.ROUNDED,
+            show_header=True,
+            header_style="bold magenta"
+        )
+        
+        table.add_column("Task Name", style="cyan", no_wrap=True)
+        table.add_column("Metric", justify="center", style="dim")
+        table.add_column("Baseline", justify="right")
+        table.add_column("Finetuned", justify="right")
+        table.add_column("Δ", justify="right")
+        
+        for task_id in tasks_to_show:
+            df_task = df[df['task_id'] == task_id]
+            
+            if df_task.empty:
+                continue
+            
+            ml_form = df_task['ml_form'].iloc[0]
+            primary_metric = self._get_primary_metric(ml_form)
+            
+            # Get baseline and finetuned values
+            baseline_rows = df_task[df_task['init_type'] == 'baseline']
+            finetuned_rows = df_task[df_task['init_type'] == 'finetuned']
+            
+            if baseline_rows.empty and finetuned_rows.empty:
+                continue
+            
+            # Get values
+            if is_aggregated:
+                b_mean, b_std = self._get_metric_value(
+                    baseline_rows.iloc[0] if len(baseline_rows) > 0 else pd.Series(),
+                    primary_metric, is_aggregated
+                )
+                f_mean, f_std = self._get_metric_value(
+                    finetuned_rows.iloc[0] if len(finetuned_rows) > 0 else pd.Series(),
+                    primary_metric, is_aggregated
+                )
+            else:
+                b_mean = baseline_rows[primary_metric].values[0] if len(baseline_rows) > 0 else None
+                b_std = None
+                f_mean = finetuned_rows[primary_metric].values[0] if len(finetuned_rows) > 0 else None
+                f_std = None
+            
+            # Format values (show as percentage for accuracy metrics)
+            as_pct = self._is_percentage_metric(primary_metric)
+            baseline_str = self._format_metric_value(
+                b_mean, b_std, show_std=is_aggregated, as_percentage=as_pct
+            )
+            finetuned_str = self._format_metric_value(
+                f_mean, f_std, show_std=is_aggregated, as_percentage=as_pct
+            )
+            
+            # Compute delta
+            if b_mean is not None and f_mean is not None:
+                # For display, use the raw difference (not relative)
+                delta = f_mean - b_mean
+                if as_pct:
+                    delta = delta * 100
+                
+                # Determine if improvement (accounting for lower-is-better)
+                LOWER_IS_BETTER = {'mse', 'mae', 'hamming_dist'}
+                if primary_metric in LOWER_IS_BETTER:
+                    is_better = delta < 0
+                else:
+                    is_better = delta > 0
+                
+                delta_style = "green" if is_better else ("red" if not is_better else "white")
+                delta_str = f"[{delta_style}]{delta:+.3f}[/{delta_style}]"
+            else:
+                delta_str = "N/A"
+            
+            # Get perspective for display name
+            perspective = self._get_task_perspective(task_id)
+            display_name = f"{perspective.capitalize()} {task_id.replace(perspective + '_', '')}" if perspective else task_id
+            
+            table.add_row(
+                display_name,
+                primary_metric.upper(),
+                baseline_str,
+                finetuned_str,
+                delta_str
+            )
+        
+        self.console.print(table)
+        self.console.print()
 
 
 def parse_args():
@@ -695,6 +1042,17 @@ def parse_args():
         action='store_true',
         default=True,
         help='Aggregate results from repeated experiments (show mean±std)'
+    )
+    parser.add_argument(
+        '--narrative', '-n',
+        action='store_true',
+        default=True,
+        help='Show narrative tables (categorical summary + flagship tasks) for paper (default)'
+    )
+    parser.add_argument(
+        '--no-narrative',
+        action='store_true',
+        help='Disable narrative tables and show detailed per-ML-form tables'
     )
     return parser.parse_args()
 
@@ -750,7 +1108,24 @@ def main():
     )
     printer.console.print()
     
-    if args.verbose:
+    if args.narrative and not args.no_narrative:
+        # Show narrative tables for paper (categorical summary + flagship tasks)
+        printer.console.rule("[bold green]Table 1: Categorical Summary by Perspective[/bold green]")
+        printer.console.print()
+        printer.print_categorical_summary_table(
+            df_filtered,
+            model_type=args.model,
+            checkpoint_type=args.checkpoint
+        )
+        
+        printer.console.rule("[bold green]Table 2: Flagship Tasks Performance[/bold green]")
+        printer.console.print()
+        printer.print_flagship_tasks_table(
+            df_filtered,
+            model_type=args.model,
+            checkpoint_type=args.checkpoint
+        )
+    elif args.verbose:
         # Show detailed tables with all columns
         results_by_ml_form = {
             ml_form: df_filtered[df_filtered['ml_form'] == ml_form]

@@ -46,7 +46,7 @@ def load_checkpoint_model(experiment_name, epoch, cfg):
 
 
 def load_pretrained_model(cfg):
-    print(f"Loading pretrained model (no finetuning)")
+    print("Loading pretrained model (no finetuning)")
     
     model = ContrastiveModel(cfg)
     model.eval()
@@ -96,7 +96,7 @@ def precompute_embeddings(experiment_name, epoch, output_filename, use_pretraine
     all_csv_indices = []
     all_agent_ids = []
     
-    print(f"Precomputing embeddings for test partition...")
+    print("Precomputing embeddings for test partition...")
     with torch.no_grad():
         for batch in tqdm(test_loader):
             video = batch['video'].cuda()
@@ -165,7 +165,7 @@ if __name__ == "__main__":
         output_path_pretrained = artifacts_dir / output_filename_pretrained
         
         if output_path_pretrained.exists():
-            print(f"\n[2/2] Pretrained model (no finetuning) - SKIPPING (already exists)")
+            print("\n[2/2] Pretrained model (no finetuning) - SKIPPING (already exists)")
         else:
-            print(f"\n[2/2] Pretrained model (no finetuning)")
+            print("\n[2/2] Pretrained model (no finetuning)")
             precompute_embeddings(experiment_name, None, output_filename_pretrained, use_pretrained=True)

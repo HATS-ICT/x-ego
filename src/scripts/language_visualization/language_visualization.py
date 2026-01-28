@@ -33,7 +33,6 @@ from src.scripts.language_visualization.language_utils import (
     replace_vision_encoder_weights,
     ALL_CONCEPTS,
     CONCEPT_CATEGORIES,
-    CONCEPT_TO_CATEGORY,
     CONCEPT_TO_GROUP,
     CATEGORY_GROUPS,
     GROUP_COLORS,
@@ -744,7 +743,6 @@ def create_group_ranking_plot(
         save_path: Path to save the figure
         epochs: List of epochs (can include 'baseline' as first element)
     """
-    from matplotlib.lines import Line2D
     
     num_samples = len(all_sample_rankings)
     num_concepts = len(ALL_CONCEPTS)

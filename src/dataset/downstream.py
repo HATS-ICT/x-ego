@@ -7,7 +7,6 @@ Loads video and task-specific labels based on task_id from task_definitions.csv.
 No precomputed embeddings - video is processed through the model's encoder.
 """
 
-from pathlib import Path
 from typing import Dict
 import polars as pl
 import torch

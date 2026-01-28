@@ -4,7 +4,6 @@ import pandas as pd
 from pathlib import Path
 from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
-from matplotlib.colors import ListedColormap
 
 
 def compute_tsne(embeddings_path):
@@ -59,7 +58,7 @@ def plot_3x2_comparison(short_name, finetuned_2d, pretrained_2d, csv_indices, ep
     axes[0, 0].set_ylabel('t-SNE 2')
     
     axes[0, 1].scatter(pretrained_2d_filtered[:, 0], pretrained_2d_filtered[:, 1], s=1, alpha=0.5, c=colors_team)
-    axes[0, 1].set_title(f'Without Contrastive (pretrained)\nColored by Team Side', fontsize=12, fontweight='bold')
+    axes[0, 1].set_title('Without Contrastive (pretrained)\nColored by Team Side', fontsize=12, fontweight='bold')
     axes[0, 1].set_xlabel('t-SNE 1')
     axes[0, 1].set_ylabel('t-SNE 2')
     
@@ -70,7 +69,7 @@ def plot_3x2_comparison(short_name, finetuned_2d, pretrained_2d, csv_indices, ep
     axes[1, 0].set_ylabel('t-SNE 2')
     
     sc1 = axes[1, 1].scatter(pretrained_2d_filtered[:, 0], pretrained_2d_filtered[:, 1], s=1, alpha=0.5, c=df['start_seconds'], cmap='viridis')
-    axes[1, 1].set_title(f'Without Contrastive (pretrained)\nColored by Start Seconds', fontsize=12, fontweight='bold')
+    axes[1, 1].set_title('Without Contrastive (pretrained)\nColored by Start Seconds', fontsize=12, fontweight='bold')
     axes[1, 1].set_xlabel('t-SNE 1')
     axes[1, 1].set_ylabel('t-SNE 2')
     plt.colorbar(sc1, ax=axes[1, 1], label='Start Seconds')
@@ -82,7 +81,7 @@ def plot_3x2_comparison(short_name, finetuned_2d, pretrained_2d, csv_indices, ep
     axes[2, 0].set_ylabel('t-SNE 2')
     
     sc2 = axes[2, 1].scatter(pretrained_2d_filtered[:, 0], pretrained_2d_filtered[:, 1], s=1, alpha=0.5, c=df['num_alive_teammates'], cmap='plasma')
-    axes[2, 1].set_title(f'Without Contrastive (pretrained)\nColored by Num Alive Teammates', fontsize=12, fontweight='bold')
+    axes[2, 1].set_title('Without Contrastive (pretrained)\nColored by Num Alive Teammates', fontsize=12, fontweight='bold')
     axes[2, 1].set_xlabel('t-SNE 1')
     axes[2, 1].set_ylabel('t-SNE 2')
     plt.colorbar(sc2, ax=axes[2, 1], label='Num Alive Teammates')
@@ -130,11 +129,11 @@ if __name__ == "__main__":
         print(f"  [1/2] Computing finetuned (epoch {epoch})...")
         finetuned_2d, csv_indices = compute_tsne(finetuned_file)
         
-        print(f"  [2/2] Computing pretrained...")
+        print("  [2/2] Computing pretrained...")
         pretrained_2d, _ = compute_tsne(pretrained_file)
         
         # Create 3x2 comparison plot
-        print(f"  Creating 3x2 comparison plot...")
+        print("  Creating 3x2 comparison plot...")
         plot_3x2_comparison(short_name, finetuned_2d, pretrained_2d, csv_indices, epoch)
     
     print(f"\n{'='*80}")

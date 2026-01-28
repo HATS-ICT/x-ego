@@ -146,7 +146,7 @@ def main() -> None:
 
     # Statistics before normalization
     all_speed = np.concatenate([self_speed, teammate_speed])
-    print(f"\nOriginal Statistics:")
+    print("\nOriginal Statistics:")
     print(f"  Mean: {np.mean(all_speed):.4f}")
     print(f"  Std:  {np.std(all_speed):.4f}")
     print(f"  Min:  {np.min(all_speed):.4f}")
@@ -154,7 +154,7 @@ def main() -> None:
 
     # Statistics after normalization
     all_speed_norm = normalize_min_max(all_speed, global_min, global_max)
-    print(f"\nNormalized Statistics (0-1 range):")
+    print("\nNormalized Statistics (0-1 range):")
     print(f"  Mean: {np.mean(all_speed_norm):.4f}")
     print(f"  Std:  {np.std(all_speed_norm):.4f}")
     print(f"  Min:  {np.min(all_speed_norm):.4f}")

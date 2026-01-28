@@ -12,7 +12,7 @@ Plots included:
 """
 
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
@@ -21,9 +21,6 @@ import seaborn as sns
 import numpy as np
 
 from plotting_utils import (
-    TASK_PREFIXES,
-    METRICS_BY_ML_FORM,
-    PRIMARY_METRIC_MAP,
     preprocess_dataframe,
     get_task_prefix,
     get_primary_metric_for_ml_form,
@@ -908,7 +905,7 @@ def generate_all_narrative_plots(
     output_dir.mkdir(parents=True, exist_ok=True)
     
     print(f"\n{'='*60}")
-    print(f"Generating Narrative Plots")
+    print("Generating Narrative Plots")
     print(f"UI: {ui_mask} | Checkpoint: {checkpoint_type}")
     print(f"{'='*60}\n")
     

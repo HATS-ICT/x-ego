@@ -6,7 +6,7 @@ Utility functions for creating various plots from results data.
 """
 
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
 import re
 import pandas as pd
 import matplotlib.pyplot as plt

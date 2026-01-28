@@ -1,5 +1,4 @@
 import h5py
-import numpy as np
 from pathlib import Path
 from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
@@ -74,11 +73,11 @@ if __name__ == "__main__":
         print(f"  [1/2] Computing finetuned (epoch {epoch})...")
         finetuned_2d = compute_tsne(finetuned_file)
         
-        print(f"  [2/2] Computing pretrained...")
+        print("  [2/2] Computing pretrained...")
         pretrained_2d = compute_tsne(pretrained_file)
         
         # Create side-by-side comparison
-        print(f"  Creating side-by-side comparison...")
+        print("  Creating side-by-side comparison...")
         plot_side_by_side(short_name, finetuned_2d, pretrained_2d, epoch)
     
     print(f"\n{'='*80}")

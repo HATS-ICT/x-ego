@@ -50,10 +50,10 @@ def apply_normalization_self_speed(labels_dir: Path) -> None:
 
     # Save back to CSV
     df.to_csv(csv_path, index=False)
-    print(f"  Saved with normalized 'label' and original values in 'label_original'")
+    print("  Saved with normalized 'label' and original values in 'label_original'")
 
     # Print sample
-    print(f"  Sample (first 3 rows):")
+    print("  Sample (first 3 rows):")
     print(f"    label (normalized): {df['label'].head(3).tolist()}")
     print(f"    label_original:     {df['label_original'].head(3).tolist()}")
 
@@ -93,10 +93,10 @@ def apply_normalization_teammate_speed(labels_dir: Path) -> None:
 
     # Save back to CSV
     df.to_csv(csv_path, index=False)
-    print(f"  Saved with normalized label columns and original values in *_original columns")
+    print("  Saved with normalized label columns and original values in *_original columns")
 
     # Print sample
-    print(f"  Sample (first 3 rows):")
+    print("  Sample (first 3 rows):")
     for col in label_cols:
         print(f"    {col} (normalized): {df[col].head(3).tolist()}")
         print(f"    {col}_original:     {df[f'{col}_original'].head(3).tolist()}")
@@ -109,7 +109,7 @@ def main() -> None:
 
     print(f"Project root: {project_root}")
     print(f"Labels dir: {labels_dir}")
-    print(f"\nUsing global min-max values:")
+    print("\nUsing global min-max values:")
     print(f"  GLOBAL_MIN: {GLOBAL_MIN}")
     print(f"  GLOBAL_MAX: {GLOBAL_MAX}")
     print()

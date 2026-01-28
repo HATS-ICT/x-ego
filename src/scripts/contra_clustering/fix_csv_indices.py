@@ -52,7 +52,7 @@ def fix_csv_indices_in_h5(h5_path, experiment_name):
     # Build a mapping from agent_id to csv_idx
     agent_to_csv_idx = {}
     
-    print(f"  Building agent_id to csv_idx mapping...")
+    print("  Building agent_id to csv_idx mapping...")
     for _, row in df_test.iterrows():
         csv_idx = row['idx']
         num_agents = row['num_alive_teammates']
@@ -69,7 +69,7 @@ def fix_csv_indices_in_h5(h5_path, experiment_name):
     all_csv_indices = []
     missing_count = 0
     
-    print(f"  Mapping agent_ids to csv_indices...")
+    print("  Mapping agent_ids to csv_indices...")
     for agent_id in agent_ids:
         if agent_id in agent_to_csv_idx:
             all_csv_indices.append(agent_to_csv_idx[agent_id])
@@ -90,7 +90,7 @@ def fix_csv_indices_in_h5(h5_path, experiment_name):
         return False
     
     # Save back to h5 file
-    print(f"  Updating h5 file with corrected csv_indices...")
+    print("  Updating h5 file with corrected csv_indices...")
     with h5py.File(h5_path, 'r+') as f:
         # Delete old csv_indices dataset
         del f['csv_indices']
@@ -130,7 +130,7 @@ if __name__ == "__main__":
         # Fix pretrained h5
         pretrained_file = artifacts_dir / f"{short_name}_pretrained.h5"
         if pretrained_file.exists():
-            print(f"\n[2/2] Fixing pretrained model")
+            print("\n[2/2] Fixing pretrained model")
             fix_csv_indices_in_h5(pretrained_file, experiment_name)
         else:
             print(f"\n[2/2] Pretrained file not found: {pretrained_file}")

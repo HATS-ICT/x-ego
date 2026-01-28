@@ -7,18 +7,6 @@ import torch.nn.functional as F
 from transformers import AutoModel, AutoProcessor
 
 # Import concept vocabulary from separate file
-from .concept_vocabulary import (
-    CONCEPT_CATEGORIES,
-    CATEGORY_GROUPS,
-    CATEGORY_COLORS,
-    GROUP_COLORS,
-    ALL_CONCEPTS,
-    CONCEPT_TO_CATEGORY,
-    CONCEPT_TO_GROUP,
-    get_concepts_by_group,
-    get_category_color,
-    get_group_color,
-)
 
 
 def load_siglip2_model():

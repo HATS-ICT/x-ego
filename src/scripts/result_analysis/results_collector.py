@@ -9,9 +9,8 @@ Supports aggregating results from multiple repeats (mean ± std).
 """
 
 import json
-from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional
 import numpy as np
 import pandas as pd
 import yaml

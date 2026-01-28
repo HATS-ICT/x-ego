@@ -26,6 +26,7 @@ from plotting_utils import (
     get_primary_metric_for_ml_form,
     _aggregate_repeat_experiments,
     save_plot_multi_format,
+    get_init_type_display_name,
 )
 
 
@@ -368,7 +369,7 @@ def plot_improvement_by_perspective_boxplot(
     
     model_str = f' ({model_type.upper()})' if model_type else ' (All Models)'
     agg_str = ' [Aggregated]' if aggregate_repeats else ' [Individual Runs]'
-    title = f'Contrastive Pre-training: Improvement by Perspective{model_str}{agg_str}'
+    title = f'CECL Pre-training: Improvement by Perspective{model_str}{agg_str}'
     ax.set_title(title, fontsize=13, fontweight='bold', pad=15)
     
     # Add annotation
@@ -511,11 +512,11 @@ def plot_baseline_vs_finetuned_scatter(
     
     # Labels and title
     ax.set_xlabel('Baseline Performance (Normalized)', fontsize=12, fontweight='bold')
-    ax.set_ylabel('Finetuned Performance (Normalized)', fontsize=12, fontweight='bold')
+    ax.set_ylabel('CECL Performance (Normalized)', fontsize=12, fontweight='bold')
     
     model_str = f' ({model_type.upper()})' if model_type else ' (All Models)'
     agg_str = ' [Aggregated]' if aggregate_repeats else ' [Individual Runs]'
-    ax.set_title(f'Baseline vs Finetuned Performance{model_str}{agg_str}', fontsize=13, fontweight='bold', pad=15)
+    ax.set_title(f'Baseline vs CECL Performance{model_str}{agg_str}', fontsize=13, fontweight='bold', pad=15)
     
     # Set axis limits
     ax.set_xlim(-0.05, 1.05)
@@ -990,7 +991,7 @@ def plot_combined_scatter_boxplot(
     
     # Labels (no title)
     ax_scatter.set_xlabel('Baseline Performance (Normalized)', fontsize=9, fontweight='bold')
-    ax_scatter.set_ylabel('Finetuned Performance (Normalized)', fontsize=9, fontweight='bold')
+    ax_scatter.set_ylabel('CECL Performance (Normalized)', fontsize=9, fontweight='bold')
     ax_scatter.tick_params(axis='both', labelsize=8)
     
     ax_scatter.set_xlim(-0.05, 1.05)
@@ -1074,7 +1075,7 @@ def plot_combined_scatter_boxplot(
     ax_box.axhline(y=0, color='gray', linestyle='--', linewidth=1.5, alpha=0.8, zorder=0)
     
     # Labels (no title, no annotation)
-    ax_box.set_xlabel('', fontsize=9, fontweight='bold')
+    ax_box.set_xlabel('Perspective', fontsize=9, fontweight='bold')
     ax_box.set_ylabel('Relative Improvement (%)', fontsize=9, fontweight='bold')
     ax_box.set_xticklabels([PERSPECTIVE_DISPLAY[p] for p in perspective_order], fontsize=8)
     ax_box.tick_params(axis='y', labelsize=8)

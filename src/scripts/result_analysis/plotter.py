@@ -12,7 +12,9 @@ from results_collector import ResultsCollector
 from plotting_utils import (
     plot_baseline_vs_finetuned_per_model,
     plot_by_task_prefix,
+    plot_by_task_prefix_combined,
     plot_time_horizon_lines,
+    plot_time_horizon_combined,
 )
 from plotting_utils_additional import (
     generate_all_narrative_plots,
@@ -111,8 +113,20 @@ class ResultsPlotter:
                         df_filtered, ml_form, ui_mask, checkpoint_type, subfolder
                     )
                 
-                # 4. Narrative plots (across all ML forms for this UI mask)
+                # 4. Combined prefix plot (all ML forms in one 4x3 grid)
                 df_ui = df[df['ui_mask'] == ui_mask]
+                if not df_ui.empty:
+                    plot_by_task_prefix_combined(
+                        df_ui, ui_mask, checkpoint_type, subfolder
+                    )
+                
+                # 5. Combined time horizon plot (selected location tasks)
+                if not df_ui.empty:
+                    plot_time_horizon_combined(
+                        df_ui, ui_mask, checkpoint_type, subfolder
+                    )
+                
+                # 6. Narrative plots (across all ML forms for this UI mask)
                 if not df_ui.empty:
                     narrative_folder = subfolder / 'narrative'
                     generate_all_narrative_plots(

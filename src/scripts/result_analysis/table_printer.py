@@ -148,7 +148,7 @@ class TablePrinter:
             header_style="bold magenta"
         )
         
-        # Add columns: Task ID, Model, then for each metric: Baseline, Finetuned, Delta
+        # Add columns: Task ID, Model, then for each metric: Baseline, CECL, Delta
         table.add_column("Task ID", style="cyan", no_wrap=True)
         table.add_column("Model", style="green")
         
@@ -157,7 +157,7 @@ class TablePrinter:
         
         for metric in metric_cols:
             table.add_column(f"{metric.upper()} (B)", justify="right", style="dim")
-            table.add_column(f"{metric.upper()} (F)", justify="right", style="white")
+            table.add_column(f"{metric.upper()} (C)", justify="right", style="white")  # C for CECL
             table.add_column("Δ", justify="right")
         
         # Group by task and model
@@ -281,13 +281,14 @@ class TablePrinter:
                 )
             
             init_type = row.get('init_type', 'unknown')
+            init_display = 'CECL' if init_type == 'finetuned' else init_type.capitalize()
             init_style = "green" if init_type == 'finetuned' else "dim"
             
             row_data = [
                 row['task_id'],
                 row['model_type'],
                 row.get('ui_mask', 'unknown'),
-                f"[{init_style}]{init_type}[/{init_style}]",
+                f"[{init_style}]{init_display}[/{init_style}]",
             ]
             
             if is_aggregated:
@@ -313,11 +314,12 @@ class TablePrinter:
             List of metric column names (base names without _mean/_std suffix)
         """
         # Define expected metrics for each ML form
-        # For multi_label_cls: acc_exact, hamming_acc (derived from hamming_dist), f1, auroc
+        # multi_cls: Top-1, Top-3, F1 (removed acc_top5)
+        # multi_label_cls: Exact Match, Hamming Acc (1-hamming_dist), F1 (removed auroc)
         metric_map = {
             'binary_cls': ['acc', 'f1', 'auroc'],
-            'multi_cls': ['acc', 'f1', 'acc_top3', 'acc_top5'],
-            'multi_label_cls': ['acc_exact', 'hamming_acc', 'f1', 'auroc'],
+            'multi_cls': ['acc', 'acc_top3', 'f1'],
+            'multi_label_cls': ['acc_exact', 'hamming_acc', 'f1'],
             'regression': ['mse', 'mae', 'r2']
         }
         
@@ -488,7 +490,7 @@ class TablePrinter:
         
         is_aggregated = self._is_aggregated_df(df)
         
-        self.console.rule(f"[bold blue]Baseline vs Finetuned Comparison - {checkpoint_type.upper()}[/bold blue]")
+        self.console.rule(f"[bold blue]Baseline vs CECL Comparison - {checkpoint_type.upper()}[/bold blue]")
         self.console.print()
         
         # For each ML form, show comparison
@@ -500,7 +502,7 @@ class TablePrinter:
                 continue
             
             table = Table(
-                title=f"{ml_form.upper()} - Baseline vs Finetuned by Model & UI Mask",
+                title=f"{ml_form.upper()} - Baseline vs CECL by Model & UI Mask",
                 box=box.ROUNDED,
                 show_header=True,
                 header_style="bold magenta"
@@ -541,12 +543,13 @@ class TablePrinter:
                             else:
                                 metric_avgs.append("N/A")
                         
+                        init_display = 'CECL' if init_type == 'finetuned' else init_type.capitalize()
                         init_style = "green" if init_type == 'finetuned' else "dim"
                         
                         table.add_row(
                             model,
                             ui_mask,
-                            f"[{init_style}]{init_type}[/{init_style}]",
+                            f"[{init_style}]{init_display}[/{init_style}]",
                             str(len(df_init)),
                             *metric_avgs
                         )
@@ -571,7 +574,7 @@ class TablePrinter:
         is_aggregated = self._is_aggregated_df(df)
         
         title_suffix = " (mean±std)" if is_aggregated else ""
-        self.console.rule(f"[bold blue]Task-Level Baseline vs Finetuned - {checkpoint_type.upper()}{title_suffix}[/bold blue]")
+        self.console.rule(f"[bold blue]Task-Level Baseline vs CECL - {checkpoint_type.upper()}{title_suffix}[/bold blue]")
         self.console.print()
         
         # For each ML form
@@ -598,7 +601,7 @@ class TablePrinter:
             if is_aggregated:
                 table.add_column("N", justify="center", style="dim")
             table.add_column("Baseline", justify="right")
-            table.add_column("Finetuned", justify="right")
+            table.add_column("CECL", justify="right")
             table.add_column("Delta", justify="right")
             
             # Group by task, model, ui_mask
@@ -697,21 +700,41 @@ class TablePrinter:
         
         return improvement
     
-    def _get_primary_metric(self, ml_form: str) -> str:
-        """Get the primary metric for a given ML form."""
-        PRIMARY_METRIC_MAP = {
-            'binary_cls': 'acc',
-            'multi_cls': 'acc',
-            'multi_label_cls': 'hamming_acc',
-            'regression': 'mae'
-        }
-        return PRIMARY_METRIC_MAP.get(ml_form, 'acc')
+    def _get_primary_metric(self, ml_form: str, metric_type: str = 'acc') -> str:
+        """
+        Get the primary metric for a given ML form.
+        
+        Args:
+            ml_form: ML form type
+            metric_type: 'acc' for accuracy-based or 'f1' for F1-based
+        
+        Returns:
+            Metric name to use
+        """
+        if metric_type == 'f1':
+            # F1-based metrics
+            PRIMARY_METRIC_MAP = {
+                'binary_cls': 'f1',
+                'multi_cls': 'f1',
+                'multi_label_cls': 'f1',
+                'regression': 'mae'  # regression doesn't have F1
+            }
+        else:
+            # Accuracy-based metrics (default)
+            PRIMARY_METRIC_MAP = {
+                'binary_cls': 'acc',
+                'multi_cls': 'acc',
+                'multi_label_cls': 'hamming_acc',
+                'regression': 'mae'
+            }
+        return PRIMARY_METRIC_MAP.get(ml_form, 'acc' if metric_type == 'acc' else 'f1')
     
     def print_categorical_summary_table(
         self,
         df: pd.DataFrame,
         model_type: Optional[str] = None,
-        checkpoint_type: str = 'best'
+        checkpoint_type: str = 'best',
+        metric_type: str = 'acc'
     ):
         """
         Print a summary table grouped by perspective (Global, Self, Teammate, Enemy).
@@ -728,6 +751,7 @@ class TablePrinter:
             df: DataFrame with results (should be aggregated if from repeated experiments)
             model_type: Filter to specific model, or None for all models
             checkpoint_type: 'best' or 'last'
+            metric_type: 'acc' for accuracy-based or 'f1' for F1-based metrics
         """
         if df.empty:
             self.console.print("[yellow]No results to summarize[/yellow]")
@@ -754,7 +778,8 @@ class TablePrinter:
         
         # Build title
         model_str = model_type.upper() if model_type else "All Models"
-        title = f"Categorical Summary | {model_str} | {checkpoint_type.upper()}"
+        metric_str = "F1" if metric_type == 'f1' else "ACC"
+        title = f"Categorical Summary ({metric_str}) | {model_str} | {checkpoint_type.upper()}"
         
         table = Table(
             title=title,
@@ -767,8 +792,10 @@ class TablePrinter:
         table.add_column("# Tasks", justify="center")
         table.add_column("Avg Improv. (%)", justify="right")
         table.add_column("Win Rate", justify="center")
-        table.add_column("Top Task", style="dim")
-        table.add_column("Top Δ (%)", justify="right")
+        table.add_column("Best Task", style="dim")
+        table.add_column("Best Δ (%)", justify="right")
+        table.add_column("Worst Task", style="dim")
+        table.add_column("Worst Δ (%)", justify="right")
         
         # Process each perspective
         PERSPECTIVE_ORDER = ['global', 'enemy', 'teammate', 'self']
@@ -789,10 +816,8 @@ class TablePrinter:
             task_ids = df_persp['task_id'].unique()
             n_tasks = len(task_ids)
             
-            improvements = []
+            task_improvements = []  # List of (task_id, improvement)
             wins = 0
-            top_task = None
-            top_delta = -np.inf
             
             for task_id in task_ids:
                 df_task = df_persp[df_persp['task_id'] == task_id]
@@ -801,13 +826,22 @@ class TablePrinter:
                     continue
                 
                 ml_form = df_task['ml_form'].iloc[0]
-                primary_metric = self._get_primary_metric(ml_form)
+                primary_metric = self._get_primary_metric(ml_form, metric_type)
                 
                 # Get baseline and finetuned values
                 baseline_rows = df_task[df_task['init_type'] == 'baseline']
                 finetuned_rows = df_task[df_task['init_type'] == 'finetuned']
                 
                 if baseline_rows.empty or finetuned_rows.empty:
+                    continue
+                
+                # Check if metric exists in data
+                if is_aggregated:
+                    metric_col = f'{primary_metric}_mean'
+                else:
+                    metric_col = primary_metric
+                
+                if metric_col not in baseline_rows.columns or metric_col not in finetuned_rows.columns:
                     continue
                 
                 if is_aggregated:
@@ -821,17 +855,19 @@ class TablePrinter:
                 improvement = self._compute_relative_improvement(b_val, f_val, primary_metric)
                 
                 if not np.isnan(improvement):
-                    improvements.append(improvement)
+                    task_improvements.append((task_id, improvement))
                     if improvement > 0:
                         wins += 1
-                    
-                    if improvement > top_delta:
-                        top_delta = improvement
-                        top_task = task_id
             
-            if not improvements:
+            if not task_improvements:
                 continue
             
+            # Sort by improvement to find best and worst
+            task_improvements.sort(key=lambda x: x[1], reverse=True)
+            best_task, best_delta = task_improvements[0]
+            worst_task, worst_delta = task_improvements[-1]
+            
+            improvements = [imp for _, imp in task_improvements]
             avg_improvement = np.mean(improvements)
             win_rate = f"{wins}/{len(improvements)}"
             
@@ -845,56 +881,54 @@ class TablePrinter:
             
             improv_str = f"[{improv_style}]{avg_improvement:+.3f}[/{improv_style}]"
             
-            top_delta_str = f"[green]{top_delta:+.3f}[/green]" if top_delta > 0 else f"[red]{top_delta:+.3f}[/red]"
+            best_delta_str = f"[green]{best_delta:+.3f}[/green]" if best_delta > 0 else f"[red]{best_delta:+.3f}[/red]"
+            worst_delta_str = f"[green]{worst_delta:+.3f}[/green]" if worst_delta > 0 else f"[red]{worst_delta:+.3f}[/red]"
             
             table.add_row(
                 PERSPECTIVE_DISPLAY.get(perspective, perspective),
                 str(n_tasks),
                 improv_str,
                 win_rate,
-                top_task or "N/A",
-                top_delta_str if top_task else "N/A"
+                best_task,
+                best_delta_str,
+                worst_task,
+                worst_delta_str
             )
         
         self.console.print(table)
         self.console.print()
     
-    def print_flagship_tasks_table(
+    def print_categorical_summary_table_by_model(
         self,
         df: pd.DataFrame,
-        flagship_tasks: Optional[List[str]] = None,
         model_type: Optional[str] = None,
-        checkpoint_type: str = 'best'
+        checkpoint_type: str = 'best',
+        metric_type: str = 'acc'
     ):
         """
-        Print a table showing raw metrics for key/flagship tasks.
+        Print a summary table grouped by perspective, with models separated for win rate.
         
-        Shows baseline, finetuned, and delta for each flagship task.
-        Good for providing "anchor points" with raw accuracy numbers.
+        Similar to print_categorical_summary_table, but treats each (task, model) pair
+        as a separate entry for win rate calculation. This gives a more granular view
+        when multiple models are tested on the same tasks.
+        
+        Shows:
+        - Number of (task, model) pairs per perspective
+        - Average relative improvement (%)
+        - Win rate vs baseline (per task-model pair)
+        - Top task-model and its delta
         
         Args:
             df: DataFrame with results (should be aggregated if from repeated experiments)
-            flagship_tasks: List of task_ids to show. If None, uses default flagship tasks.
             model_type: Filter to specific model, or None for all models
             checkpoint_type: 'best' or 'last'
+            metric_type: 'acc' for accuracy-based or 'f1' for F1-based metrics
         """
         if df.empty:
-            self.console.print("[yellow]No results to display[/yellow]")
+            self.console.print("[yellow]No results to summarize[/yellow]")
             return
         
         is_aggregated = self._is_aggregated_df(df)
-        
-        # Default flagship tasks if not specified
-        if flagship_tasks is None:
-            flagship_tasks = [
-                'global_roundWinner',
-                'global_bombSite',
-                'global_anyKill_5s',
-                'enemy_location_0s',
-                'teammate_location_0s',
-                'self_location_0s',
-                'self_death_5s',
-            ]
         
         # Filter by model if specified
         if model_type:
@@ -904,18 +938,19 @@ class TablePrinter:
             self.console.print(f"[yellow]No results for model: {model_type}[/yellow]")
             return
         
-        # Filter to flagship tasks that exist in the data
-        available_tasks = df['task_id'].unique()
-        tasks_to_show = [t for t in flagship_tasks if t in available_tasks]
+        # Add perspective column
+        df = df.copy()
+        df['perspective'] = df['task_id'].apply(self._get_task_perspective)
+        df = df[df['perspective'].notna()]
         
-        if not tasks_to_show:
-            self.console.print("[yellow]No flagship tasks found in results[/yellow]")
-            self.console.print(f"Available tasks: {list(available_tasks)[:10]}...")
+        if df.empty:
+            self.console.print("[yellow]No tasks with recognized perspectives[/yellow]")
             return
         
         # Build title
         model_str = model_type.upper() if model_type else "All Models"
-        title = f"Flagship Tasks | {model_str} | {checkpoint_type.upper()}"
+        metric_str = "F1" if metric_type == 'f1' else "ACC"
+        title = f"Categorical Summary ({metric_str}) | {model_str} | {checkpoint_type.upper()} | Per-Model Win Rate"
         
         table = Table(
             title=title,
@@ -924,82 +959,288 @@ class TablePrinter:
             header_style="bold magenta"
         )
         
-        table.add_column("Task Name", style="cyan", no_wrap=True)
-        table.add_column("Metric", justify="center", style="dim")
-        table.add_column("Baseline", justify="right")
-        table.add_column("Finetuned", justify="right")
-        table.add_column("Δ", justify="right")
+        table.add_column("Perspective", style="cyan", no_wrap=True)
+        table.add_column("# Pairs", justify="center")  # (task, model) pairs
+        table.add_column("Avg Improv. (%)", justify="right")
+        table.add_column("Win Rate", justify="center")
+        table.add_column("Best Task-Model", style="dim")
+        table.add_column("Best Δ (%)", justify="right")
+        table.add_column("Worst Task-Model", style="dim")
+        table.add_column("Worst Δ (%)", justify="right")
         
-        for task_id in tasks_to_show:
+        # Process each perspective
+        PERSPECTIVE_ORDER = ['global', 'enemy', 'teammate', 'self']
+        PERSPECTIVE_DISPLAY = {
+            'global': 'Global',
+            'enemy': 'Enemy',
+            'teammate': 'Teammate',
+            'self': 'Self'
+        }
+        
+        for perspective in PERSPECTIVE_ORDER:
+            df_persp = df[df['perspective'] == perspective]
+            
+            if df_persp.empty:
+                continue
+            
+            # Get unique (task_id, model_type) pairs in this perspective
+            task_model_pairs = df_persp[['task_id', 'model_type']].drop_duplicates()
+            n_pairs = len(task_model_pairs)
+            
+            pair_improvements = []  # List of (task_id, model_type, improvement)
+            wins = 0
+            
+            for _, row in task_model_pairs.iterrows():
+                task_id = row['task_id']
+                model = row['model_type']
+                df_pair = df_persp[(df_persp['task_id'] == task_id) & (df_persp['model_type'] == model)]
+                
+                if df_pair.empty:
+                    continue
+                
+                ml_form = df_pair['ml_form'].iloc[0]
+                primary_metric = self._get_primary_metric(ml_form, metric_type)
+                
+                # Get baseline and finetuned values
+                baseline_rows = df_pair[df_pair['init_type'] == 'baseline']
+                finetuned_rows = df_pair[df_pair['init_type'] == 'finetuned']
+                
+                if baseline_rows.empty or finetuned_rows.empty:
+                    continue
+                
+                # Check if metric exists in data
+                if is_aggregated:
+                    metric_col = f'{primary_metric}_mean'
+                else:
+                    metric_col = primary_metric
+                
+                if metric_col not in baseline_rows.columns or metric_col not in finetuned_rows.columns:
+                    continue
+                
+                if is_aggregated:
+                    b_val = baseline_rows[f'{primary_metric}_mean'].values[0]
+                    f_val = finetuned_rows[f'{primary_metric}_mean'].values[0]
+                else:
+                    b_val = baseline_rows[primary_metric].values[0]
+                    f_val = finetuned_rows[primary_metric].values[0]
+                
+                # Compute relative improvement
+                improvement = self._compute_relative_improvement(b_val, f_val, primary_metric)
+                
+                if not np.isnan(improvement):
+                    pair_improvements.append((task_id, model, improvement))
+                    if improvement > 0:
+                        wins += 1
+            
+            if not pair_improvements:
+                continue
+            
+            # Sort by improvement to find best and worst
+            pair_improvements.sort(key=lambda x: x[2], reverse=True)
+            best_task, best_model, best_delta = pair_improvements[0]
+            worst_task, worst_model, worst_delta = pair_improvements[-1]
+            
+            improvements = [imp for _, _, imp in pair_improvements]
+            avg_improvement = np.mean(improvements)
+            win_rate = f"{wins}/{len(improvements)}"
+            
+            # Format improvement with color
+            if avg_improvement > 0:
+                improv_style = "green"
+            elif avg_improvement < 0:
+                improv_style = "red"
+            else:
+                improv_style = "white"
+            
+            improv_str = f"[{improv_style}]{avg_improvement:+.3f}[/{improv_style}]"
+            
+            best_delta_str = f"[green]{best_delta:+.3f}[/green]" if best_delta > 0 else f"[red]{best_delta:+.3f}[/red]"
+            worst_delta_str = f"[green]{worst_delta:+.3f}[/green]" if worst_delta > 0 else f"[red]{worst_delta:+.3f}[/red]"
+            
+            # Format task-model display (truncate long task names)
+            best_display = f"{best_task[:20]}|{best_model}" if len(best_task) > 20 else f"{best_task}|{best_model}"
+            worst_display = f"{worst_task[:20]}|{worst_model}" if len(worst_task) > 20 else f"{worst_task}|{worst_model}"
+            
+            table.add_row(
+                PERSPECTIVE_DISPLAY.get(perspective, perspective),
+                str(n_pairs),
+                improv_str,
+                win_rate,
+                best_display,
+                best_delta_str,
+                worst_display,
+                worst_delta_str
+            )
+        
+        self.console.print(table)
+        self.console.print()
+    
+    def print_task_ranking_table(
+        self,
+        df: pd.DataFrame,
+        model_type: Optional[str] = None,
+        checkpoint_type: str = 'best',
+        metric_type: str = 'acc'
+    ):
+        """
+        Print a full ranking table of all tasks sorted by relative improvement.
+        
+        Shows all tasks ranked from most improved to most degraded,
+        with baseline, finetuned, and relative improvement (%).
+        
+        Args:
+            df: DataFrame with results (should be aggregated if from repeated experiments)
+            model_type: Filter to specific model, or None for all models
+            checkpoint_type: 'best' or 'last'
+            metric_type: 'acc' for accuracy-based or 'f1' for F1-based metrics
+        """
+        if df.empty:
+            self.console.print("[yellow]No results to display[/yellow]")
+            return
+        
+        is_aggregated = self._is_aggregated_df(df)
+        
+        # Filter by model if specified
+        if model_type:
+            df = df[df['model_type'] == model_type]
+        
+        if df.empty:
+            self.console.print(f"[yellow]No results for model: {model_type}[/yellow]")
+            return
+        
+        # Collect all task improvements
+        task_data = []  # List of dicts with task info
+        
+        for task_id in df['task_id'].unique():
             df_task = df[df['task_id'] == task_id]
             
             if df_task.empty:
                 continue
             
             ml_form = df_task['ml_form'].iloc[0]
-            primary_metric = self._get_primary_metric(ml_form)
+            primary_metric = self._get_primary_metric(ml_form, metric_type)
+            perspective = self._get_task_perspective(task_id)
             
             # Get baseline and finetuned values
             baseline_rows = df_task[df_task['init_type'] == 'baseline']
             finetuned_rows = df_task[df_task['init_type'] == 'finetuned']
             
-            if baseline_rows.empty and finetuned_rows.empty:
+            if baseline_rows.empty or finetuned_rows.empty:
+                continue
+            
+            # Check if metric exists in data
+            if is_aggregated:
+                metric_col = f'{primary_metric}_mean'
+            else:
+                metric_col = primary_metric
+            
+            if metric_col not in baseline_rows.columns or metric_col not in finetuned_rows.columns:
                 continue
             
             # Get values
             if is_aggregated:
                 b_mean, b_std = self._get_metric_value(
-                    baseline_rows.iloc[0] if len(baseline_rows) > 0 else pd.Series(),
-                    primary_metric, is_aggregated
+                    baseline_rows.iloc[0], primary_metric, is_aggregated
                 )
                 f_mean, f_std = self._get_metric_value(
-                    finetuned_rows.iloc[0] if len(finetuned_rows) > 0 else pd.Series(),
-                    primary_metric, is_aggregated
+                    finetuned_rows.iloc[0], primary_metric, is_aggregated
                 )
             else:
-                b_mean = baseline_rows[primary_metric].values[0] if len(baseline_rows) > 0 else None
+                b_mean = baseline_rows[primary_metric].values[0]
                 b_std = None
-                f_mean = finetuned_rows[primary_metric].values[0] if len(finetuned_rows) > 0 else None
+                f_mean = finetuned_rows[primary_metric].values[0]
                 f_std = None
             
-            # Format values (show as percentage for accuracy metrics)
-            as_pct = self._is_percentage_metric(primary_metric)
+            if b_mean is None or f_mean is None:
+                continue
+            
+            # Compute relative improvement
+            improvement = self._compute_relative_improvement(b_mean, f_mean, primary_metric)
+            
+            if np.isnan(improvement):
+                continue
+            
+            task_data.append({
+                'task_id': task_id,
+                'perspective': perspective,
+                'metric': primary_metric,
+                'baseline': b_mean,
+                'baseline_std': b_std,
+                'finetuned': f_mean,
+                'finetuned_std': f_std,
+                'improvement': improvement,
+                'is_aggregated': is_aggregated
+            })
+        
+        if not task_data:
+            self.console.print("[yellow]No tasks with valid improvements[/yellow]")
+            return
+        
+        # Sort by improvement (most improved first)
+        task_data.sort(key=lambda x: x['improvement'], reverse=True)
+        
+        # Build title
+        model_str = model_type.upper() if model_type else "All Models"
+        metric_str = "F1" if metric_type == 'f1' else "ACC"
+        title = f"Task Ranking by Improvement ({metric_str}) | {model_str} | {checkpoint_type.upper()}"
+        
+        table = Table(
+            title=title,
+            box=box.ROUNDED,
+            show_header=True,
+            header_style="bold magenta"
+        )
+        
+        table.add_column("Rank", justify="center", style="dim")
+        table.add_column("Task", style="cyan", no_wrap=True)
+        table.add_column("Perspective", justify="center")
+        table.add_column("Metric", justify="center", style="dim")
+        table.add_column("Baseline", justify="right")
+        table.add_column("CECL", justify="right")
+        table.add_column("Δ Rel. (%)", justify="right")
+        
+        PERSPECTIVE_COLORS = {
+            'global': 'blue',
+            'enemy': 'magenta',
+            'teammate': 'yellow',
+            'self': 'red'
+        }
+        
+        for rank, data in enumerate(task_data, 1):
+            as_pct = self._is_percentage_metric(data['metric'])
+            
             baseline_str = self._format_metric_value(
-                b_mean, b_std, show_std=is_aggregated, as_percentage=as_pct
+                data['baseline'], data['baseline_std'], 
+                show_std=data['is_aggregated'], as_percentage=as_pct
             )
             finetuned_str = self._format_metric_value(
-                f_mean, f_std, show_std=is_aggregated, as_percentage=as_pct
+                data['finetuned'], data['finetuned_std'],
+                show_std=data['is_aggregated'], as_percentage=as_pct
             )
             
-            # Compute delta
-            if b_mean is not None and f_mean is not None:
-                # For display, use the raw difference (not relative)
-                delta = f_mean - b_mean
-                if as_pct:
-                    delta = delta * 100
-                
-                # Determine if improvement (accounting for lower-is-better)
-                LOWER_IS_BETTER = {'mse', 'mae', 'hamming_dist'}
-                if primary_metric in LOWER_IS_BETTER:
-                    is_better = delta < 0
-                else:
-                    is_better = delta > 0
-                
-                delta_style = "green" if is_better else ("red" if not is_better else "white")
-                delta_str = f"[{delta_style}]{delta:+.3f}[/{delta_style}]"
+            # Format improvement with color
+            improvement = data['improvement']
+            if improvement > 0:
+                improv_style = "green"
+            elif improvement < 0:
+                improv_style = "red"
             else:
-                delta_str = "N/A"
+                improv_style = "white"
+            improv_str = f"[{improv_style}]{improvement:+.3f}[/{improv_style}]"
             
-            # Get perspective for display name
-            perspective = self._get_task_perspective(task_id)
-            display_name = f"{perspective.capitalize()} {task_id.replace(perspective + '_', '')}" if perspective else task_id
+            # Format perspective with color
+            persp = data['perspective'] or 'unknown'
+            persp_color = PERSPECTIVE_COLORS.get(persp, 'white')
+            persp_str = f"[{persp_color}]{persp.capitalize()}[/{persp_color}]"
             
             table.add_row(
-                display_name,
-                primary_metric.upper(),
+                str(rank),
+                data['task_id'],
+                persp_str,
+                data['metric'].upper(),
                 baseline_str,
                 finetuned_str,
-                delta_str
+                improv_str
             )
         
         self.console.print(table)
@@ -1108,44 +1349,80 @@ def main():
     )
     printer.console.print()
     
+    # Always show narrative tables by default
     if args.narrative and not args.no_narrative:
-        # Show narrative tables for paper (categorical summary + flagship tasks)
-        printer.console.rule("[bold green]Table 1: Categorical Summary by Perspective[/bold green]")
+        # Show narrative tables for paper (categorical summary + task ranking)
+        # ACC-based tables
+        printer.console.rule("[bold green]Table 1: Categorical Summary by Perspective (ACC)[/bold green]")
         printer.console.print()
         printer.print_categorical_summary_table(
             df_filtered,
             model_type=args.model,
-            checkpoint_type=args.checkpoint
+            checkpoint_type=args.checkpoint,
+            metric_type='acc'
         )
         
-        printer.console.rule("[bold green]Table 2: Flagship Tasks Performance[/bold green]")
+        printer.console.rule("[bold green]Table 2: Categorical Summary by Perspective (ACC) - Per-Model Win Rate[/bold green]")
         printer.console.print()
-        printer.print_flagship_tasks_table(
+        printer.print_categorical_summary_table_by_model(
             df_filtered,
             model_type=args.model,
-            checkpoint_type=args.checkpoint
+            checkpoint_type=args.checkpoint,
+            metric_type='acc'
         )
-    elif args.verbose:
-        # Show detailed tables with all columns
-        results_by_ml_form = {
-            ml_form: df_filtered[df_filtered['ml_form'] == ml_form]
-            for ml_form in df_filtered['ml_form'].unique()
-        }
-        printer.print_all_tables(results_by_ml_form, args.checkpoint)
-        printer.print_summary_statistics(df_filtered)
-    else:
-        # Show baseline vs finetuned comparison tables
-        ml_form_order = ['binary_cls', 'multi_cls', 'multi_label_cls', 'regression']
         
-        for ml_form in ml_form_order:
-            df_ml = df_filtered[df_filtered['ml_form'] == ml_form]
-            if not df_ml.empty:
-                printer.print_baseline_finetuned_table(
-                    df_ml, 
-                    ml_form, 
-                    args.ui_mask,
-                    args.checkpoint
-                )
+        printer.console.rule("[bold green]Table 3: Full Task Ranking by Improvement (ACC)[/bold green]")
+        printer.console.print()
+        printer.print_task_ranking_table(
+            df_filtered,
+            model_type=args.model,
+            checkpoint_type=args.checkpoint,
+            metric_type='acc'
+        )
+        
+        # F1-based tables
+        printer.console.rule("[bold green]Table 4: Categorical Summary by Perspective (F1)[/bold green]")
+        printer.console.print()
+        printer.print_categorical_summary_table(
+            df_filtered,
+            model_type=args.model,
+            checkpoint_type=args.checkpoint,
+            metric_type='f1'
+        )
+        
+        printer.console.rule("[bold green]Table 5: Categorical Summary by Perspective (F1) - Per-Model Win Rate[/bold green]")
+        printer.console.print()
+        printer.print_categorical_summary_table_by_model(
+            df_filtered,
+            model_type=args.model,
+            checkpoint_type=args.checkpoint,
+            metric_type='f1'
+        )
+        
+        printer.console.rule("[bold green]Table 6: Full Task Ranking by Improvement (F1)[/bold green]")
+        printer.console.print()
+        printer.print_task_ranking_table(
+            df_filtered,
+            model_type=args.model,
+            checkpoint_type=args.checkpoint,
+            metric_type='f1'
+        )
+    
+    # Show detailed per-ML-form tables
+    printer.console.rule("[bold green]Detailed Tables by ML Form[/bold green]")
+    printer.console.print()
+    
+    ml_form_order = ['binary_cls', 'multi_cls', 'multi_label_cls', 'regression']
+    
+    for ml_form in ml_form_order:
+        df_ml = df_filtered[df_filtered['ml_form'] == ml_form]
+        if not df_ml.empty:
+            printer.print_baseline_finetuned_table(
+                df_ml, 
+                ml_form, 
+                args.ui_mask,
+                args.checkpoint
+            )
     
     # Print summary
     printer.console.print()
@@ -1154,7 +1431,7 @@ def main():
     
     # Count results
     n_baseline = len(df_filtered[df_filtered['init_type'] == 'baseline'])
-    n_finetuned = len(df_filtered[df_filtered['init_type'] == 'finetuned'])
+    n_cecl = len(df_filtered[df_filtered['init_type'] == 'finetuned'])
     n_tasks = df_filtered['task_id'].nunique()
     n_models = df_filtered['model_type'].nunique()
     
@@ -1168,7 +1445,7 @@ def main():
     printer.console.print(f"  Unique tasks: {n_tasks}")
     printer.console.print(f"  Models: {df_filtered['model_type'].unique().tolist()}")
     printer.console.print(f"  Baseline results: {n_baseline}")
-    printer.console.print(f"  Finetuned results: {n_finetuned}")
+    printer.console.print(f"  CECL results: {n_cecl}")
     printer.console.print()
 
 

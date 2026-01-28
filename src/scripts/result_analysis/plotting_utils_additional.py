@@ -26,7 +26,6 @@ from plotting_utils import (
     get_primary_metric_for_ml_form,
     _aggregate_repeat_experiments,
     save_plot_multi_format,
-    get_init_type_display_name,
 )
 
 

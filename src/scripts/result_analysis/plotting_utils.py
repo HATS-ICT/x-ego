@@ -978,7 +978,7 @@ def plot_time_horizon_combined(
     df_temporal = df[df['time_horizon'].notna()].copy()
     
     if df_temporal.empty:
-        print(f"No temporal tasks found")
+        print("No temporal tasks found")
         return
     
     models = sorted(df_temporal['model_type'].unique())

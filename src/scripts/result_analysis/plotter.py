@@ -14,6 +14,9 @@ from plotting_utils import (
     plot_by_task_prefix,
     plot_time_horizon_lines,
 )
+from plotting_utils_additional import (
+    generate_all_narrative_plots,
+)
 
 
 class ResultsPlotter:
@@ -71,6 +74,7 @@ class ResultsPlotter:
             # Get unique ML forms and UI masks
             ml_forms = df['ml_form'].unique()
             ui_masks = df['ui_mask'].unique()
+            ui_masks = ["all"]
             
             print(f"ML forms: {list(ml_forms)}")
             print(f"UI masks: {list(ui_masks)}")
@@ -105,6 +109,17 @@ class ResultsPlotter:
                     # 3. Time horizon line plots
                     plot_time_horizon_lines(
                         df_filtered, ml_form, ui_mask, checkpoint_type, subfolder
+                    )
+                
+                # 4. Narrative plots (across all ML forms for this UI mask)
+                df_ui = df[df['ui_mask'] == ui_mask]
+                if not df_ui.empty:
+                    narrative_folder = subfolder / 'narrative'
+                    generate_all_narrative_plots(
+                        df_ui,
+                        ui_mask=ui_mask,
+                        checkpoint_type=checkpoint_type,
+                        output_dir=narrative_folder
                     )
         
         print("\n" + "="*60)

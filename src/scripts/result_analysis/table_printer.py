@@ -21,6 +21,12 @@ from results_collector import ResultsCollector
 class TablePrinter:
     """Print formatted results tables using rich library."""
     
+    # Metrics that should be displayed as percentages (multiply by 100)
+    # Only accuracy-related metrics; F1, AUROC, R² are conventionally shown as decimals
+    PERCENTAGE_METRICS = {
+        'acc', 'acc_top3', 'acc_top5', 'acc_exact', 'hamming_acc'
+    }
+    
     def __init__(self):
         """Initialize table printer with console."""
         self.console = Console()
@@ -29,12 +35,17 @@ class TablePrinter:
         """Check if DataFrame has aggregated results (mean/std columns)."""
         return 'n_repeats' in df.columns
     
+    def _is_percentage_metric(self, metric: str) -> bool:
+        """Check if metric should be displayed as percentage."""
+        return metric in self.PERCENTAGE_METRICS
+    
     def _format_metric_value(
         self, 
         mean_val: Optional[float], 
         std_val: Optional[float] = None,
-        precision: int = 4,
-        show_std: bool = True
+        precision: int = 1,
+        show_std: bool = True,
+        as_percentage: bool = False
     ) -> str:
         """
         Format a metric value with optional std.
@@ -44,12 +55,18 @@ class TablePrinter:
             std_val: Standard deviation (None if not aggregated or single repeat)
             precision: Number of decimal places
             show_std: Whether to show std (if available)
+            as_percentage: If True, multiply by 100 (e.g., 0.442 -> 44.2)
         
         Returns:
-            Formatted string like "0.8234" or "0.8234±0.0123"
+            Formatted string like "44.2" or "44.2±1.2"
         """
         if mean_val is None or (isinstance(mean_val, float) and np.isnan(mean_val)):
             return "N/A"
+        
+        if as_percentage:
+            mean_val = mean_val * 100
+            if std_val is not None:
+                std_val = std_val * 100
         
         if show_std and std_val is not None and not np.isnan(std_val) and std_val > 0:
             return f"{mean_val:.{precision}f}±{std_val:.{precision}f}"
@@ -178,14 +195,21 @@ class TablePrinter:
                     else:
                         f_mean, f_std = None, None
                     
-                    baseline_str = self._format_metric_value(b_mean, b_std, show_std=is_aggregated)
-                    finetuned_str = self._format_metric_value(f_mean, f_std, show_std=is_aggregated)
+                    as_pct = self._is_percentage_metric(metric)
+                    baseline_str = self._format_metric_value(
+                        b_mean, b_std, show_std=is_aggregated, as_percentage=as_pct
+                    )
+                    finetuned_str = self._format_metric_value(
+                        f_mean, f_std, show_std=is_aggregated, as_percentage=as_pct
+                    )
                     
                     # Compute delta (based on means)
                     if b_mean is not None and f_mean is not None:
                         delta = f_mean - b_mean
+                        if as_pct:
+                            delta = delta * 100
                         delta_style = "green" if delta > 0 else ("red" if delta < 0 else "white")
-                        delta_str = f"[{delta_style}]{delta:+.4f}[/{delta_style}]"
+                        delta_str = f"[{delta_style}]{delta:+.1f}[/{delta_style}]"
                     else:
                         delta_str = "N/A"
                     
@@ -249,8 +273,11 @@ class TablePrinter:
             metric_values = []
             for metric in metric_cols:
                 mean_val, std_val = self._get_metric_value(row, metric, is_aggregated)
+                as_pct = self._is_percentage_metric(metric)
                 metric_values.append(
-                    self._format_metric_value(mean_val, std_val, show_std=is_aggregated)
+                    self._format_metric_value(
+                        mean_val, std_val, show_std=is_aggregated, as_percentage=as_pct
+                    )
                 )
             
             init_type = row.get('init_type', 'unknown')
@@ -423,7 +450,10 @@ class TablePrinter:
                     else:
                         col = metric
                     if col in df_model.columns:
-                        metric_avgs.append(f"{df_model[col].mean():.4f}")
+                        val = df_model[col].mean()
+                        if self._is_percentage_metric(metric):
+                            val = val * 100
+                        metric_avgs.append(f"{val:.1f}")
                     else:
                         metric_avgs.append("N/A")
                 
@@ -504,7 +534,10 @@ class TablePrinter:
                             else:
                                 col = metric
                             if col in df_init.columns:
-                                metric_avgs.append(f"{df_init[col].mean():.4f}")
+                                val = df_init[col].mean()
+                                if self._is_percentage_metric(metric):
+                                    val = val * 100
+                                metric_avgs.append(f"{val:.1f}")
                             else:
                                 metric_avgs.append("N/A")
                         
@@ -596,13 +629,20 @@ class TablePrinter:
                         else:
                             f_mean, f_std = None, None
                         
-                        baseline_str = self._format_metric_value(b_mean, b_std, show_std=is_aggregated)
-                        finetuned_str = self._format_metric_value(f_mean, f_std, show_std=is_aggregated)
+                        as_pct = self._is_percentage_metric(primary_metric)
+                        baseline_str = self._format_metric_value(
+                            b_mean, b_std, show_std=is_aggregated, as_percentage=as_pct
+                        )
+                        finetuned_str = self._format_metric_value(
+                            f_mean, f_std, show_std=is_aggregated, as_percentage=as_pct
+                        )
                         
                         if b_mean is not None and f_mean is not None:
                             delta = f_mean - b_mean
+                            if as_pct:
+                                delta = delta * 100
                             delta_style = "green" if delta > 0 else ("red" if delta < 0 else "white")
-                            delta_str = f"[{delta_style}]{delta:+.4f}[/{delta_style}]"
+                            delta_str = f"[{delta_style}]{delta:+.1f}[/{delta_style}]"
                         else:
                             delta_str = "N/A"
                         
@@ -653,6 +693,7 @@ def parse_args():
     parser.add_argument(
         '--aggregate', '-a',
         action='store_true',
+        default=True,
         help='Aggregate results from repeated experiments (show mean±std)'
     )
     return parser.parse_args()

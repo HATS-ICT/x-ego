@@ -51,6 +51,40 @@ def get_primary_metric_for_ml_form(ml_form: str) -> str:
     return PRIMARY_METRIC_MAP.get(ml_form, 'acc')
 
 
+def save_plot_multi_format(fig, output_dir: Path, filename_base: str):
+    """
+    Save a plot in three formats (PNG, PDF, SVG) in dedicated subfolders.
+    
+    Args:
+        fig: matplotlib figure object
+        output_dir: Base output directory
+        filename_base: Filename without extension (e.g., 'my_plot')
+    """
+    output_dir = Path(output_dir)
+    
+    # Create subfolders
+    png_dir = output_dir / 'png'
+    pdf_dir = output_dir / 'pdf'
+    svg_dir = output_dir / 'svg'
+    
+    png_dir.mkdir(parents=True, exist_ok=True)
+    pdf_dir.mkdir(parents=True, exist_ok=True)
+    svg_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Save in all three formats
+    png_path = png_dir / f'{filename_base}.png'
+    pdf_path = pdf_dir / f'{filename_base}.pdf'
+    svg_path = svg_dir / f'{filename_base}.svg'
+    
+    fig.savefig(png_path, bbox_inches='tight', dpi=300)
+    fig.savefig(pdf_path, bbox_inches='tight')
+    fig.savefig(svg_path, bbox_inches='tight')
+    
+    print(f"Saved: {png_path}")
+    print(f"Saved: {pdf_path}")
+    print(f"Saved: {svg_path}")
+
+
 def preprocess_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     """
     Preprocess dataframe to add computed metrics.
@@ -296,11 +330,9 @@ def plot_baseline_vs_finetuned_per_model(
         
         plt.tight_layout()
         
-        output_path = output_dir / f'baseline_vs_finetuned_{ml_form}_{model}.png'
-        plt.savefig(output_path, bbox_inches='tight')
+        filename_base = f'baseline_vs_finetuned_{ml_form}_{model}'
+        save_plot_multi_format(fig, output_dir, filename_base)
         plt.close()
-        
-        print(f"Saved: {output_path}")
 
 
 def plot_by_task_prefix(
@@ -414,11 +446,9 @@ def plot_by_task_prefix(
     
     plt.tight_layout()
     
-    output_path = output_dir / f'by_prefix_{ml_form}.png'
-    plt.savefig(output_path, bbox_inches='tight')
+    filename_base = f'by_prefix_{ml_form}'
+    save_plot_multi_format(fig, output_dir, filename_base)
     plt.close()
-    
-    print(f"Saved: {output_path}")
 
 
 def plot_time_horizon_lines(
@@ -562,8 +592,6 @@ def plot_time_horizon_lines(
     
     plt.tight_layout()
     
-    output_path = output_dir / f'time_horizon_{ml_form}.png'
-    plt.savefig(output_path, bbox_inches='tight')
+    filename_base = f'time_horizon_{ml_form}'
+    save_plot_multi_format(fig, output_dir, filename_base)
     plt.close()
-    
-    print(f"Saved: {output_path}")

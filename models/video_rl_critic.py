@@ -289,21 +289,31 @@ class VideoCentralCriticModel(Model):
         v_flat = self.value_head(x_flat)                    # [Bflat*n_agents, value_dim]
         values = v_flat.reshape(z.shape[0], self.n_agents, self.value_dim)  # [Bflat, n_agents, value_dim]
 
-        # Now reshape values back to match tensordict leading dims:
-        # The tensordict is holding something shaped [..., n_agents, ...]
-        # We'll infer leading dims from the input video.
-        leading = video.shape[:-6]  # same as used in encoding
-        if len(leading) == 0:
-            out = values
+        # Reshape to match tensordict.batch_size.
+        # In TorchRL / BenchMARL, the agent dimension is often part of the tensordict batch.
+        td_batch = tuple(int(d) for d in tensordict.batch_size)
+        n_agents = int(self.n_agents)
+        value_dim = int(self.value_dim)
+
+        if len(td_batch) > 0 and td_batch[-1] == n_agents:
+            # Agent dim is already a batch dim: output should be (*td_batch, value_dim)
+            batch_wo_agent = td_batch[:-1]
+            out = values.reshape(*batch_wo_agent, n_agents, value_dim)
+        elif len(td_batch) > 0:
+            # Agent dim is NOT in batch: output is (*td_batch, n_agents, value_dim)
+            out = values.reshape(*td_batch, n_agents, value_dim)
         else:
-            out = values.reshape(*leading, self.n_agents, self.value_dim)
+            out = values
 
         # Handle output_has_agent_dim compatibility:
         # Normally for a centralized critic with local inputs, output_has_agent_dim is True.
         if self.input_has_agent_dim and (not self.output_has_agent_dim):
-            # This would correspond to centralised=True and share_params=True and a spec that expects no agent dim.
-            # In that rare case, we can collapse agent dimension by taking (for example) the mean.
-            out = out.mean(dim=-2)
+            # Some BenchMARL/TensorDict pipelines still keep the agent dimension in the tensordict batch
+            # even when output_has_agent_dim=False. Collapsing here would cause a batch mismatch on set().
+            # Only collapse if the tensordict batch does NOT include the agent dimension.
+            if len(td_batch) == 0 or td_batch[-1] != n_agents:
+                # Spec truly expects no agent dim: collapse agent dimension (e.g., mean).
+                out = out.mean(dim=-2)
 
         tensordict.set(self.out_key, out)
         return tensordict

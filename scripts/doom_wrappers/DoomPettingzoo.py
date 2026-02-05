@@ -605,6 +605,18 @@ class DoomPettingZooEnv(TaskClass):
 
         cfg = VZCoopConfig(**config)
 
+        # Optional: allow shifting the base network port via environment variable
+        # so that multiple training processes can run in parallel without port
+        # collisions (e.g. in tmux panes).
+        port_offset_str = os.environ.get("DOOM_PORT_OFFSET")
+        if port_offset_str is not None:
+            try:
+                port_offset = int(port_offset_str)
+                cfg.base_port = int(cfg.base_port) + port_offset
+            except ValueError:
+                # If the env var is malformed, just ignore it and use the default.
+                pass
+
         def make_env() -> EnvBase:
             env_idx = next(_ENV_PORT_COUNTER)
             cfg_local = copy.deepcopy(cfg)
@@ -642,7 +654,8 @@ class DoomPettingZooEnv(TaskClass):
     def max_steps(self, env: EnvBase) -> int:
         if hasattr(env, "max_steps") and env.max_steps is not None:
             return int(env.max_steps)
-        return 0
+        # TorchRL rollout expects an int; use a safe default if not configured.
+        return 1000
 
     def group_map(self, env: EnvBase) -> Dict[str, List[str]]:
         if hasattr(env, "group_map"):

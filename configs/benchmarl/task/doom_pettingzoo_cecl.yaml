@@ -10,6 +10,13 @@ window_visible: false
 console_enabled: false
 
 timelimit_minutes: null
+
+# Use a different base port for CECL experiments so they can run in
+# parallel with other DoomPettingZoo tasks without network conflicts.
+base_port: 15029
+port_stride: 10
+
+# Let per-env port selection logic still append the concrete "-port" value.
 extra_game_args: ""
 
 tile_windows: false
@@ -20,3 +27,6 @@ frame_stack: 1
 max_steps: 1000
 
 wrapper_kwargs: {}
+
+
+

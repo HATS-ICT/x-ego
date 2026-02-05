@@ -113,6 +113,40 @@ class CeclWrappedLoss(LossModule):
         self.logit_scale_key = logit_scale_key
         self.logit_bias_key = logit_bias_key
 
+    # Delegate value_estimator handling to the underlying PPO loss so that
+    # BenchMARL's generic MAPPO code can safely call loss.value_estimator(...)
+    # on this wrapper without triggering LossModule's unimplemented default.
+    @property
+    def value_estimator(self):
+        return self.ppo_loss.value_estimator
+
+    @value_estimator.setter
+    def value_estimator(self, value):
+        self.ppo_loss.value_estimator = value
+
+    def __getattr__(self, name: str):
+        """
+        Delegate missing attributes (e.g. critic_network_params, target_critic_network_params,
+        actor_network_params, etc.) to the underlying PPO loss so that generic BenchMarl
+        code that expects a plain PPO loss still works with this wrapped loss.
+        """
+        ppo_loss = self.__dict__.get("ppo_loss", None)
+        if ppo_loss is not None and hasattr(ppo_loss, name):
+            return getattr(ppo_loss, name)
+
+        # For functional params, BenchMARL will happily pass None, which is
+        # exactly what PPO does internally when not using functional modules.
+        if name in (
+            "critic_network_params",
+            "target_critic_network_params",
+            "actor_network_params",
+            "target_actor_network_params",
+        ):
+            return None
+
+        # Fall back to the standard LossModule / nn.Module attribute resolution.
+        return super().__getattr__(name)
+
     def forward(self, batch: TensorDictBase) -> TensorDictBase:
         loss_td = self.ppo_loss(batch)
 
@@ -287,6 +321,10 @@ class MappoCecl(Mappo):
             critic_coef=self.critic_coef,
             loss_critic_type=self.loss_critic_type,
             normalize_advantage=False,
+            # Explicitly put PPO loss buffers (e.g. clip_epsilon) on the same
+            # device as the algorithm / experiment to avoid CPU vs CUDA
+            # mismatches during clamp operations.
+            device=self.device,
         )
         loss_module.set_keys(
             reward=(group, "reward"),
@@ -313,17 +351,43 @@ class MappoCecl(Mappo):
             logit_scale_key=self.cecl_logit_scale_key if self.cecl_use_logit_scale else None,
             logit_bias_key=self.cecl_logit_bias_key if self.cecl_use_logit_bias else None,
         )
+
+        # Make sure the generic BenchMARL loop, which calls
+        #   loss.value_estimator(...)
+        # sees the same value estimator as the underlying PPO loss.
+        # Otherwise, LossModule would try to build a new estimator with
+        # value_type=None and raise "Unknown value type None".
+        wrapped.value_estimator = loss_module.value_estimator
+
         return wrapped, False
 
     def _get_parameters(self, group: str, loss: LossModule) -> Dict[str, Iterable]:
+        """
+        Keep the standard MAPPO separation of actor / critic parameters:
+        - 'loss_objective' -> actor params
+        - 'loss_critic'    -> critic params
+
+        For CECL, we only modify the actor loss by adding λ * loss_cecl
+        inside 'loss_objective' (see process_loss_vals). We do NOT give
+        CECL its own optimizer entry.
+        """
         if isinstance(loss, CeclWrappedLoss):
+            # Delegate to base MAPPO implementation using the underlying PPO loss.
             return super()._get_parameters(group, loss.ppo_loss)
         return super()._get_parameters(group, loss)
 
     def process_loss_vals(
         self, group: str, loss_vals: TensorDictBase
     ) -> TensorDictBase:
+        # First let MAPPO do its usual processing: fold entropy into the
+        # policy objective etc., keeping 'loss_objective' and 'loss_critic'
+        # separate.
         loss_vals = super().process_loss_vals(group, loss_vals)
+
+        # Add CECL term to the ACTOR objective only. We do not create an
+        # optimizer entry for 'loss_cecl', so the experiment loop will only
+        # backprop once through the actor graph via 'loss_objective', which
+        # now includes λ * loss_cecl.
         if "loss_cecl" in loss_vals.keys():
             loss_vals.set(
                 "loss_objective",

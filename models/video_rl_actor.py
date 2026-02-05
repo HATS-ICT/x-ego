@@ -173,6 +173,23 @@ class VideoPolicyModel(Model):
             return (self.agent_group, key)
         return key
 
+    def _align_video_to_batch(
+        self, video: torch.Tensor, batch_size: torch.Size
+    ) -> torch.Tensor:
+        """
+        Ensure the video tensor carries the full tensordict batch dimensions.
+        Expected shape with agent dim:
+          batch_size (..., n_agents) + (T, C, H, W)
+        """
+        if not self.input_has_agent_dim:
+            return video
+        expected_dim = len(batch_size) + 4
+        if video.dim() < expected_dim:
+            # Prepend leading singleton dims (common when env batch is dropped).
+            for _ in range(expected_dim - video.dim()):
+                video = video.unsqueeze(0)
+        return video
+
     def _encode_video(self, video: torch.Tensor) -> torch.Tensor:
         """
         Encodes a batch of videos -> embeddings.
@@ -198,9 +215,10 @@ class VideoPolicyModel(Model):
             video = flat.reshape(B, video.shape[-4], video.shape[-3], *target_hw)
 
         if self.input_has_agent_dim:
-            # video: [*, n_agents, T, C, H, W]
-            # Flatten: [(* * n_agents), T, C, H, W]
+            # video: [*B, n_agents, T, C, H, W]
+            # Flatten: [(*B * n_agents), T, C, H, W]
             n_agents = self.n_agents
+            leading_shape = tuple(video.shape[:-5])  # batch dims before agent
             flat = video.reshape(-1, n_agents, *video.shape[-4:])  # [Bflat, n_agents, T, C, H, W]
             flat = flat.reshape(-1, *video.shape[-4:])            # [Bflat*n_agents, T, C, H, W]
         else:
@@ -218,7 +236,10 @@ class VideoPolicyModel(Model):
 
         # Unflatten back to [*, n_agents, D] if needed
         if self.input_has_agent_dim:
-            emb = emb.reshape(-1, self.n_agents, self.embed_dim)  # [Bflat, n_agents, D]
+            if leading_shape:
+                emb = emb.reshape(*leading_shape, self.n_agents, self.embed_dim)  # [*B, n_agents, D]
+            else:
+                emb = emb.reshape(self.n_agents, self.embed_dim)  # [n_agents, D]
         else:
             # [Bflat, D]
             pass
@@ -247,9 +268,15 @@ class VideoPolicyModel(Model):
         """
         # 1) Encode video -> per-agent embeddings
         video = tensordict.get(self.video_key)
+        print(
+            f"[VideoPolicyModel] batch={tuple(tensordict.batch_size)} "
+            f"video_shape={tuple(video.shape)} input_has_agent_dim={self.input_has_agent_dim}",
+            flush=True,
+        )
+        video = self._align_video_to_batch(video, tensordict.batch_size)
         z = self._encode_video(video)  # [B, n_agents, D] if input_has_agent_dim else [B, D]
 
-        # 1b) Project encoder embeddings -> h (trainable)
+        # 1b) Project encoder embeddings -> h (trainable CECL embedding)
         if self.projector is not None:
             if self.input_has_agent_dim:
                 z_flat = z.reshape(-1, z.shape[-1])
@@ -260,7 +287,24 @@ class VideoPolicyModel(Model):
         else:
             h = z
 
+        # Align projector output with the tensordict batch shape.
+        # BenchMARL expects outputs to match tensordict.batch_size (including agent dim).
+        target_batch = tuple(video.shape[:-4])
+        if self.input_has_agent_dim and h.shape[:-1] != target_batch:
+            # Common case: h is [n_agents, D] but batch is [1, n_agents]
+            if h.dim() == 2 and len(target_batch) == 2 and h.shape[0] == target_batch[1]:
+                h = h.unsqueeze(0)
+            else:
+                total = int(torch.tensor(target_batch).prod().item())
+                if h.numel() == total * h.shape[-1]:
+                    h = h.reshape(*target_batch, h.shape[-1])
+
+        # Store full-gradient embedding for CECL
         tensordict.set(self.projector_key, h)
+
+        # For the policy head, stop PPO gradients at the projector so that
+        # only CECL updates the projector parameters.
+        h_policy = h.detach()
         if self.logit_scale is not None:
             if isinstance(self.logit_scale_key, tuple):
                 batch_shape = tensordict.get(self.logit_scale_key[0]).batch_size
@@ -287,17 +331,18 @@ class VideoPolicyModel(Model):
 
             # If input has agent dim, aux should be [B, n_agents, aux_dim]
             # else [B, aux_dim]
-            x = torch.cat([h, aux], dim=-1)
+            x = torch.cat([h_policy, aux], dim=-1)
         else:
-            x = h
+            x = h_policy
 
         # 3) Run trainable head
         if self.input_has_agent_dim:
             # Apply head per agent by flattening agent into batch:
             # x: [B, n_agents, Din] -> [B*n_agents, Din]
+            batch_shape = x.shape[:-1]
             x_flat = x.reshape(-1, x.shape[-1])
             y_flat = self.head(x_flat)  # [B*n_agents, Dout]
-            y = y_flat.reshape(-1, self.n_agents, self.output_features)  # [B, n_agents, Dout]
+            y = y_flat.reshape(*batch_shape, self.output_features)  # [B, n_agents, Dout] or [n_agents, Dout]
         else:
             y = self.head(x)  # [B, Dout]
 

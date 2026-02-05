@@ -2,12 +2,12 @@ defaults:
   - experiment_config
   - _self_
 
-# High-throughput GPU-focused experiment config.
-# Tune further based on GPU memory and CPU cores.
+# Local override based on BenchMARL base_experiment.yaml.
+# Tuned for faster feedback and visible training logs.
 
-# Devices (keep training on GPU, move sampling/buffer off GPU)
+# Devices
 sampling_device: "cpu"
-train_device: "cuda"
+train_device: "cpu"
 buffer_device: "cpu"
 
 # Policy + collection
@@ -34,15 +34,15 @@ exploration_eps_init: 0.8
 exploration_eps_end: 0.01
 exploration_anneal_frames: null
 
-# Termination
+# Termination (shorter for quick feedback)
 max_n_iters: null
-max_n_frames: 3_000_000
+max_n_frames: 200000
 
-# On-policy collection (minimize CUDA memory)
-on_policy_collected_frames_per_batch: 1
-on_policy_n_envs_per_worker: 1
-on_policy_n_minibatch_iters: 1
-on_policy_minibatch_size: 1
+# On-policy collection (smaller batches to see training quickly)
+on_policy_collected_frames_per_batch: 2000
+on_policy_n_envs_per_worker: 8
+on_policy_n_minibatch_iters: 5
+on_policy_minibatch_size: 200
 
 # Off-policy defaults (unused for MAPPO)
 off_policy_collected_frames_per_batch: 6000
@@ -55,23 +55,24 @@ off_policy_use_prioritized_replay_buffer: False
 off_policy_prb_alpha: 0.6
 off_policy_prb_beta: 0.4
 
-# Evaluation/logging (disabled for speed)
-evaluation: False
-render: False
-evaluation_interval: 120_000
+# Evaluation/logging (enable to get videos and final inference)
+evaluation: True
+render: True
+evaluation_interval: 120000
 evaluation_episodes: 10
 evaluation_deterministic_actions: True
 evaluation_static: False
 
-loggers: [csv]
+loggers: [csv, wandb, tensorboard]
 project_name: "benchmarl"
 wandb_extra_kwargs: {}
-create_json: False
+create_json: True
 
+# Output
 save_folder: "./results"
 restore_file: null
 restore_map_location: null
 checkpoint_interval: 0
-checkpoint_at_end: False
+checkpoint_at_end: True
 keep_checkpoints_num: 3
 exclude_buffer_from_checkpoint: False

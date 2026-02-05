@@ -16,7 +16,7 @@ def main() -> None:
    task_cfg = repo_root / "configs" / "benchmarl" / "task" / "doom_pettingzoo.yaml"
    actor_cfg = repo_root / "configs" / "benchmarl" / "model" / "video_actor.yaml"
    critic_cfg = repo_root / "configs" / "benchmarl" / "model" / "video_critic.yaml"
-   exp_cfg = repo_root / "configs" / "benchmarl" / "experiment" / "fast_gpu.yaml"
+   exp_cfg = repo_root / "configs" / "benchmarl" / "experiment" / "small_gpu.yaml"
 
    # Base configs
    base_actor_cfg = VideoPolicyModelConfig.get_from_yaml(str(actor_cfg))

@@ -18,6 +18,58 @@ MODEL_TYPE_TO_PRETRAINED = {
     "vjepa2": "facebook/vjepa2-vitl-fpc16-256-ssv2",
 }
 
+def _to_model_device_dtype(x: torch.Tensor, model: nn.Module) -> torch.Tensor:
+    """
+    Ensure an input tensor lives on the same device/dtype as a model's parameters.
+    Prevents runtime errors like:
+      Input type (torch.cuda.FloatTensor) and weight type (torch.FloatTensor) should be the same
+    """
+    try:
+        p = next(model.parameters())
+    except StopIteration:
+        return x
+    return x.to(device=p.device, dtype=p.dtype)
+
+
+def _flatten_video_batch(pixel_values: torch.Tensor) -> Tuple[torch.Tensor, Tuple[int, ...]]:
+    """
+    Accept video tensors with arbitrary leading batch dimensions.
+
+    Expected trailing dims: (num_frames, channels, height, width)
+      - 4D: (T, C, H, W)                 -> treated as no leading batch dims
+      - 5D: (B, T, C, H, W)              -> typical
+      - ND: (..., T, C, H, W)            -> e.g. (time, env, agent, T, C, H, W)
+
+    Returns:
+        flat_pixel_values: (B_flat, T, C, H, W)
+        batch_dims: original leading batch dims (...). Empty tuple means "no leading batch dims".
+    """
+    if pixel_values.ndim < 4:
+        raise ValueError(
+            f"Expected pixel_values with at least 4 dims (..., T, C, H, W) or (T, C, H, W), "
+            f"got shape={tuple(pixel_values.shape)}"
+        )
+
+    if pixel_values.ndim == 4:
+        # (T, C, H, W) -> (1, T, C, H, W)
+        pixel_values = pixel_values.unsqueeze(0)
+        batch_dims: Tuple[int, ...] = ()
+    else:
+        batch_dims = tuple(int(d) for d in pixel_values.shape[:-4])
+
+    t, c, h, w = (int(d) for d in pixel_values.shape[-4:])
+    b_flat = int(math.prod(pixel_values.shape[:-4])) if pixel_values.shape[:-4] else 1
+    flat = pixel_values.reshape(b_flat, t, c, h, w)
+    return flat, batch_dims
+
+
+def _unflatten_batch(x: torch.Tensor, batch_dims: Tuple[int, ...]) -> torch.Tensor:
+    """Undo _flatten_video_batch's leading-batch flattening on a tensor whose first dim is B_flat."""
+    if batch_dims:
+        return x.reshape(*batch_dims, *x.shape[1:])
+    # Drop the artificial leading batch dim (B_flat == 1) when there were no leading batch dims.
+    return x.reshape(*x.shape[1:])
+
 
 def temporal_sampling(frames: torch.Tensor, target_frames: int) -> torch.Tensor:
     """
@@ -90,8 +142,10 @@ class VideoEncoderClip(nn.Module):
         Returns:
             Video features - either pooled [batch_size, hidden_size] or temporal [batch_size, num_frames, hidden_size]
         """
+        pixel_values = _to_model_device_dtype(pixel_values, self.vision_model)
+        pixel_values, batch_dims = _flatten_video_batch(pixel_values)  # (B_flat, T, C, H, W)
         batch_size, num_frames, channels, height, width = pixel_values.shape
-        frames = pixel_values.view(-1, channels, height, width)
+        frames = pixel_values.reshape(-1, channels, height, width)
         
         vision_outputs = self.vision_model(pixel_values=frames)
         sequence_output = vision_outputs.last_hidden_state  # [batch_size * num_frames, seq_len, hidden_size]
@@ -101,10 +155,10 @@ class VideoEncoderClip(nn.Module):
         frame_features = frame_features.view(batch_size, num_frames, -1)  # [batch_size, num_frames, hidden_size]
         
         if return_temporal_features:
-            return frame_features  # [batch_size, num_frames, hidden_size]
+            return _unflatten_batch(frame_features, batch_dims)  # [..., T, hidden_size]
         
-        video_features = torch.mean(frame_features, dim=1)  # [batch_size, hidden_size]
-        return video_features
+        video_features = torch.mean(frame_features, dim=1)  # [B_flat, hidden_size]
+        return _unflatten_batch(video_features, batch_dims)  # [..., hidden_size]
 
 
 class VideoEncoderSigLIP(nn.Module):
@@ -145,9 +199,10 @@ class VideoEncoderSigLIP(nn.Module):
         Returns:
             Video features - either pooled [batch_size, hidden_size] or temporal [batch_size, num_frames, hidden_size]
         """
+        pixel_values = _to_model_device_dtype(pixel_values, self.vision_model)
+        pixel_values, batch_dims = _flatten_video_batch(pixel_values)  # (B_flat, T, C, H, W)
         batch_size, num_frames, channels, height, width = pixel_values.shape
-        
-        frames = pixel_values.view(-1, channels, height, width)
+        frames = pixel_values.reshape(-1, channels, height, width)
         
         vision_outputs = self.vision_model(pixel_values=frames)
         sequence_output = vision_outputs.last_hidden_state  # [batch_size * num_frames, seq_len, hidden_size]
@@ -157,10 +212,10 @@ class VideoEncoderSigLIP(nn.Module):
         frame_features = frame_features.view(batch_size, num_frames, -1)  # [batch_size, num_frames, hidden_size]
         
         if return_temporal_features:
-            return frame_features  # [batch_size, num_frames, hidden_size]
+            return _unflatten_batch(frame_features, batch_dims)  # [..., T, hidden_size]
         
-        video_features = torch.mean(frame_features, dim=1)  # [batch_size, hidden_size]
-        return video_features
+        video_features = torch.mean(frame_features, dim=1)  # [B_flat, hidden_size]
+        return _unflatten_batch(video_features, batch_dims)  # [..., hidden_size]
 
 
 class VideoEncoderDinov2(nn.Module):
@@ -201,8 +256,10 @@ class VideoEncoderDinov2(nn.Module):
         Returns:
             Video features - either pooled [batch_size, hidden_size * 2] or temporal [batch_size, num_frames, hidden_size * 2]
         """
+        pixel_values = _to_model_device_dtype(pixel_values, self.vision_model)
+        pixel_values, batch_dims = _flatten_video_batch(pixel_values)  # (B_flat, T, C, H, W)
         batch_size, num_frames, channels, height, width = pixel_values.shape
-        frames = pixel_values.view(-1, channels, height, width)
+        frames = pixel_values.reshape(-1, channels, height, width)
         outputs = self.vision_model(pixel_values=frames)
         
         # following https://github.com/huggingface/transformers/blob/main/src/transformers/models/dinov2/modeling_dinov2.py#L555-L603
@@ -217,10 +274,10 @@ class VideoEncoderDinov2(nn.Module):
         frame_features = frame_features.view(batch_size, num_frames, -1)
         
         if return_temporal_features:
-            return frame_features  # [batch_size, num_frames, hidden_size * 2]
+            return _unflatten_batch(frame_features, batch_dims)  # [..., T, hidden_size * 2]
         
-        video_features = torch.mean(frame_features, dim=1)  # [batch_size, hidden_size * 2]
-        return video_features
+        video_features = torch.mean(frame_features, dim=1)  # [B_flat, hidden_size * 2]
+        return _unflatten_batch(video_features, batch_dims)  # [..., hidden_size * 2]
 
 
 class VideoEncoderVivit(nn.Module):
@@ -266,6 +323,8 @@ class VideoEncoderVivit(nn.Module):
             Video features - either CLS token [batch_size, hidden_size] or 
             spatiotemporal tokens [batch_size, seq_len-1, hidden_size]
         """
+        pixel_values = _to_model_device_dtype(pixel_values, self.vision_model)
+        pixel_values, batch_dims = _flatten_video_batch(pixel_values)  # (B_flat, T, C, H, W)
         # ViViT expects exactly 32 frames, so we need to resample if necessary
         pixel_values = temporal_sampling(pixel_values, self.expected_num_frames)
         
@@ -274,11 +333,11 @@ class VideoEncoderVivit(nn.Module):
         
         if return_temporal_features:
             # Return all tokens except CLS token (spatiotemporal patch tokens)
-            return sequence_output[:, 1:, :]  # [batch_size, seq_len-1, hidden_size]
+            return _unflatten_batch(sequence_output[:, 1:, :], batch_dims)  # [..., seq_len-1, hidden_size]
         
         # following https://github.com/huggingface/transformers/blob/bb45d3631ec7026db04a77d33a52b31766372160/src/transformers/models/vivit/modeling_vivit.py#L566-L687
-        video_features = sequence_output[:, 0, :]  # [batch_size, hidden_size]
-        return video_features
+        video_features = sequence_output[:, 0, :]  # [B_flat, hidden_size]
+        return _unflatten_batch(video_features, batch_dims)  # [..., hidden_size]
 
 
 class VideoEncoderVideoMAE(nn.Module):
@@ -330,6 +389,8 @@ class VideoEncoderVideoMAE(nn.Module):
             Video features - either pooled [batch_size, hidden_size] or 
             spatiotemporal tokens [batch_size, seq_len, hidden_size]
         """
+        pixel_values = _to_model_device_dtype(pixel_values, self.vision_model)
+        pixel_values, batch_dims = _flatten_video_batch(pixel_values)  # (B_flat, T, C, H, W)
         # VideoMAE expects exactly 16 frames, so we need to resample if necessary
         pixel_values = temporal_sampling(pixel_values, self.expected_num_frames)
         
@@ -337,7 +398,7 @@ class VideoEncoderVideoMAE(nn.Module):
         sequence_output = outputs.last_hidden_state  # [batch_size, sequence_length, hidden_size]
         
         if return_temporal_features:
-            return sequence_output  # [batch_size, seq_len, hidden_size]
+            return _unflatten_batch(sequence_output, batch_dims)  # [..., seq_len, hidden_size]
         
         if self.use_mean_pooling:
             # Use mean pooling over all tokens (following VideoMAE classification head)
@@ -348,7 +409,7 @@ class VideoEncoderVideoMAE(nn.Module):
             # Use CLS token (first token) as video representation
             video_features = sequence_output[:, 0]  # [batch_size, hidden_size]
         
-        return video_features
+        return _unflatten_batch(video_features, batch_dims)
 
 
 class VideoEncoderVJEPA2(nn.Module):
@@ -419,6 +480,8 @@ class VideoEncoderVJEPA2(nn.Module):
         Returns:
             Tensor: (Batch, Time_Patches, Hidden_Size)
         """
+        pixel_values = _to_model_device_dtype(pixel_values, self.vision_model)
+        pixel_values, batch_dims = _flatten_video_batch(pixel_values)  # (B_flat, T, C, H, W)
         # 1. Forward pass to get flat tokens
         outputs = self.vision_model(
             pixel_values_videos=pixel_values,
@@ -440,7 +503,7 @@ class VideoEncoderVJEPA2(nn.Module):
         # 4. Collapse spatial dimensions (Height and Width), keeping Time
         temporal_features = features_3d.mean(dim=(2, 3)) # (Batch, Time, Dim)
         
-        return temporal_features
+        return _unflatten_batch(temporal_features, batch_dims)
 
     def forward(self, 
                 pixel_values: torch.Tensor, 
@@ -457,9 +520,24 @@ class VideoEncoderVJEPA2(nn.Module):
             Tensor: Video features based on flags. Default is pooled [batch_size, hidden_size]
         """
         
+        pixel_values = _to_model_device_dtype(pixel_values, self.vision_model)
+        pixel_values, batch_dims = _flatten_video_batch(pixel_values)  # (B_flat, T, C, H, W)
+
         # If user wants time series specifically, use the optimized path
         if return_temporal_features:
-            return self.get_temporal_embeddings(pixel_values)
+            # Inline the temporal path here so we can preserve original leading batch dims.
+            outputs = self.vision_model(
+                pixel_values_videos=pixel_values,
+                skip_predictor=True,
+                output_attentions=False,
+                output_hidden_states=False,
+            )
+            last_hidden_state = outputs.last_hidden_state  # (B_flat, Total_Patches, Dim)
+            D_out, H_out, W_out = self._get_patch_grid_shape(pixel_values.shape)
+            b_flat, total_patches, dim = last_hidden_state.shape
+            features_3d = last_hidden_state.view(b_flat, D_out, H_out, W_out, dim)
+            temporal_features = features_3d.mean(dim=(2, 3))  # (B_flat, Time, Dim)
+            return _unflatten_batch(temporal_features, batch_dims)
 
         # Standard Forward
         outputs = self.vision_model(
@@ -471,9 +549,8 @@ class VideoEncoderVJEPA2(nn.Module):
         
         last_hidden_state = outputs.last_hidden_state  # [batch_size, sequence_length, hidden_size]
         
-        video_features = self.pooler(last_hidden_state)  # [batch_size, hidden_size]
-        
-        return video_features
+        video_features = self.pooler(last_hidden_state)  # [B_flat, hidden_size]
+        return _unflatten_batch(video_features, batch_dims)
 
 
 def get_embed_dim_for_model_type(model_type: str) -> int:

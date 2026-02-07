@@ -1,5 +1,6 @@
 from pathlib import Path
 from copy import deepcopy
+import argparse
 
 from benchmarl.experiment import Experiment, ExperimentConfig
 from scripts.doom_wrappers.DoomPettingzoo import DoomPettingZooTask
@@ -107,6 +108,20 @@ class MappoCeclExperiment(Experiment):
 
 
 def main() -> None:
+   parser = argparse.ArgumentParser(description="Run BenchMARL CECL experiment.")
+   parser.add_argument(
+      "--restore-file",
+      type=str,
+      default=None,
+      help="Path to a checkpoint to resume from.",
+   )
+   parser.add_argument(
+      "--restore-map-location",
+      type=str,
+      default=None,
+      help='torch.load map_location, e.g. \'{"cuda:0":"cpu"}\'',
+   )
+   args = parser.parse_args()
    repo_root = Path(__file__).resolve().parents[1]
    # Use a task config with a different base_port so CECL experiments can
    # run in parallel with other DoomPettingZoo experiments without
@@ -144,6 +159,10 @@ def main() -> None:
    task = DoomPettingZooTask.DOOM_PZ.get_from_yaml(str(task_cfg))
    algo_cfg = MappoCeclConfig.get_from_yaml(str(algo_cfg))
    exp_config = ExperimentConfig.get_from_yaml(str(exp_cfg))
+   if args.restore_file:
+      exp_config.restore_file = args.restore_file
+   if args.restore_map_location:
+      exp_config.restore_map_location = args.restore_map_location
    # exp_config = ExperimentConfig.get_from_yaml()
    for i, (actor_cfg_i, critic_cfg_i) in enumerate(zip(actor_cfgs, critic_cfgs)):
       print(

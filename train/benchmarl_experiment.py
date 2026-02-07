@@ -1,5 +1,6 @@
 from pathlib import Path
 from copy import deepcopy
+import argparse
 
 from benchmarl.algorithms import MappoConfig
 from scripts.doom_wrappers.DoomPettingzoo import DoomPettingZooTask
@@ -12,6 +13,20 @@ from models.video_rl_critic import VideoCentralCriticModelConfig
 
 
 def main() -> None:
+   parser = argparse.ArgumentParser(description="Run BenchMARL experiment.")
+   parser.add_argument(
+      "--restore-file",
+      type=str,
+      default=None,
+      help="Path to a checkpoint to resume from.",
+   )
+   parser.add_argument(
+      "--restore-map-location",
+      type=str,
+      default=None,
+      help='torch.load map_location, e.g. \'{"cuda:0":"cpu"}\'',
+   )
+   args = parser.parse_args()
    repo_root = Path(__file__).resolve().parents[1]
    task_cfg = repo_root / "configs" / "benchmarl" / "task" / "doom_pettingzoo.yaml"
    actor_cfg = repo_root / "configs" / "benchmarl" / "model" / "video_actor.yaml"
@@ -45,6 +60,10 @@ def main() -> None:
    task = DoomPettingZooTask.DOOM_PZ.get_from_yaml(str(task_cfg))
    algo_cfg = MappoConfig.get_from_yaml()
    exp_config = ExperimentConfig.get_from_yaml(str(exp_cfg))
+   if args.restore_file:
+      exp_config.restore_file = args.restore_file
+   if args.restore_map_location:
+      exp_config.restore_map_location = args.restore_map_location
 
    for i, (actor_cfg_i, critic_cfg_i) in enumerate(zip(actor_cfgs, critic_cfgs)):
       print(

@@ -218,8 +218,28 @@ def _worker_main(
             cmd = msg[0]
 
             if cmd == "reset":
-                # In multiplayer, all players must call new_episode()
-                game.new_episode()
+                # In multiplayer, all players must call new_episode().
+                # Some single-player maps lack Player 2/3/4 starts; the
+                # engine may sporadically fail on episode restart.  Retry
+                # with a full game re-init to recover.
+                max_retries = 3
+                for _attempt in range(max_retries):
+                    try:
+                        game.new_episode()
+                        break
+                    except Exception:
+                        try:
+                            game.close()
+                        except Exception:
+                            pass
+                        game, actions = _init_game_instance(
+                            cfg, is_host, player_index, buttons
+                        )
+                else:
+                    raise RuntimeError(
+                        f"Player {player_index}: failed to start new episode "
+                        f"after {max_retries} retries"
+                    )
                 obs = _safe_get_obs(game)
                 info = {}
                 conn.send(("reset_ok", obs, info))

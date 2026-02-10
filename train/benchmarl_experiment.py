@@ -2,7 +2,8 @@ from pathlib import Path
 from copy import deepcopy
 import argparse
 
-from benchmarl.algorithms import MappoConfig
+from benchmarl.algorithms import MappoConfig, MasacConfig
+import benchmarl.algorithms.masac as masac_module
 from scripts.doom_wrappers.DoomPettingzoo import DoomPettingZooTask
 # from benchmarl.environments import VmasTask
 from benchmarl.experiment import Experiment, ExperimentConfig
@@ -12,7 +13,60 @@ from models.video_rl_critic import VideoCentralCriticModelConfig
 # from benchmarl.models.mlp import MlpConfig
 
 
+def _patch_masac_spec_device_mismatch() -> None:
+   """Patch MASAC discrete critic spec to keep nested specs on the algorithm device."""
+   if getattr(masac_module.Masac, "_xego_spec_device_patch", False):
+      return
+
+   def _patched_get_discrete_value_module_coupled(self, group: str):
+      n_agents = len(self.group_map[group])
+      n_actions = self.action_spec[group, "action"].space.n
+
+      critic_output_spec = masac_module.Composite(
+         {
+            "action_value": masac_module.Unbounded(
+               shape=(n_actions * n_agents,),
+               device=self.device,
+            )
+         },
+         device=self.device,
+      )
+
+      if self.state_spec is not None:
+         critic_input_spec = self.state_spec
+         input_has_agent_dim = False
+      else:
+         critic_input_spec = masac_module.Composite(
+            {group: self.observation_spec[group].clone().to(self.device)}
+         )
+         input_has_agent_dim = True
+
+      value_module = self.critic_model_config.get_model(
+         input_spec=critic_input_spec,
+         output_spec=critic_output_spec,
+         n_agents=n_agents,
+         centralised=True,
+         input_has_agent_dim=input_has_agent_dim,
+         agent_group=group,
+         share_params=True,
+         device=self.device,
+         action_spec=self.action_spec,
+      )
+
+      expand_module = masac_module.TensorDictModule(
+         lambda value: value.reshape(*value.shape[:-1], n_agents, n_actions),
+         in_keys=["action_value"],
+         out_keys=[(group, "action_value")],
+      )
+      return masac_module.TensorDictSequential(value_module, expand_module)
+
+   masac_module.Masac.get_discrete_value_module_coupled = _patched_get_discrete_value_module_coupled
+   masac_module.Masac._xego_spec_device_patch = True
+
+
 def main() -> None:
+   _patch_masac_spec_device_mismatch()
+
    parser = argparse.ArgumentParser(description="Run BenchMARL experiment.")
    parser.add_argument(
       "--restore-file",
@@ -59,7 +113,7 @@ def main() -> None:
    # Mirror Benchmark.get_experiments: loop over experiments explicitly,
    # but with paired actor / critic configs (no cross-product between them).
    task = DoomPettingZooTask.DOOM_PZ.get_from_yaml(str(task_cfg))
-   algo_cfg = MappoConfig.get_from_yaml()
+   algo_cfg = MasacConfig.get_from_yaml()
    exp_config = ExperimentConfig.get_from_yaml(str(exp_cfg))
    if args.restore_file:
       exp_config.restore_file = args.restore_file

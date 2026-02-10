@@ -259,7 +259,27 @@ def _worker_main(
                 # DEBUG: see that we actually reach step and with what
                 print(f"[worker {player_index}] step a_idx={a_idx}", flush=True)
 
-                reward = float(game.make_action(actions[a_idx], cfg.skip))
+                try:
+                    reward = float(game.make_action(actions[a_idx], cfg.skip))
+                except vzd.vizdoom.ViZDoomErrorException:
+                    # VizDoom native engine crashed (signal 11 / segfault).
+                    # Re-init the game instance and signal episode-done so
+                    # the manager resets all workers on the next step.
+                    print(
+                        f"[worker {player_index}] ViZDoom crashed during "
+                        f"make_action — reinitialising game instance",
+                        flush=True,
+                    )
+                    try:
+                        game.close()
+                    except Exception:
+                        pass
+                    game, actions = _init_game_instance(
+                        cfg, is_host, player_index, buttons
+                    )
+                    obs = _safe_get_obs(game)
+                    conn.send(("step_ok", obs, 0.0, True, {"vizdoom_crash": True}))
+                    continue
 
                 # DEBUG: see if make_action returns
                 print(f"[worker {player_index}] make_action done, reward={reward}", flush=True)

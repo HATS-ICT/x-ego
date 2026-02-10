@@ -160,6 +160,16 @@ class VideoEncoderCNN(nn.Module):
             param.requires_grad = False
 
     def forward(self, pixel_values: torch.Tensor, return_temporal_features: bool = False) -> Tensor:
+        # Defensive sync: in some TorchRL/BenchMARL initialization paths, model
+        # modules may still be on CPU when the first collector batch arrives on CUDA.
+        # Keep encoder params on the incoming tensor device to avoid conv dtype/device mismatches.
+        try:
+            p = next(self.parameters())
+            if p.device != pixel_values.device:
+                self.to(pixel_values.device)
+        except StopIteration:
+            pass
+        
         pixel_values, batch_dims = _flatten_video_batch(pixel_values)  # (B_flat, T, C, H, W)
         batch_size, num_frames, channels, height, width = pixel_values.shape
 
@@ -170,6 +180,7 @@ class VideoEncoderCNN(nn.Module):
             )
 
         frames = pixel_values.reshape(batch_size, channels, height, width)
+        frames = _to_model_device_dtype(frames, self)
         features = self.trunk(frames)
         embeddings = self.proj(features)  # [B_flat, embed_dim]
 

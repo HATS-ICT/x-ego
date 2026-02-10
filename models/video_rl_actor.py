@@ -262,6 +262,24 @@ class VideoPolicyModel(Model):
             return (int(size[0]), int(size[1]))
         return None
 
+    def _ensure_head_device(self, ref: torch.Tensor) -> None:
+        """
+        Keep trainable actor modules on the same device as runtime activations.
+        This avoids CUDA/CPU mismatches during collector warmup when some
+        init paths instantiate policy submodules on CPU.
+        """
+        head_param = next(self.head.parameters(), None)
+        if head_param is not None and head_param.device != ref.device:
+            self.head = self.head.to(ref.device)
+        if self.projector is not None:
+            proj_param = next(self.projector.parameters(), None)
+            if proj_param is not None and proj_param.device != ref.device:
+                self.projector = self.projector.to(ref.device)
+        if self.logit_scale is not None and self.logit_scale.device != ref.device:
+            self.logit_scale.data = self.logit_scale.data.to(ref.device)
+        if self.logit_bias is not None and self.logit_bias.device != ref.device:
+            self.logit_bias.data = self.logit_bias.data.to(ref.device)
+
     def _forward(self, tensordict: TensorDictBase) -> TensorDictBase:
         """
         BenchMARL calls this and expects us to write tensordict[self.out_key] with:
@@ -280,6 +298,7 @@ class VideoPolicyModel(Model):
         )
         video = self._align_video_to_batch(video, tensordict.batch_size)
         z = self._encode_video(video)  # [B, n_agents, D] if input_has_agent_dim else [B, D]
+        self._ensure_head_device(z)
 
         # 1b) Project encoder embeddings -> h (trainable CECL embedding)
         if self.projector is not None:

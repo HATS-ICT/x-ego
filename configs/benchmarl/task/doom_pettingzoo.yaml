@@ -1,4 +1,4 @@
-config_path: "deadly_corridor.cfg"
+config_path: "defend_the_line.cfg"
 num_players: 4
 host_ip: 127.0.0.1
 

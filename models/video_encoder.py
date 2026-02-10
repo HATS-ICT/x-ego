@@ -104,6 +104,82 @@ def temporal_sampling(frames: torch.Tensor, target_frames: int) -> torch.Tensor:
     return resampled
 
 
+class VideoEncoderCNN(nn.Module):
+    """
+    Lightweight trainable CNN encoder for RL visual observations.
+
+    Expects video input with a singleton temporal dimension (T=1), i.e.
+    shape [..., 1, C, H, W]. Returns pooled embeddings of shape
+    [..., embed_dim], and can optionally return per-frame embeddings
+    [..., 1, embed_dim] for compatibility with the shared interface.
+    """
+
+    def __init__(self, cfg: Dict[str, Any]):
+        super().__init__()
+        self.cfg = cfg
+        self.model_type = cfg.model_type
+
+        in_channels = int(getattr(cfg, "in_channels", 3))
+        c1 = int(getattr(cfg, "c1", 32))
+        c2 = int(getattr(cfg, "c2", 64))
+        c3 = int(getattr(cfg, "c3", 64))
+        self.embed_dim = int(getattr(cfg, "embed_dim", 256))
+        act_name = str(getattr(cfg, "activation", "relu")).lower()
+
+        if act_name == "silu":
+            act_cls = nn.SiLU
+        elif act_name == "gelu":
+            act_cls = nn.GELU
+        else:
+            act_cls = nn.ReLU
+
+        # Nature-CNN style trunk with GroupNorm for PPO-friendly stability.
+        self.trunk = nn.Sequential(
+            nn.Conv2d(in_channels, c1, kernel_size=8, stride=4),
+            nn.GroupNorm(num_groups=8, num_channels=c1),
+            act_cls(),
+            nn.Conv2d(c1, c2, kernel_size=4, stride=2),
+            nn.GroupNorm(num_groups=8, num_channels=c2),
+            act_cls(),
+            nn.Conv2d(c2, c3, kernel_size=3, stride=1),
+            nn.GroupNorm(num_groups=8, num_channels=c3),
+            act_cls(),
+            nn.AdaptiveAvgPool2d((1, 1)),
+        )
+        self.proj = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(c3, self.embed_dim),
+            act_cls(),
+        )
+
+        if getattr(cfg, "freeze_backbone", False):
+            self._freeze_backbone()
+
+    def _freeze_backbone(self):
+        for param in self.parameters():
+            param.requires_grad = False
+
+    def forward(self, pixel_values: torch.Tensor, return_temporal_features: bool = False) -> Tensor:
+        pixel_values, batch_dims = _flatten_video_batch(pixel_values)  # (B_flat, T, C, H, W)
+        batch_size, num_frames, channels, height, width = pixel_values.shape
+
+        if num_frames != 1:
+            raise ValueError(
+                f"VideoEncoderCNN expects T=1 for now (got T={num_frames}, shape={tuple(pixel_values.shape)}). "
+                "Set frame_stack=1 or update VideoEncoderCNN to aggregate multiple frames."
+            )
+
+        frames = pixel_values.reshape(batch_size, channels, height, width)
+        features = self.trunk(frames)
+        embeddings = self.proj(features)  # [B_flat, embed_dim]
+
+        if return_temporal_features:
+            temporal = embeddings.unsqueeze(1)  # [B_flat, 1, embed_dim]
+            return _unflatten_batch(temporal, batch_dims)
+
+        return _unflatten_batch(embeddings, batch_dims)
+
+
 class VideoEncoderClip(nn.Module):
     """
     CLIP-based video encoder for video classification.
@@ -564,10 +640,14 @@ def get_embed_dim_for_model_type(model_type: str) -> int:
     Returns:
         The embedding dimension for the specified model type
     """
+    if model_type == "cnn":
+        # Default embed dim for VideoEncoderCNN when no cfg is available.
+        return 256
+
     if model_type not in MODEL_TYPE_TO_PRETRAINED:
         raise ValueError(
             f"Unknown model_type: '{model_type}'. "
-            f"Supported types: {list(MODEL_TYPE_TO_PRETRAINED.keys())}"
+            f"Supported types: {list(MODEL_TYPE_TO_PRETRAINED.keys()) + ['cnn']}"
         )
     
     pretrained_name = MODEL_TYPE_TO_PRETRAINED[model_type]
@@ -613,6 +693,7 @@ class VideoEncoder(nn.Module):
     - ViViT models (model_type="vivit")
     - VideoMAE models (model_type="videomae")
     - VJEPA2 models (model_type="vjepa2")
+    - Custom CNN model (model_type="cnn")
     """
     
     def __init__(self, cfg: Dict[str, Any]):
@@ -633,10 +714,12 @@ class VideoEncoder(nn.Module):
             self.video_encoder = VideoEncoderVideoMAE(cfg)
         elif model_type == 'vjepa2':
             self.video_encoder = VideoEncoderVJEPA2(cfg)
+        elif model_type == 'cnn':
+            self.video_encoder = VideoEncoderCNN(cfg)
         else:
             raise ValueError(
                 f"Unknown model_type: '{model_type}'. "
-                f"Supported types: {list(MODEL_TYPE_TO_PRETRAINED.keys())}"
+                f"Supported types: {list(MODEL_TYPE_TO_PRETRAINED.keys()) + ['cnn']}"
             )
         
         self.embed_dim = self.video_encoder.embed_dim

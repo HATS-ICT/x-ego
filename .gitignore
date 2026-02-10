@@ -216,3 +216,4 @@ lightning_logs/
 jobs/
 logs/
 exp_runs/
+_vizdoom.ini

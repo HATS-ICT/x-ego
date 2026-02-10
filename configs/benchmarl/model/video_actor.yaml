@@ -1,8 +1,10 @@
 name: video_actor
 
 video_encoder_cfg:
-  model_type: siglip
-  freeze_backbone: true
+  model_type: cnn
+  freeze_backbone: false
+  embed_dim: 256
+  activation: relu
 
 video_key: video
 aux_keys: null

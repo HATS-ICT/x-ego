@@ -74,9 +74,11 @@ class VideoCentralCriticModel(Model):
         # ---- Frozen encoder (critic-side copy, generic factory) ----
         # VideoEncoder selects the concrete backbone based on video_encoder_cfg["model_type"].
         self.encoder = VideoEncoder(video_encoder_cfg).to(self.device)
-        self.encoder.eval()
-        for p in self.encoder.parameters():
-            p.requires_grad = False
+        self.freeze_backbone = bool(getattr(video_encoder_cfg, "freeze_backbone", False))
+        if self.freeze_backbone:
+            self.encoder.eval()
+            for p in self.encoder.parameters():
+                p.requires_grad = False
 
         self.embed_dim = int(self.encoder.embed_dim)
 
@@ -204,7 +206,10 @@ class VideoCentralCriticModel(Model):
         # [Bflat*n_agents, T, C, H, W]
         v_flat = v.reshape(Bflat * n_agents, *tail)
 
-        with torch.no_grad():
+        if self.freeze_backbone:
+            with torch.no_grad():
+                emb = self.encoder(v_flat, return_temporal_features=self.return_temporal_features)
+        else:
             emb = self.encoder(v_flat, return_temporal_features=self.return_temporal_features)
 
         # If encoder returns temporal features [B, Time, D], pool time -> [B, D]

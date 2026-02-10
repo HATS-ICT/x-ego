@@ -38,7 +38,8 @@ def main() -> None:
    base_critic_cfg = VideoCentralCriticModelConfig.get_from_yaml(str(critic_cfg))
 
    # Take all available video backbone names and build independent actor / critic configs
-   video_model_names = list(MODEL_TYPE_TO_PRETRAINED.keys())
+   # video_model_names = list(MODEL_TYPE_TO_PRETRAINED.keys())
+   video_model_names = ["cnn"]
    actor_cfgs = []
    critic_cfgs = []
    for model_name in video_model_names:

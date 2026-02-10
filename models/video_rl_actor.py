@@ -80,10 +80,12 @@ class VideoPolicyModel(Model):
         # VideoEncoder selects the concrete backbone based on video_encoder_cfg["model_type"].
         self.encoder = VideoEncoder(video_encoder_cfg).to(self.device)
 
-        # Freeze + eval mode for stability (and to avoid dropout etc. inside encoder)
-        self.encoder.eval()
-        for p in self.encoder.parameters():
-            p.requires_grad = False
+        # Optionally freeze + eval mode for pretrained backbones.
+        self.freeze_backbone = bool(getattr(video_encoder_cfg, "freeze_backbone", False))
+        if self.freeze_backbone:
+            self.encoder.eval()
+            for p in self.encoder.parameters():
+                p.requires_grad = False
 
         # Embedding dimension
         self.embed_dim = int(self.encoder.embed_dim)
@@ -225,8 +227,11 @@ class VideoPolicyModel(Model):
             # video: [*, T, C, H, W]
             flat = video.reshape(-1, *video.shape[-4:])           # [Bflat, T, C, H, W]
 
-        # Frozen encoder forward (no grad)
-        with torch.no_grad():
+        # Encoder forward: no_grad only when backbone is explicitly frozen.
+        if self.freeze_backbone:
+            with torch.no_grad():
+                emb = self.encoder(flat, return_temporal_features=self.return_temporal_features)
+        else:
             emb = self.encoder(flat, return_temporal_features=self.return_temporal_features)
 
         # If you ever set return_temporal_features=True, emb might be [B, Time, D].

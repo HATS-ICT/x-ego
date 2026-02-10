@@ -218,6 +218,15 @@ def _worker_main(
             cmd = msg[0]
 
             if cmd == "reset":
+                # If the game was killed by a previous crash, re-init from
+                # scratch.  All workers receive "reset" together, so a
+                # fresh _init_game_instance will succeed because the host
+                # and all joiners connect at the same time.
+                if game is None:
+                    game, actions = _init_game_instance(
+                        cfg, is_host, player_index, buttons
+                    )
+
                 # In multiplayer, all players must call new_episode().
                 # Some single-player maps lack Player 2/3/4 starts; the
                 # engine may sporadically fail on episode restart.  Retry
@@ -245,6 +254,19 @@ def _worker_main(
                 conn.send(("reset_ok", obs, info))
 
             elif cmd == "step":
+                # If the game died from a previous crash, keep returning
+                # done=True until the manager resets all workers together.
+                if game is None:
+                    _crash_res = {
+                        vzd.ScreenResolution.RES_160X120: (120, 160),
+                        vzd.ScreenResolution.RES_320X240: (240, 320),
+                        vzd.ScreenResolution.RES_640X480: (480, 640),
+                    }
+                    h, w = _crash_res.get(cfg.screen_resolution, (240, 320))
+                    dummy_obs = np.zeros((h, w, 3), dtype=np.uint8)
+                    conn.send(("step_ok", dummy_obs, 0.0, True,
+                               {"vizdoom_crash": True}))
+                    continue
                 if game.is_episode_finished():
                     done = True
                     reward = 0.0
@@ -263,22 +285,29 @@ def _worker_main(
                     reward = float(game.make_action(actions[a_idx], cfg.skip))
                 except vzd.vizdoom.ViZDoomErrorException:
                     # VizDoom native engine crashed (signal 11 / segfault).
-                    # Re-init the game instance and signal episode-done so
-                    # the manager resets all workers on the next step.
+                    # Close the dead game but do NOT re-init — in multiplayer
+                    # a single player can't rejoin mid-session.  Signal
+                    # done=True so the manager tears down ALL workers and
+                    # respawns them together on the next reset().
                     print(
                         f"[worker {player_index}] ViZDoom crashed during "
-                        f"make_action — reinitialising game instance",
+                        f"make_action — marking game dead",
                         flush=True,
                     )
                     try:
                         game.close()
                     except Exception:
                         pass
-                    game, actions = _init_game_instance(
-                        cfg, is_host, player_index, buttons
-                    )
-                    obs = _safe_get_obs(game)
-                    conn.send(("step_ok", obs, 0.0, True, {"vizdoom_crash": True}))
+                    game = None  # flag: game is dead
+                    _crash_res = {
+                        vzd.ScreenResolution.RES_160X120: (120, 160),
+                        vzd.ScreenResolution.RES_320X240: (240, 320),
+                        vzd.ScreenResolution.RES_640X480: (480, 640),
+                    }
+                    h, w = _crash_res.get(cfg.screen_resolution, (240, 320))
+                    dummy_obs = np.zeros((h, w, 3), dtype=np.uint8)
+                    conn.send(("step_ok", dummy_obs, 0.0, True,
+                               {"vizdoom_crash": True}))
                     continue
 
                 # DEBUG: see if make_action returns
@@ -294,7 +323,8 @@ def _worker_main(
 
             elif cmd == "close":
                 try:
-                    game.close()
+                    if game is not None:
+                        game.close()
                 finally:
                     conn.close()
                 break
@@ -473,7 +503,23 @@ class VizDoomCoopParallelEnv(ParallelEnv):
         self._started = True
 
     def _recv_ok(self, agent: str):
-        msg = self._parent_conns[agent].recv()
+        try:
+            msg = self._parent_conns[agent].recv()
+        except (EOFError, BrokenPipeError, ConnectionResetError):
+            # The worker process was killed by a native signal (e.g. SIGSEGV)
+            # before its Python exception handler could send a reply.
+            # Synthesise a crash response so the manager can tear down
+            # all workers gracefully.
+            print(f"[manager] pipe to {agent} broke (worker likely killed by signal)",
+                  flush=True)
+            _crash_res = {
+                vzd.ScreenResolution.RES_160X120: (120, 160),
+                vzd.ScreenResolution.RES_320X240: (240, 320),
+                vzd.ScreenResolution.RES_640X480: (480, 640),
+            }
+            h, w = _crash_res.get(self.cfg.screen_resolution, (240, 320))
+            dummy_obs = np.zeros((h, w, 3), dtype=np.uint8)
+            return ("step_ok", dummy_obs, 0.0, True, {"vizdoom_crash": True})
         if msg[0] == "error":
             _, m, tb = msg
             raise RuntimeError(f"[{agent}] worker error: {m}\n{tb}")
@@ -533,12 +579,16 @@ class VizDoomCoopParallelEnv(ParallelEnv):
         infos = {}
 
         done_any = False
+        any_crash = False
         for a in self.agents:
             print(f"[manager] waiting for reply from {a}", flush=True)
             msg = self._recv_ok(a)
             print(f"[manager] got reply from {a}: {msg[0]}", flush=True)
             assert msg[0] == "step_ok"
             _, o, r, done, info = msg
+            if info.get("vizdoom_crash"):
+                any_crash = True
+
             # Update frame buffer with the newest single-frame observation.
             if a not in self._obs_buffers:
                 # Shouldn't happen in normal flow, but create a fresh buffer if needed.
@@ -567,6 +617,15 @@ class VizDoomCoopParallelEnv(ParallelEnv):
                 truncations[a] = True
                 terminations[a] = False
             done_any = True
+
+        # If any worker's VizDoom engine crashed, the multiplayer session is
+        # broken.  Tear down ALL workers so they respawn together on the
+        # next reset().
+        if any_crash:
+            print("[manager] VizDoom crash detected — tearing down all workers",
+                  flush=True)
+            done_any = True
+            self.close()  # kills all workers, sets _started = False
 
         # Multiplayer often ends for everyone together; be robust and end if ANY says done.
         if done_any:

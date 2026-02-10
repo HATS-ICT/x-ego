@@ -1,0 +1,25 @@
+# MASAC base parameters
+share_param_critic: true
+num_qvalue_nets: 2
+loss_function: "l2"
+delay_qvalue: true
+target_entropy: "auto"
+discrete_target_entropy_weight: 0.2
+alpha_init: 1.0
+min_alpha: null
+max_alpha: null
+fixed_alpha: false
+scale_mapping: "biased_softplus_1.0"
+use_tanh_normal: true
+coupled_discrete_values: true
+
+# CECL parameters
+lambda_cecl: 0.05
+cecl_emb_key: cecl_emb
+cecl_use_logit_scale: true
+cecl_use_logit_bias: true
+cecl_logit_scale_key: logit_scale
+cecl_logit_bias_key: logit_bias
+cecl_use_time_mask: true
+cecl_start_time_key: obs_start_time
+cecl_end_time_key: obs_end_time

@@ -309,6 +309,43 @@ class MasacCecl(Masac):
         return wrapped, has_delay
 
     # ------------------------------------------------------------------
+    # Override get_loss_and_updater: pass the *inner* SAC loss to the
+    # target-net updater so it can find the ``target_*_params`` children.
+    # The wrapper itself only exposes ``sac_loss`` and ``cecl_loss`` as
+    # named children, which SoftUpdate / HardUpdate cannot discover.
+    # ------------------------------------------------------------------
+    def get_loss_and_updater(self, group: str):
+        if group not in self._losses_and_updaters:
+            from torchrl.data import Categorical, OneHot
+            from torchrl.objectives.utils import HardUpdate, SoftUpdate
+
+            action_space = self.action_spec[group, "action"]
+            continuous = not isinstance(action_space, (Categorical, OneHot))
+            loss, use_target = self._get_loss(
+                group=group,
+                policy_for_loss=self.get_policy_for_loss(group),
+                continuous=continuous,
+            )
+            if use_target:
+                # Use the inner SAC loss so SoftUpdate sees target_*_params
+                updater_loss = (
+                    loss.sac_loss if isinstance(loss, CeclWrappedSacLoss) else loss
+                )
+                if self.experiment_config.soft_target_update:
+                    target_net_updater = SoftUpdate(
+                        updater_loss, tau=self.experiment_config.polyak_tau
+                    )
+                else:
+                    target_net_updater = HardUpdate(
+                        updater_loss,
+                        value_network_update_interval=self.experiment_config.hard_target_update_frequency,
+                    )
+            else:
+                target_net_updater = None
+            self._losses_and_updaters[group] = (loss, target_net_updater)
+        return self._losses_and_updaters[group]
+
+    # ------------------------------------------------------------------
     # Override _get_parameters: delegate to base Masac using the inner
     # SAC loss (so the optimizer groups stay the same).
     # ------------------------------------------------------------------

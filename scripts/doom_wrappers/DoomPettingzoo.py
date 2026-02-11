@@ -267,7 +267,12 @@ def _worker_main(
                     conn.send(("step_ok", dummy_obs, 0.0, True,
                                {"vizdoom_crash": True}))
                     continue
-                if game.is_episode_finished():
+                # In multiplayer, is_episode_finished() may return False
+                # while the player is dead (game continues for other
+                # players).  Calling make_action on a dead player makes
+                # ViZDoom apply death_penalty every step, producing
+                # massively negative rewards.  Check both conditions.
+                if game.is_episode_finished() or game.is_player_dead():
                     done = True
                     reward = 0.0
                     obs = _safe_get_obs(game)
@@ -277,9 +282,6 @@ def _worker_main(
                 a_idx = int(msg[1])
                 if a_idx < 0 or a_idx >= len(actions):
                     raise ValueError(f"Invalid action index {a_idx} (n={len(actions)})")
-
-                # DEBUG: see that we actually reach step and with what
-                print(f"[worker {player_index}] step a_idx={a_idx}", flush=True)
 
                 try:
                     reward = float(game.make_action(actions[a_idx], cfg.skip))
@@ -310,13 +312,13 @@ def _worker_main(
                                {"vizdoom_crash": True}))
                     continue
 
-                # DEBUG: see if make_action returns
-                print(f"[worker {player_index}] make_action done, reward={reward}", flush=True)
-
-                # if game.is_player_dead():
-                #     game.respawn_player()
-
-                done = bool(game.is_episode_finished())
+                # Player may have just died during this make_action call.
+                # Mark as done so the manager terminates the episode on
+                # the very step the death occurs (death_penalty is already
+                # included in the reward above, exactly once).
+                done = bool(
+                    game.is_episode_finished() or game.is_player_dead()
+                )
                 obs = _safe_get_obs(game)
                 info = {}
                 conn.send(("step_ok", obs, reward, done, info))

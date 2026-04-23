@@ -14,6 +14,9 @@ import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 import joblib
 from tqdm import tqdm
+import os
+import argparse
+from dotenv import load_dotenv
 
 
 def collect_all_coordinates(trajectory_dir: Path):
@@ -125,12 +128,24 @@ def add_normalized_columns(csv_files, scaler):
 
 
 def main():
-    # Define paths
-    project_root = Path(__file__).parent.parent.parent
-    trajectory_dir = project_root / "data" / "trajectory"
-    scaler_save_path = project_root / "data" / "trajectory_minmax_scaler.pkl"
+    parser = argparse.ArgumentParser(description="Fit MinMaxScaler to trajectory data")
+    parser.add_argument('--map', type=str, help='Specific map name to process (e.g. dust2, inferno)')
+    args = parser.parse_args()
+
+    load_dotenv()
     
-    print(f"Project root: {project_root}")
+    # Define paths
+    data_base_path = Path(os.getenv('DATA_BASE_PATH', 'data'))
+    if not data_base_path.is_absolute():
+        data_base_path = Path(__file__).resolve().parent.parent.parent.parent / data_base_path
+
+    if args.map:
+        trajectory_dir = data_base_path / args.map / "trajectory"
+        scaler_save_path = data_base_path / args.map / "trajectory_minmax_scaler.pkl"
+    else:
+        trajectory_dir = data_base_path / "trajectory"
+        scaler_save_path = data_base_path / "trajectory_minmax_scaler.pkl"
+    
     print(f"Trajectory directory: {trajectory_dir}")
     print(f"Scaler save path: {scaler_save_path}")
     

@@ -8,6 +8,7 @@ import json
 import polars as pl
 import pandas as pd
 from dotenv import load_dotenv
+import argparse
 
 # Load environment variables from .env file
 load_dotenv()
@@ -154,12 +155,16 @@ def process_single_demo(args):
         }
 
 
-def parse_demo_files():
+def parse_demo_files(map_name=None):
     """Parse all .dem files in the demo directory and save trajectories using parallel processing"""
     
     # Define paths using environment variable
-    demo_dir = DATA_BASE_PATH / "demo"
-    output_dir = DATA_BASE_PATH / "trajectory"
+    if map_name:
+        demo_dir = DATA_BASE_PATH / map_name / "demo"
+        output_dir = DATA_BASE_PATH / map_name / "trajectory"
+    else:
+        demo_dir = DATA_BASE_PATH / "demo"
+        output_dir = DATA_BASE_PATH / "trajectory"
     
     # Create output directory if it doesn't exist
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -217,13 +222,26 @@ def parse_demo_files():
     print(f"\nUsed {num_processes} CPU cores (out of {mp.cpu_count()} available)")
 
 def main():
-    print(f"Processing demos from: {DATA_BASE_PATH / 'demo'}")
-    print(f"Processing metadata from: {DATA_BASE_PATH / 'metadata'}")
-    print(f"Output directory: {DATA_BASE_PATH / 'trajectory'}")
+    parser = argparse.ArgumentParser(description="Parse CS2 trajectories")
+    parser.add_argument('--map', type=str, help='Specific map name to process (e.g. dust2, inferno)')
+    args = parser.parse_args()
+    
+    if args.map:
+        demo_dir = DATA_BASE_PATH / args.map / 'demo'
+        metadata_dir = DATA_BASE_PATH / args.map / 'metadata'
+        trajectory_dir = DATA_BASE_PATH / args.map / 'trajectory'
+    else:
+        demo_dir = DATA_BASE_PATH / 'demo'
+        metadata_dir = DATA_BASE_PATH / 'metadata'
+        trajectory_dir = DATA_BASE_PATH / 'trajectory'
+
+    print(f"Processing demos from: {demo_dir}")
+    print(f"Processing metadata from: {metadata_dir}")
+    print(f"Output directory: {trajectory_dir}")
     print(f"CPU configuration: CPU_COUNT={CPU_COUNT}, CPU_USAGE_PERCENT={CPU_USAGE_PERCENT}")
     print(f"Data base path from environment: {DATA_BASE_PATH}")
     
-    parse_demo_files()
+    parse_demo_files(args.map)
 
 if __name__ == "__main__":
     # Required for multiprocessing on Windows

@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 from tqdm import tqdm
 
 
-def convert_video(src_path: Path, dst_path: Path, dry_run: bool = False) -> tuple[Path, bool, str]:
+def convert_video(src_path: Path, dst_path: Path, target_size: int, dry_run: bool = False) -> tuple[Path, bool, str]:
     """
     Convert a single video from 30fps to 4fps using ffmpeg.
     
@@ -52,10 +52,11 @@ def convert_video(src_path: Path, dst_path: Path, dry_run: bool = False) -> tupl
     cmd = [
         "ffmpeg",
         "-i", str(src_path),
+        "-vf", f"scale={target_size}:{target_size},setsar=1",
         "-r", "4",
         "-c:v", "libx264",
         "-crf", "18",
-        "-preset", "slow",
+        "-preset", "veryslow",
         "-an",
         "-y",  # overwrite output file if exists
         str(dst_path)
@@ -96,6 +97,18 @@ def main():
         default=None,
         help="Base data directory (default: data/ relative to project root)"
     )
+    parser.add_argument(
+        "--map",
+        type=str,
+        default=None,
+        help="Specific map name to process (e.g. dust2, inferno)"
+    )
+    parser.add_argument(
+        "--target-size",
+        type=int,
+        default=306,
+        help="Target square size in pixels (default: 306)"
+    )
     args = parser.parse_args()
     
     # Load environment variables from .env file
@@ -104,12 +117,17 @@ def main():
     
     # Determine paths
     if args.data_dir:
-        data_dir = Path(args.data_dir)
+        base_data_dir = Path(args.data_dir)
     else:
-        data_dir = Path(os.environ["DATA_BASE_PATH"])
+        base_data_dir = Path(os.environ.get("DATA_BASE_PATH", "data"))
+        
+    if args.map:
+        data_dir = base_data_dir / args.map
+    else:
+        data_dir = base_data_dir
     
     src_dir = data_dir / "video_544x306_30fps"
-    dst_dir = data_dir / "video_544x306_4fps"
+    dst_dir = data_dir / f"video_{args.target_size}x{args.target_size}_4fps"
     
     print(f"Source directory: {src_dir}")
     print(f"Destination directory: {dst_dir}")
@@ -149,7 +167,7 @@ def main():
     
     with ThreadPoolExecutor(max_workers=args.num_workers) as executor:
         futures = {
-            executor.submit(convert_video, src, dst, args.dry_run): (src, dst)
+            executor.submit(convert_video, src, dst, args.target_size, args.dry_run): (src, dst)
             for src, dst in conversion_tasks
         }
         

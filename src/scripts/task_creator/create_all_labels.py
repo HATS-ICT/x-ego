@@ -149,6 +149,8 @@ TASK_CONFIGS: List[Tuple[str, type, Dict[str, Any]]] = [
     
 ]
 
+
+
 # Tasks that are defined but not yet implemented
 NOT_IMPLEMENTED_TASKS = [
     "headshot_next_kill",    # Needs new creator
@@ -282,6 +284,8 @@ def main():
                         help="Number of parallel workers (default: 90%% of CPU cores)")
     parser.add_argument("--list", action="store_true",
                         help="List all available tasks and exit")
+    parser.add_argument("--map", type=str, default=None,
+                        help="Specific map name to process (e.g. dust2, inferno)")
     args = parser.parse_args()
     
     # List mode
@@ -300,21 +304,25 @@ def main():
     # Load environment
     load_dotenv()
     
-    DATA_BASE_PATH = os.getenv('DATA_BASE_PATH')
-    if not DATA_BASE_PATH:
-        print("ERROR: DATA_BASE_PATH environment variable not set")
-        sys.exit(1)
+    DATA_BASE_PATH = Path(os.getenv('DATA_BASE_PATH', 'data'))
+    if not DATA_BASE_PATH.is_absolute():
+        DATA_BASE_PATH = Path(__file__).resolve().parent.parent.parent.parent / DATA_BASE_PATH
+        
+    if args.map:
+        data_dir = DATA_BASE_PATH / args.map
+    else:
+        data_dir = DATA_BASE_PATH
     
     output_dir = args.output_dir
     if output_dir is None:
-        output_dir = os.path.join(DATA_BASE_PATH, 'labels', 'all_tasks')
+        output_dir = data_dir / 'labels' / 'all_tasks'
     
-    partition_csv = os.path.join(DATA_BASE_PATH, 'match_round_partitioned.csv')
+    partition_csv = data_dir / 'match_round_partitioned.csv'
     
     print("=" * 60)
     print("Task Label Creation")
     print("=" * 60)
-    print(f"Data directory: {DATA_BASE_PATH}")
+    print(f"Data directory: {data_dir}")
     print(f"Output directory: {output_dir}")
     print(f"Partition CSV: {partition_csv}")
     print(f"Stride: {args.stride}s")
@@ -344,7 +352,7 @@ def main():
     print("=" * 60)
     
     results = create_task_labels(
-        data_dir=DATA_BASE_PATH,
+        data_dir=data_dir,
         output_dir=output_dir,
         partition_csv=partition_csv,
         task_ids=args.tasks,

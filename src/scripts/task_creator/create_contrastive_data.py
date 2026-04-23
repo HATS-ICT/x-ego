@@ -371,24 +371,30 @@ def main():
                         help="Partitions to include (default: train val test)")
     parser.add_argument("--num_workers", type=int, default=None,
                         help="Number of worker processes (default: cpu_count)")
+    parser.add_argument("--map", type=str, default=None,
+                        help="Specific map name to process (e.g. dust2, inferno)")
     args = parser.parse_args()
     
     # Load environment
     load_dotenv()
     
-    DATA_BASE_PATH = os.getenv('DATA_BASE_PATH')
-    if not DATA_BASE_PATH:
-        print("ERROR: DATA_BASE_PATH environment variable not set")
-        sys.exit(1)
+    DATA_BASE_PATH = Path(os.getenv('DATA_BASE_PATH', 'data'))
+    if not DATA_BASE_PATH.is_absolute():
+        DATA_BASE_PATH = Path(__file__).resolve().parent.parent.parent.parent / DATA_BASE_PATH
     
+    if args.map:
+        data_dir = DATA_BASE_PATH / args.map
+    else:
+        data_dir = DATA_BASE_PATH
+
     output_dir = args.output_dir
     if output_dir is None:
-        output_dir = os.path.join(DATA_BASE_PATH, 'labels')
+        output_dir = data_dir / 'labels'
     
-    partition_csv = os.path.join(DATA_BASE_PATH, 'match_round_partitioned.csv')
+    partition_csv = data_dir / 'match_round_partitioned.csv'
     
     creator = ContrastiveDataCreator(
-        data_dir=DATA_BASE_PATH,
+        data_dir=data_dir,
         output_dir=output_dir,
         partition_csv_path=partition_csv,
         stride_sec=args.stride,

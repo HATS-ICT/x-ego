@@ -35,14 +35,14 @@ def get_video_list_from_dir(dir_path):
     return [str(path) for path in video_paths]  # Convert back to strings for compatibility
 
 
-def extract_path_components(video_path):
+def extract_path_components(video_path, data_dir):
     """Extract match, player, and round information from video path."""
     try:
         # Convert to Path object for easier manipulation
         path = Path(video_path)
         
-        # Get relative path from DATA_BASE_PATH
-        rel_path = path.relative_to(DATA_BASE_PATH)
+        # Get relative path from data_dir
+        rel_path = path.relative_to(data_dir)
         
         # Remove the video directory prefix using pathlib
         if rel_path.parts[0] == VIDEO_DIR:
@@ -86,18 +86,18 @@ def assign_random_split():
         return "test"
 
 
-def get_all_match_round_combinations():
+def get_all_match_round_combinations(data_dir):
     """Get all unique match_id and round_number combinations from the video directory."""
     match_round_combinations = set()
     
     # Look directly in the VIDEO_DIR
-    video_dir_path = DATA_BASE_PATH / VIDEO_DIR
+    video_dir_path = data_dir / VIDEO_DIR
     
     if video_dir_path.exists():
         paths = get_video_list_from_dir(video_dir_path)
         
         for path in paths:
-            match_id, player_id, round_info = extract_path_components(path)
+            match_id, player_id, round_info = extract_path_components(path, data_dir)
             
             if match_id and round_info:
                 # Extract round number from round_info (e.g., "round_1" -> "1")
@@ -112,14 +112,14 @@ def get_all_match_round_combinations():
     return list(match_round_combinations)
 
 
-def build_data_partition_csv():
+def build_data_partition_csv(data_dir):
     """Create partitioned CSV file with train/val/test splits by match and round."""
-    output_path = DATA_BASE_PATH / OUTPUT_FILE
+    output_path = data_dir / OUTPUT_FILE
     
     # Set random seed for reproducibility
     random.seed(42)
     
-    all_match_rounds = get_all_match_round_combinations()
+    all_match_rounds = get_all_match_round_combinations(data_dir)
     print(f"Found {len(all_match_rounds)} unique match-round combinations")
     
     # Assign splits to each match-round combination
@@ -158,16 +158,30 @@ def build_data_partition_csv():
         print(f"Output saved to: {output_path}")
     else:
         print("No match-round combinations found. No CSV file created.")
-        print(f"Please check if video files exist in: {DATA_BASE_PATH / VIDEO_DIR}")
+        print(f"Please check if video files exist in: {data_dir / VIDEO_DIR}")
         return
 
 
 def main():
     """Main function to generate partitioned CSV file."""
+    import argparse
+    parser = argparse.ArgumentParser(description="Create data partition")
+    parser.add_argument('--map', type=str, default=None, help='Specific map name to process (e.g. dust2, inferno)')
+    args = parser.parse_args()
+
+    data_base_path = Path(os.getenv('DATA_BASE_PATH', 'data'))
+    if not data_base_path.is_absolute():
+        data_base_path = Path(__file__).resolve().parent.parent.parent.parent / data_base_path
+        
+    if args.map:
+        data_dir = data_base_path / args.map
+    else:
+        data_dir = data_base_path
+
     print("Creating data partition with train/val/test splits...")
     print(f"Using source base path: {SRC_BASE_PATH}")
-    print(f"Using data base path: {DATA_BASE_PATH}")
-    build_data_partition_csv()
+    print(f"Using data directory: {data_dir}")
+    build_data_partition_csv(data_dir)
 
 
 if __name__ == "__main__":

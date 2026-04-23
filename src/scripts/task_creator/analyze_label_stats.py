@@ -371,18 +371,24 @@ def main():
                         help="Print detailed per-class statistics")
     parser.add_argument("--tasks", type=str, nargs="+", default=None,
                         help="Specific task IDs to analyze (default: all)")
+    parser.add_argument("--map", type=str, default=None,
+                        help="Specific map name to process (e.g. dust2, inferno)")
     args = parser.parse_args()
     
     load_dotenv()
     
-    DATA_BASE_PATH = os.getenv('DATA_BASE_PATH')
-    if not DATA_BASE_PATH:
-        print("ERROR: DATA_BASE_PATH environment variable not set")
-        sys.exit(1)
+    DATA_BASE_PATH = Path(os.getenv('DATA_BASE_PATH', 'data'))
+    if not DATA_BASE_PATH.is_absolute():
+        DATA_BASE_PATH = Path(__file__).resolve().parent.parent.parent.parent / DATA_BASE_PATH
+        
+    if args.map:
+        data_dir = DATA_BASE_PATH / args.map
+    else:
+        data_dir = DATA_BASE_PATH
     
     labels_dir = args.labels_dir
     if labels_dir is None:
-        labels_dir = os.path.join(DATA_BASE_PATH, 'labels', 'all_tasks')
+        labels_dir = data_dir / 'labels' / 'all_tasks'
     
     labels_path = Path(labels_dir)
     

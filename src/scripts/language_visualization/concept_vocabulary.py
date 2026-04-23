@@ -20,17 +20,13 @@ EGOCENTRIC_VISUAL = [
     # First-person perspective
     "first person view",
     "first person shooter perspective",
-    "looking through my eyes",
     "my point of view",
     "what I see in front of me",
-    "my field of vision",
-    "my line of sight",
     # Weapon and hands
     "my hands holding a weapon",
     "my gun in frame",
     "holding a rifle",
     "holding a pistol",
-    "holding a knife",
     "reloading my weapon",
     "switching weapons",
     "my crosshair on screen",
@@ -39,8 +35,6 @@ EGOCENTRIC_VISUAL = [
     # HUD elements (self-focused)
     "my health bar",
     "my ammo count",
-    "my money display",
-    "my equipment slots",
 ]
 
 EGOCENTRIC_MOVEMENT = [
@@ -50,19 +44,14 @@ EGOCENTRIC_MOVEMENT = [
     "I am sprinting",
     "I am crouching",
     "I am jumping",
-    "I am falling",
-    "I am climbing",
     "I am standing still",
     "I am moving forward",
     "I am moving backward",
-    "I am strafing left",
-    "I am strafing right",
     # Speed and momentum
     "moving at high speed",
     "moving cautiously",
     "stopped completely",
     "quick movement",
-    "slow careful movement",
 ]
 
 EGOCENTRIC_ACTIONS = [
@@ -72,12 +61,9 @@ EGOCENTRIC_ACTIONS = [
     "I am taking aim",
     "I am throwing a grenade",
     "I am planting the bomb",
-    "I am defusing the bomb",
     # Tactical actions
-    "I am peeking around corner",
     "I am checking angles",
     "I am clearing a room",
-    "I am holding an angle",
     "I am watching a doorway",
     "I am camping a position",
     # Utility usage
@@ -95,18 +81,11 @@ EGOCENTRIC_STATE = [
     "I am hidden",
     "I am vulnerable",
     "I am protected",
-    "I am taking damage",
-    "I am low on health",
-    "I am full health",
     # Situational awareness (self)
-    "I am alone",
     "I am surrounded",
-    "I am flanking",
-    "I am being flanked",
     "I am in a good position",
-    "I am in a bad position",
     "I am trapped",
-    "I have an escape route",
+    "I am outnumbered",
 ]
 
 # =============================================================================
@@ -120,19 +99,15 @@ TEAMMATE_PRESENCE = [
     "teammate in frame",
     "ally player on screen",
     "friendly player visible",
-    "team member present",
     "multiple teammates visible",
     "teammate in the distance",
     "teammate close by",
-    "teammate behind me",
     # Teammate count
     "one teammate visible",
     "two teammates visible",
     "three teammates visible",
     "four teammates visible",
     "full team present",
-    "teammates missing",
-    "teammate alone",
 ]
 
 TEAMMATE_ACTIONS = [
@@ -142,7 +117,6 @@ TEAMMATE_ACTIONS = [
     "teammate is holding position",
     "teammate is advancing",
     "teammate is retreating",
-    "teammate is rotating",
     # Combat
     "teammate is shooting",
     "teammate is in a firefight",
@@ -150,12 +124,10 @@ TEAMMATE_ACTIONS = [
     "teammate is taking fire",
     "teammate got a kill",
     "teammate died",
-    "teammate is low health",
     # Support
     "teammate is covering me",
     "teammate is watching flank",
     "teammate is throwing utility",
-    "teammate is supporting",
 ]
 
 TEAMMATE_COORDINATION = [
@@ -166,7 +138,6 @@ TEAMMATE_COORDINATION = [
     "teammates stacking a site",
     "team split across map",
     "teammates regrouping",
-    "team formation",
     "trading kills with teammate",
     # Positioning
     "teammates covering angles",
@@ -175,7 +146,7 @@ TEAMMATE_COORDINATION = [
     "teammates on same site",
     "teammates spread out",
     "teammate in position",
-    "teammate out of position",
+    "teammate flanking",
 ]
 
 TEAMMATE_STATE = [
@@ -254,6 +225,11 @@ ENEMY_THREAT = [
     "enemy is lurking",
     "enemy aggression",
     "enemy playing passive",
+    # Additional enemy concepts
+    "enemy is reloading",
+    "enemy is distracted",
+    "enemy is isolated",
+    "enemy team coordinating",
 ]
 
 # =============================================================================
@@ -322,6 +298,11 @@ ECONOMY_STATE = [
     "team has money",
     "expensive weapons visible",
     "pistol round",
+    # Additional economy concepts
+    "anti-eco round",
+    "half buy round",
+    "low economy",
+    "high economy",
 ]
 
 # =============================================================================
@@ -395,7 +376,6 @@ VISIBILITY_CONDITIONS = [
     "clear visibility",
     "obstructed view",
     "long sightline",
-    "short sightline",
 ]
 
 # =============================================================================

@@ -31,6 +31,8 @@ from src.scripts.language_visualization.language_utils import (
     get_image_embeddings,
     compute_text_image_similarity,
     replace_vision_encoder_weights,
+)
+from src.scripts.language_visualization.concept_vocabulary import (
     ALL_CONCEPTS,
     CONCEPT_CATEGORIES,
     CONCEPT_TO_GROUP,
@@ -580,6 +582,7 @@ def create_aggregate_ranking_plot(
     all_sample_rankings: dict,
     save_path: Path,
     epochs: list,
+    prompt_mode: str = "direct",
 ):
     """
     Create an aggregate ranking plot using Borda-style average rank aggregation.
@@ -591,6 +594,7 @@ def create_aggregate_ranking_plot(
         all_sample_rankings: Dict mapping sample_idx to dict of {epoch: rankings_array}
         save_path: Path to save the figure
         epochs: List of epochs (can include 'baseline' as first element)
+        prompt_mode: "direct" for direct term comparison, "prompted" for "this video shows 'xxx'"
     """
     from matplotlib.lines import Line2D
     
@@ -631,18 +635,22 @@ def create_aggregate_ranking_plot(
     # Create figure with two subplots side by side
     fig, (ax_early, ax_full) = plt.subplots(1, 2, figsize=(24, 16))
     
-    def plot_aggregate_subplot(ax, plot_epochs, title_suffix):
+    def get_shifted_label(epoch):
+        """Convert epoch to shifted label: baseline->Ep0, 4->Ep5, 9->Ep10, etc."""
+        if epoch == 'baseline':
+            return 'Ep0'
+        else:
+            return f'Ep{epoch + 1}'
+    
+    def plot_aggregate_subplot(ax, plot_epochs):
         """Helper function to plot aggregate ranking evolution."""
         x_positions = []
         x_labels = []
         for i, e in enumerate(plot_epochs):
             x_positions.append(i)
-            if e == 'baseline':
-                x_labels.append('Base')
-            else:
-                x_labels.append(f'Ep{e}')
+            x_labels.append(get_shifted_label(e))
         
-        # Plot each concept's average ranking trajectory
+        # Plot each concept's average ranking trajectory (no markers)
         for concept_idx, concept in enumerate(ALL_CONCEPTS):
             group = CONCEPT_TO_GROUP[concept]
             color = get_group_color(group)
@@ -656,7 +664,7 @@ def create_aggregate_ranking_plot(
                 linestyle = '-'
                 alpha = 0.85
             
-            ax.plot(x_positions, rank_values, marker='o', markersize=3, 
+            ax.plot(x_positions, rank_values, 
                     color=color, linestyle=linestyle, alpha=alpha, linewidth=1.2)
         
         # Add concept labels on the right side
@@ -692,13 +700,19 @@ def create_aggregate_ranking_plot(
         ax.set_xticks(x_positions)
         ax.set_xticklabels(x_labels, fontsize=9)
         ax.set_xlabel('Training Progress', fontsize=11)
-        ax.set_ylabel('Average Rank (1 = highest similarity)', fontsize=11)
+        # Remove y-axis label and ticks
+        ax.set_ylabel('')
+        ax.set_yticklabels([])
+        ax.tick_params(left=False)
+        # Remove y-axis border (left and right spines)
+        ax.spines['left'].set_visible(False)
+        ax.spines['right'].set_visible(False)
         ax.grid(True, alpha=0.3, axis='y')
         ax.axhline(y=num_concepts/2, color='gray', linestyle=':', alpha=0.5)
-        ax.set_title(title_suffix, fontsize=12, fontweight='bold')
+        # No title
     
-    plot_aggregate_subplot(ax_early, early_epochs, 'Early Training (Baseline → Epoch 4)')
-    plot_aggregate_subplot(ax_full, full_epochs, 'Full Training (Baseline → Epoch 39)')
+    plot_aggregate_subplot(ax_early, early_epochs)
+    plot_aggregate_subplot(ax_full, full_epochs)
     
     # Add shared legend
     legend_elements = [
@@ -716,22 +730,174 @@ def create_aggregate_ranking_plot(
     fig.legend(handles=legend_elements, loc='lower center', bbox_to_anchor=(0.5, -0.02),
                ncol=5, fontsize=10)
     
-    fig.suptitle(f'Aggregate Ranking Evolution (Borda-style, {num_samples} samples, {num_concepts} concepts)\n'
-                 f'(Dashed: Egocentric, Solid: Allocentric/Global)', 
-                 fontsize=14, fontweight='bold', y=1.02)
+    # No main title
     
     plt.tight_layout()
-    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    # Save in multiple formats
+    save_figure_multi_format(save_path)
     plt.close()
     
     # Also create a summary table of top movers
     return create_ranking_summary(final_rankings, epochs, num_samples)
 
 
+def create_aggregate_ranking_plot_single(
+    all_sample_rankings: dict,
+    save_path: Path,
+    epochs: list,
+    prompt_mode: str = "direct",
+):
+    """
+    Create a single-panel aggregate ranking plot showing only the longer epoch range.
+    
+    Args:
+        all_sample_rankings: Dict mapping sample_idx to dict of {epoch: rankings_array}
+        save_path: Path to save the figure
+        epochs: List of epochs (can include 'baseline' as first element)
+        prompt_mode: "direct" for direct term comparison, "prompted" for "this video shows 'xxx'"
+    """
+    from matplotlib.lines import Line2D
+    
+    num_concepts = len(ALL_CONCEPTS)
+    
+    # Compute average rank for each concept at each epoch
+    avg_rankings = {}
+    for epoch in epochs:
+        epoch_ranks = []
+        for sample_idx, sample_rankings in all_sample_rankings.items():
+            if epoch in sample_rankings:
+                epoch_ranks.append(sample_rankings[epoch])
+        
+        if epoch_ranks:
+            stacked_ranks = np.stack(epoch_ranks, axis=0)
+            avg_rankings[epoch] = stacked_ranks.mean(axis=0)
+    
+    # Re-rank based on average ranks
+    final_rankings = {}
+    for epoch in epochs:
+        if epoch in avg_rankings:
+            sorted_indices = np.argsort(avg_rankings[epoch])
+            rank = np.zeros(num_concepts, dtype=float)
+            for r, idx in enumerate(sorted_indices):
+                rank[idx] = r + 1
+            final_rankings[epoch] = rank
+    
+    # Only full epochs (longer range)
+    full_epochs = ['baseline', 4, 9, 14, 19, 24, 29, 34, 39]
+    full_epochs = [e for e in full_epochs if e in final_rankings]
+    
+    # Create single-panel figure
+    fig, ax = plt.subplots(1, 1, figsize=(14, 16))
+    
+    def get_shifted_label(epoch):
+        """Convert epoch to shifted label: baseline->Ep0, 4->Ep5, 9->Ep10, etc."""
+        if epoch == 'baseline':
+            return 'Ep0'
+        else:
+            return f'Ep{epoch + 1}'
+    
+    # Plot
+    x_positions = list(range(len(full_epochs)))
+    x_labels = [get_shifted_label(e) for e in full_epochs]
+    
+    # Plot each concept's average ranking trajectory
+    for concept_idx, concept in enumerate(ALL_CONCEPTS):
+        group = CONCEPT_TO_GROUP[concept]
+        color = get_group_color(group)
+        
+        rank_values = [final_rankings[e][concept_idx] for e in full_epochs]
+        
+        if group == 'egocentric':
+            linestyle = '--'
+            alpha = 0.7
+        else:
+            linestyle = '-'
+            alpha = 0.85
+        
+        ax.plot(x_positions, rank_values, 
+                color=color, linestyle=linestyle, alpha=alpha, linewidth=1.2)
+    
+    # Add concept labels on the right side
+    final_ranks = final_rankings[full_epochs[-1]]
+    sorted_by_final = np.argsort(final_ranks)
+    
+    for concept_idx in sorted_by_final:
+        concept = ALL_CONCEPTS[concept_idx]
+        group = CONCEPT_TO_GROUP[concept]
+        color = get_group_color(group)
+        final_rank = final_ranks[concept_idx]
+        
+        label = concept[:25] + '...' if len(concept) > 25 else concept
+        ax.text(x_positions[-1] + 0.15, final_rank, label, 
+                fontsize=4, va='center', ha='left', color=color)
+    
+    # Add concept labels on the left side
+    first_ranks = final_rankings[full_epochs[0]]
+    sorted_by_first = np.argsort(first_ranks)
+    
+    for concept_idx in sorted_by_first:
+        concept = ALL_CONCEPTS[concept_idx]
+        group = CONCEPT_TO_GROUP[concept]
+        color = get_group_color(group)
+        first_rank = first_ranks[concept_idx]
+        
+        label = concept[:25] + '...' if len(concept) > 25 else concept
+        ax.text(x_positions[0] - 0.15, first_rank, label,
+                fontsize=4, va='center', ha='right', color=color)
+    
+    ax.invert_yaxis()
+    ax.set_ylim(num_concepts + 1, 0)
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels(x_labels, fontsize=9)
+    ax.set_xlabel('Training Progress', fontsize=11)
+    ax.set_ylabel('')
+    ax.set_yticklabels([])
+    ax.tick_params(left=False)
+    # Remove y-axis border
+    ax.spines['left'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.grid(True, alpha=0.3, axis='y')
+    ax.axhline(y=num_concepts/2, color='gray', linestyle=':', alpha=0.5)
+    
+    # Add legend
+    legend_elements = [
+        Line2D([0], [0], color=GROUP_COLORS['egocentric'], linestyle='--', 
+               linewidth=2, label='Egocentric (Self)'),
+        Line2D([0], [0], color=GROUP_COLORS['teammate'], linestyle='-',
+               linewidth=2, label='Teammate'),
+        Line2D([0], [0], color=GROUP_COLORS['enemy'], linestyle='-',
+               linewidth=2, label='Enemy'),
+        Line2D([0], [0], color=GROUP_COLORS['global'], linestyle='-',
+               linewidth=2, label='Global Game State'),
+        Line2D([0], [0], color=GROUP_COLORS['spatial'], linestyle='-',
+               linewidth=2, label='Spatial'),
+    ]
+    ax.legend(handles=legend_elements, loc='lower center', bbox_to_anchor=(0.5, -0.08),
+              ncol=5, fontsize=9)
+    
+    plt.tight_layout()
+    save_figure_multi_format(save_path)
+    plt.close()
+
+
+def save_figure_multi_format(save_path: Path):
+    """Save figure in PNG, PDF, and SVG formats."""
+    save_path = Path(save_path)
+    base_path = save_path.with_suffix('')
+    
+    # Save PNG
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    # Save PDF
+    plt.savefig(base_path.with_suffix('.pdf'), bbox_inches='tight')
+    # Save SVG
+    plt.savefig(base_path.with_suffix('.svg'), bbox_inches='tight')
+
+
 def create_group_ranking_plot(
     all_sample_rankings: dict,
     save_path: Path,
     epochs: list,
+    prompt_mode: str = "direct",
 ):
     """
     Create a clean aggregate ranking plot showing only 5 curves (one per group).
@@ -742,6 +908,7 @@ def create_group_ranking_plot(
         all_sample_rankings: Dict mapping sample_idx to dict of {epoch: rankings_array}
         save_path: Path to save the figure
         epochs: List of epochs (can include 'baseline' as first element)
+        prompt_mode: "direct" for direct term comparison, "prompted" for "this video shows 'xxx'"
     """
     
     num_samples = len(all_sample_rankings)
@@ -790,7 +957,7 @@ def create_group_ranking_plot(
         """Get indices into the stats arrays for the given epochs."""
         return [all_epochs.index(e) for e in plot_epochs if e in all_epochs]
     
-    def plot_group_subplot(ax, plot_epochs, title_suffix):
+    def plot_group_subplot(ax, plot_epochs):
         """Plot group-level ranking evolution."""
         x_positions = list(range(len(plot_epochs)))
         x_labels = ['Base' if e == 'baseline' else f'Ep{e}' for e in plot_epochs]
@@ -825,22 +992,156 @@ def create_group_ranking_plot(
         ax.set_ylabel('Average Rank (1 = highest similarity)', fontsize=12)
         ax.grid(True, alpha=0.3)
         ax.axhline(y=num_concepts/2, color='gray', linestyle=':', alpha=0.5, label='_nolegend_')
-        ax.set_title(title_suffix, fontsize=13, fontweight='bold')
+        # No title
         ax.legend(loc='best', fontsize=9)
     
-    plot_group_subplot(ax_early, early_epochs, 'Early Training (Baseline → Epoch 4)')
-    plot_group_subplot(ax_full, full_epochs, 'Full Training (Baseline → Epoch 39)')
+    plot_group_subplot(ax_early, early_epochs)
+    plot_group_subplot(ax_full, full_epochs)
     
-    fig.suptitle(f'Group-Level Ranking Evolution ({num_samples} samples)\n'
-                 f'Lines: Mean rank, Shaded: Min-Max range within group', 
-                 fontsize=14, fontweight='bold')
+    # No main title
     
     plt.tight_layout()
-    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    # Save in multiple formats
+    save_figure_multi_format(save_path)
     plt.close()
     
     # Return group-level summary
     return compute_group_summary(group_stats, available_epochs)
+
+
+def create_combined_group_ranking_plot(
+    all_sample_rankings_direct: dict,
+    all_sample_rankings_prompted: dict,
+    save_path: Path,
+    epochs: list,
+):
+    """
+    Create a combined plot showing the right panel (full training) from both direct 
+    and prompted versions side by side.
+    
+    X-axis labels are shifted: Base -> Ep0, Ep4 -> Ep5, Ep9 -> Ep10, etc.
+    
+    Args:
+        all_sample_rankings_direct: Rankings from direct mode
+        all_sample_rankings_prompted: Rankings from prompted mode
+        save_path: Path to save the figure
+        epochs: List of epochs (can include 'baseline' as first element)
+    """
+    
+    num_concepts = len(ALL_CONCEPTS)
+    
+    # Define full training epochs only (right panel)
+    full_epochs = ['baseline', 4, 9, 14, 19, 24, 29, 34, 39]
+    
+    def compute_group_stats_for_mode(all_sample_rankings):
+        """Compute group statistics for a given mode."""
+        # Compute average rank for each concept at each epoch (across samples)
+        avg_rankings = {}
+        for epoch in epochs:
+            epoch_ranks = []
+            for sample_idx, sample_rankings in all_sample_rankings.items():
+                if epoch in sample_rankings:
+                    epoch_ranks.append(sample_rankings[epoch])
+            
+            if epoch_ranks:
+                stacked_ranks = np.stack(epoch_ranks, axis=0)
+                avg_rankings[epoch] = stacked_ranks.mean(axis=0)
+        
+        # For each group, compute mean, min, max rank at each epoch
+        group_stats = {group: {'mean': [], 'min': [], 'max': [], 'std': []} 
+                       for group in CATEGORY_GROUPS.keys()}
+        
+        available_epochs = [e for e in epochs if e in avg_rankings]
+        
+        for epoch in available_epochs:
+            for group in CATEGORY_GROUPS.keys():
+                group_indices = [i for i, c in enumerate(ALL_CONCEPTS) if CONCEPT_TO_GROUP[c] == group]
+                group_ranks = avg_rankings[epoch][group_indices]
+                
+                group_stats[group]['mean'].append(np.mean(group_ranks))
+                group_stats[group]['min'].append(np.min(group_ranks))
+                group_stats[group]['max'].append(np.max(group_ranks))
+                group_stats[group]['std'].append(np.std(group_ranks))
+        
+        return group_stats, available_epochs
+    
+    group_stats_direct, available_epochs_direct = compute_group_stats_for_mode(all_sample_rankings_direct)
+    group_stats_prompted, available_epochs_prompted = compute_group_stats_for_mode(all_sample_rankings_prompted)
+    
+    # Filter to full epochs
+    full_epochs_direct = [e for e in full_epochs if e in available_epochs_direct]
+    full_epochs_prompted = [e for e in full_epochs if e in available_epochs_prompted]
+    
+    # Create figure with two subplots side by side (smaller for paper)
+    fig, (ax_direct, ax_prompted) = plt.subplots(1, 2, figsize=(10, 5))
+    
+    def get_epoch_indices(plot_epochs, all_epochs):
+        """Get indices into the stats arrays for the given epochs."""
+        return [all_epochs.index(e) for e in plot_epochs if e in all_epochs]
+    
+    def get_shifted_label(epoch):
+        """Convert epoch to shifted label: baseline->Ep0, 4->Ep5, 9->Ep10, etc."""
+        if epoch == 'baseline':
+            return 'Ep0'
+        else:
+            return f'Ep{epoch + 1}'
+    
+    def plot_group_subplot(ax, plot_epochs, group_stats, available_epochs, title):
+        """Plot group-level ranking evolution."""
+        x_positions = list(range(len(plot_epochs)))
+        # Use shifted labels
+        x_labels = [get_shifted_label(e) for e in plot_epochs]
+        epoch_indices = get_epoch_indices(plot_epochs, available_epochs)
+        
+        for group in CATEGORY_GROUPS.keys():
+            color = get_group_color(group)
+            
+            means = [group_stats[group]['mean'][i] for i in epoch_indices]
+            mins = [group_stats[group]['min'][i] for i in epoch_indices]
+            maxs = [group_stats[group]['max'][i] for i in epoch_indices]
+            
+            # Line style
+            if group == 'egocentric':
+                linestyle = '--'
+            else:
+                linestyle = '-'
+            
+            # Plot shaded region (min to max)
+            ax.fill_between(x_positions, mins, maxs, color=color, alpha=0.15)
+            
+            # Plot mean line
+            ax.plot(x_positions, means, marker='o', markersize=8, 
+                    color=color, linestyle=linestyle, linewidth=2.5, 
+                    label=f'{group.title()} (n={len([c for c in ALL_CONCEPTS if CONCEPT_TO_GROUP[c] == group])})')
+        
+        ax.invert_yaxis()
+        ax.set_ylim(num_concepts + 10, 0)
+        ax.set_xticks(x_positions)
+        ax.set_xticklabels(x_labels, fontsize=10)
+        ax.set_xlabel('Training Progress', fontsize=12)
+        ax.set_ylabel('Average Rank (1 = highest similarity)', fontsize=12)
+        ax.grid(True, alpha=0.3)
+        ax.axhline(y=num_concepts/2, color='gray', linestyle=':', alpha=0.5, label='_nolegend_')
+        ax.set_title(title, fontsize=12, fontweight='bold')
+        # No individual legend - will add shared legend at bottom
+    
+    # Plot direct mode (left)
+    plot_group_subplot(ax_direct, full_epochs_direct, group_stats_direct, 
+                       available_epochs_direct, 'Direct Comparison')
+    
+    # Plot prompted mode (right)
+    plot_group_subplot(ax_prompted, full_epochs_prompted, group_stats_prompted,
+                       available_epochs_prompted, 'Prompted: "this video shows \'xxx\'"')
+    
+    # Add shared legend at bottom center
+    handles, labels = ax_direct.get_legend_handles_labels()
+    fig.legend(handles, labels, loc='lower center', bbox_to_anchor=(0.5, -0.02),
+               ncol=5, fontsize=9)
+    
+    plt.tight_layout()
+    # Save in multiple formats
+    save_figure_multi_format(save_path)
+    plt.close()
 
 
 def compute_group_summary(group_stats: dict, epochs: list) -> dict:
@@ -871,7 +1172,7 @@ def create_ranking_summary(final_rankings: dict, epochs: list, num_samples: int)
     Create a summary of ranking changes, identifying top risers and fallers.
     
     Returns:
-        Summary dict with top risers and fallers
+        Summary dict with top risers and fallers (overall and per-group)
     """
     if 'baseline' not in final_rankings or epochs[-1] not in final_rankings:
         return {}
@@ -896,6 +1197,28 @@ def create_ranking_summary(final_rankings: dict, epochs: list, num_samples: int)
                         for i in fallers_idx],
     }
     
+    # Per-group top risers and fallers (top 15 each)
+    summary['per_group'] = {}
+    for group in CATEGORY_GROUPS.keys():
+        # Get indices of concepts in this group
+        group_indices = [i for i, c in enumerate(ALL_CONCEPTS) if CONCEPT_TO_GROUP[c] == group]
+        group_changes = [(i, rank_changes[i]) for i in group_indices]
+        
+        # Sort by change
+        group_changes_sorted = sorted(group_changes, key=lambda x: -x[1])  # Descending for risers
+        
+        # Top 15 risers in this group
+        risers = group_changes_sorted[:15]
+        # Top 15 fallers in this group (smallest/most negative changes)
+        fallers = group_changes_sorted[-15:][::-1]  # Reverse to get most negative first
+        
+        summary['per_group'][group] = {
+            'risers': [(ALL_CONCEPTS[i], int(baseline_ranks[i]), int(final_ranks[i]), int(change)) 
+                       for i, change in risers],
+            'fallers': [(ALL_CONCEPTS[i], int(baseline_ranks[i]), int(final_ranks[i]), int(change)) 
+                        for i, change in fallers],
+        }
+    
     return summary
 
 
@@ -907,6 +1230,9 @@ def main():
     epochs_to_load = [0, 1, 2, 3, 4, 9, 14, 19, 24, 29, 34, 39]
     final_epoch = 39  # For before/after comparison (baseline vs epoch 39)
     num_samples = 100
+    
+    # Disable individual sample plots (only generate aggregate)
+    generate_individual_plots = False
     
     # Setup paths
     output_base = Path(get_output_base_path())
@@ -945,9 +1271,17 @@ def main():
     siglip_model = siglip_model.to(device)
     siglip_model.eval()
     
-    # Pre-compute text embeddings (these don't change)
+    # Pre-compute text embeddings for both modes:
+    # 1. Direct: just the concept term
+    # 2. Prompted: "this video shows 'xxx'"
     print(f"  Computing text embeddings for {len(ALL_CONCEPTS)} concepts...")
-    text_embeds = get_text_embeddings(siglip_model, processor, ALL_CONCEPTS, device)
+    
+    # Direct mode: use concepts as-is
+    text_embeds_direct = get_text_embeddings(siglip_model, processor, ALL_CONCEPTS, device)
+    
+    # Prompted mode: wrap concepts in "this video shows 'xxx'"
+    prompted_concepts = [f"this video shows \"{concept}\"" for concept in ALL_CONCEPTS]
+    text_embeds_prompted = get_text_embeddings(siglip_model, processor, prompted_concepts, device)
     
     # Save baseline (off-the-shelf pretrained) vision weights
     # This is the original pretrained model before any finetuning
@@ -963,9 +1297,10 @@ def main():
         if state is not None:
             epoch_vision_states[epoch] = state
     
-    # Process each sample and collect rankings for aggregation
-    print("\n[5/6] Generating individual sample visualizations...")
-    all_sample_rankings = {}  # For Borda-style aggregation
+    # Process each sample and collect rankings for aggregation (for both modes)
+    print("\n[5/6] Processing samples for aggregate visualization...")
+    all_sample_rankings_direct = {}  # For Borda-style aggregation (direct mode)
+    all_sample_rankings_prompted = {}  # For Borda-style aggregation (prompted mode)
     all_epochs_for_plot = None
     
     for sample_idx in tqdm(sample_indices, desc="Processing samples"):
@@ -989,137 +1324,196 @@ def main():
             print(f"  Warning: Failed to load video for sample {sample_idx}: {e}")
             continue
         
-        # Create sample directory
-        sample_dir = artifacts_dir / f"sample_{sample_idx}"
-        sample_dir.mkdir(parents=True, exist_ok=True)
-        
-        # 1. Compute similarities with baseline (off-the-shelf pretrained) model
-        replace_vision_encoder_weights(siglip_model, baseline_vision_state)
-        baseline_sims = compute_similarities_for_video(
-            video_clip, siglip_model, processor, text_embeds, device
-        )
-        
-        # 2. Create before/after plot: baseline vs epoch 39
-        if final_epoch in epoch_vision_states and epoch_vision_states[final_epoch] is not None:
-            replace_vision_encoder_weights(siglip_model, epoch_vision_states[final_epoch])
-            finetuned_sims = compute_similarities_for_video(
+        # Process for both direct and prompted modes
+        for mode, text_embeds, all_sample_rankings in [
+            ("direct", text_embeds_direct, all_sample_rankings_direct),
+            ("prompted", text_embeds_prompted, all_sample_rankings_prompted),
+        ]:
+            # 1. Compute similarities with baseline (off-the-shelf pretrained) model
+            replace_vision_encoder_weights(siglip_model, baseline_vision_state)
+            baseline_sims = compute_similarities_for_video(
                 video_clip, siglip_model, processor, text_embeds, device
             )
             
-            # Create before/after plot with difference matrix
-            create_before_after_plot(
-                baseline_sims, finetuned_sims, video_clip, sample_idx,
-                sample_dir / "before_after.png"
-            )
-        
-        # 3. Compute similarities for each epoch (for evolution visualization)
-        # Start with baseline as the first point
-        epoch_similarities = {'baseline': baseline_sims}
-        
-        available_epochs = [e for e in epochs_to_load if e in epoch_vision_states and epoch_vision_states[e] is not None]
-        
-        for epoch in available_epochs:
-            replace_vision_encoder_weights(siglip_model, epoch_vision_states[epoch])
-            epoch_similarities[epoch] = compute_similarities_for_video(
-                video_clip, siglip_model, processor, text_embeds, device
-            )
-        
-        # Create trajectory plots with baseline + all epochs
-        all_epochs_for_plot = ['baseline'] + available_epochs
-        
-        if len(available_epochs) >= 1:
-            # Create epoch evolution plot
-            create_epoch_evolution_plot(
-                epoch_similarities,
-                video_clip, sample_idx,
-                sample_dir / "epoch_evolution.png",
-                all_epochs_for_plot
-            )
+            # 2. Compute similarities for each epoch (for evolution visualization)
+            # Start with baseline as the first point
+            epoch_similarities = {'baseline': baseline_sims}
             
-            # Create concept trajectory plot
-            create_concept_trajectory_plot(
-                epoch_similarities,
-                sample_idx,
-                sample_dir / "concept_trajectories.png",
-                all_epochs_for_plot
-            )
+            available_epochs = [e for e in epochs_to_load if e in epoch_vision_states and epoch_vision_states[e] is not None]
             
-            # Create ranking change plot (all concepts)
-            create_ranking_change_plot(
-                epoch_similarities,
-                sample_idx,
-                sample_dir / "ranking_evolution.png",
-                all_epochs_for_plot
-            )
+            for epoch in available_epochs:
+                replace_vision_encoder_weights(siglip_model, epoch_vision_states[epoch])
+                epoch_similarities[epoch] = compute_similarities_for_video(
+                    video_clip, siglip_model, processor, text_embeds, device
+                )
             
-            # Collect rankings for aggregation
-            # Compute rankings for this sample at each epoch
-            sample_rankings = {}
-            for epoch in all_epochs_for_plot:
-                mean_sim = epoch_similarities[epoch].mean(axis=0)  # [num_concepts]
-                sorted_indices = np.argsort(-mean_sim)
-                rank = np.zeros(len(ALL_CONCEPTS), dtype=int)
-                for r, idx in enumerate(sorted_indices):
-                    rank[idx] = r + 1
-                sample_rankings[epoch] = rank
-            all_sample_rankings[sample_idx] = sample_rankings
+            # Create trajectory plots with baseline + all epochs
+            all_epochs_for_plot = ['baseline'] + available_epochs
+            
+            if len(available_epochs) >= 1:
+                # Generate individual plots only if enabled
+                if generate_individual_plots:
+                    sample_dir = artifacts_dir / f"sample_{sample_idx}" / mode
+                    sample_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    # Create before/after plot: baseline vs epoch 39
+                    if final_epoch in epoch_vision_states and epoch_vision_states[final_epoch] is not None:
+                        finetuned_sims = epoch_similarities[final_epoch]
+                        create_before_after_plot(
+                            baseline_sims, finetuned_sims, video_clip, sample_idx,
+                            sample_dir / "before_after.png"
+                        )
+                    
+                    # Create epoch evolution plot
+                    create_epoch_evolution_plot(
+                        epoch_similarities,
+                        video_clip, sample_idx,
+                        sample_dir / "epoch_evolution.png",
+                        all_epochs_for_plot
+                    )
+                    
+                    # Create concept trajectory plot
+                    create_concept_trajectory_plot(
+                        epoch_similarities,
+                        sample_idx,
+                        sample_dir / "concept_trajectories.png",
+                        all_epochs_for_plot
+                    )
+                    
+                    # Create ranking change plot (all concepts)
+                    create_ranking_change_plot(
+                        epoch_similarities,
+                        sample_idx,
+                        sample_dir / "ranking_evolution.png",
+                        all_epochs_for_plot
+                    )
+                
+                # Collect rankings for aggregation
+                # Compute rankings for this sample at each epoch
+                sample_rankings = {}
+                for epoch in all_epochs_for_plot:
+                    mean_sim = epoch_similarities[epoch].mean(axis=0)  # [num_concepts]
+                    sorted_indices = np.argsort(-mean_sim)
+                    rank = np.zeros(len(ALL_CONCEPTS), dtype=int)
+                    for r, idx in enumerate(sorted_indices):
+                        rank[idx] = r + 1
+                    sample_rankings[epoch] = rank
+                all_sample_rankings[sample_idx] = sample_rankings
         
         # Restore baseline weights for next sample
         replace_vision_encoder_weights(siglip_model, baseline_vision_state)
     
-    # Create aggregate ranking plot
-    print("\n[6/6] Generating aggregate ranking visualization...")
-    if all_sample_rankings and all_epochs_for_plot:
+    # Create aggregate ranking plots for both modes
+    print("\n[6/6] Generating aggregate ranking visualizations...")
+    
+    # Create combined plot (direct vs prompted side by side)
+    if all_sample_rankings_direct and all_sample_rankings_prompted and all_epochs_for_plot:
         aggregate_dir = artifacts_dir / "sample_aggregate"
         aggregate_dir.mkdir(parents=True, exist_ok=True)
         
-        # Create detailed per-concept aggregate plot (all 272 concepts)
-        summary = create_aggregate_ranking_plot(
-            all_sample_rankings,
-            aggregate_dir / "ranking_evolution_all_concepts.png",
-            all_epochs_for_plot
+        create_combined_group_ranking_plot(
+            all_sample_rankings_direct,
+            all_sample_rankings_prompted,
+            aggregate_dir / "ranking_evolution_combined.png",
+            all_epochs_for_plot,
         )
-        
-        # Create clean group-level plot (5 curves only)
-        group_summary = create_group_ranking_plot(
-            all_sample_rankings,
-            aggregate_dir / "ranking_evolution_by_group.png",
-            all_epochs_for_plot
-        )
-        
-        # Save summary to text file
-        with open(aggregate_dir / "ranking_summary.txt", 'w') as f:
-            f.write(f"Aggregate Ranking Summary ({len(all_sample_rankings)} samples, {len(ALL_CONCEPTS)} concepts)\n")
-            f.write("=" * 70 + "\n\n")
+        print(f"  Combined plot saved to: {aggregate_dir / 'ranking_evolution_combined.png'}")
+    
+    for mode, all_sample_rankings in [
+        ("direct", all_sample_rankings_direct),
+        ("prompted", all_sample_rankings_prompted),
+    ]:
+        if all_sample_rankings and all_epochs_for_plot:
+            aggregate_dir = artifacts_dir / "sample_aggregate" / mode
+            aggregate_dir.mkdir(parents=True, exist_ok=True)
             
-            # Group-level summary
-            f.write("GROUP-LEVEL RANKING CHANGES:\n")
-            f.write("-" * 70 + "\n")
-            f.write(f"{'Group':<15} {'Baseline':>12} {'Final':>12} {'Change':>12} {'Direction':<15}\n")
-            f.write("-" * 70 + "\n")
-            if group_summary:
-                for group in ['egocentric', 'teammate', 'enemy', 'global', 'spatial']:
-                    if group in group_summary:
-                        gs = group_summary[group]
-                        direction = "ROSE ^" if gs['change'] > 0 else "FELL v" if gs['change'] < 0 else "SAME"
-                        f.write(f"{group:<15} {gs['baseline_mean']:>12.1f} {gs['final_mean']:>12.1f} {gs['change']:>+12.1f} {direction:<15}\n")
+            # Create detailed per-concept aggregate plot (all concepts, two panels)
+            summary = create_aggregate_ranking_plot(
+                all_sample_rankings,
+                aggregate_dir / "ranking_evolution_all_concepts.png",
+                all_epochs_for_plot,
+                prompt_mode=mode,
+            )
             
-            if summary:
-                f.write("\n\nTOP 20 RISERS (concepts that rose most in ranking after training):\n")
-                f.write("-" * 70 + "\n")
-                f.write(f"{'Concept':<40} {'Group':<12} {'Base':>6} {'Final':>6} {'Change':>8}\n")
-                f.write("-" * 70 + "\n")
-                for concept, group, base_rank, final_rank, change in summary['top_risers']:
-                    f.write(f"{concept[:38]:<40} {group:<12} {base_rank:>6} {final_rank:>6} {change:>+8}\n")
+            # Create single-panel plot (longer epoch only)
+            create_aggregate_ranking_plot_single(
+                all_sample_rankings,
+                aggregate_dir / "ranking_evolution_all_concepts_single.png",
+                all_epochs_for_plot,
+                prompt_mode=mode,
+            )
+            
+            # Create clean group-level plot (5 curves only)
+            group_summary = create_group_ranking_plot(
+                all_sample_rankings,
+                aggregate_dir / "ranking_evolution_by_group.png",
+                all_epochs_for_plot,
+                prompt_mode=mode,
+            )
+            
+            # Save summary to text file
+            mode_desc = "Direct term comparison" if mode == "direct" else "Prompted: 'this video shows \"xxx\"'"
+            with open(aggregate_dir / "ranking_summary.txt", 'w') as f:
+                f.write(f"Aggregate Ranking Summary ({len(all_sample_rankings)} samples, {len(ALL_CONCEPTS)} concepts)\n")
+                f.write(f"Mode: {mode_desc}\n")
+                f.write("=" * 70 + "\n\n")
                 
-                f.write("\n\nTOP 20 FALLERS (concepts that fell most in ranking after training):\n")
+                # Group-level summary
+                f.write("GROUP-LEVEL RANKING CHANGES:\n")
                 f.write("-" * 70 + "\n")
-                f.write(f"{'Concept':<40} {'Group':<12} {'Base':>6} {'Final':>6} {'Change':>8}\n")
+                f.write(f"{'Group':<15} {'Baseline':>12} {'Final':>12} {'Change':>12} {'Direction':<15}\n")
                 f.write("-" * 70 + "\n")
-                for concept, group, base_rank, final_rank, change in summary['top_fallers']:
-                    f.write(f"{concept[:38]:<40} {group:<12} {base_rank:>6} {final_rank:>6} {change:>+8}\n")
-        
-        print(f"  Summary saved to: {aggregate_dir / 'ranking_summary.txt'}")
+                if group_summary:
+                    for group in ['egocentric', 'teammate', 'enemy', 'global', 'spatial']:
+                        if group in group_summary:
+                            gs = group_summary[group]
+                            direction = "ROSE ^" if gs['change'] > 0 else "FELL v" if gs['change'] < 0 else "SAME"
+                            f.write(f"{group:<15} {gs['baseline_mean']:>12.1f} {gs['final_mean']:>12.1f} {gs['change']:>+12.1f} {direction:<15}\n")
+                
+                if summary:
+                    f.write("\n\nTOP 20 RISERS (concepts that rose most in ranking after training):\n")
+                    f.write("-" * 70 + "\n")
+                    f.write(f"{'Concept':<40} {'Group':<12} {'Base':>6} {'Final':>6} {'Change':>8}\n")
+                    f.write("-" * 70 + "\n")
+                    for concept, group, base_rank, final_rank, change in summary['top_risers']:
+                        f.write(f"{concept[:38]:<40} {group:<12} {base_rank:>6} {final_rank:>6} {change:>+8}\n")
+                    
+                    f.write("\n\nTOP 20 FALLERS (concepts that fell most in ranking after training):\n")
+                    f.write("-" * 70 + "\n")
+                    f.write(f"{'Concept':<40} {'Group':<12} {'Base':>6} {'Final':>6} {'Change':>8}\n")
+                    f.write("-" * 70 + "\n")
+                    for concept, group, base_rank, final_rank, change in summary['top_fallers']:
+                        f.write(f"{concept[:38]:<40} {group:<12} {base_rank:>6} {final_rank:>6} {change:>+8}\n")
+                    
+                    # Per-group top 15 risers and fallers
+                    if 'per_group' in summary:
+                        f.write("\n\n" + "=" * 70 + "\n")
+                        f.write("PER-GROUP TOP 15 RISERS AND FALLERS\n")
+                        f.write("=" * 70 + "\n")
+                        
+                        for group in ['egocentric', 'teammate', 'enemy', 'global', 'spatial']:
+                            if group in summary['per_group']:
+                                group_data = summary['per_group'][group]
+                                
+                                f.write(f"\n\n{'='*70}\n")
+                                f.write(f"{group.upper()} GROUP\n")
+                                f.write(f"{'='*70}\n")
+                                
+                                f.write(f"\nTop 15 Risers ({group}):\n")
+                                f.write("-" * 60 + "\n")
+                                f.write(f"{'Concept':<40} {'Base':>6} {'Final':>6} {'Change':>8}\n")
+                                f.write("-" * 60 + "\n")
+                                for concept, base_rank, final_rank, change in group_data['risers']:
+                                    f.write(f"{concept[:38]:<40} {base_rank:>6} {final_rank:>6} {change:>+8}\n")
+                                
+                                f.write(f"\nTop 15 Fallers ({group}):\n")
+                                f.write("-" * 60 + "\n")
+                                f.write(f"{'Concept':<40} {'Base':>6} {'Final':>6} {'Change':>8}\n")
+                                f.write("-" * 60 + "\n")
+                                for concept, base_rank, final_rank, change in group_data['fallers']:
+                                    f.write(f"{concept[:38]:<40} {base_rank:>6} {final_rank:>6} {change:>+8}\n")
+            
+            print(f"  [{mode}] Summary saved to: {aggregate_dir / 'ranking_summary.txt'}")
     
     print("\n" + "=" * 60)
     print(f"Visualizations saved to: {artifacts_dir.absolute()}")

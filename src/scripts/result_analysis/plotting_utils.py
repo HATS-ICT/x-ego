@@ -1080,9 +1080,10 @@ def plot_time_horizon_combined(
             ax.grid(True, alpha=0.3, axis='y')
             ax.set_axisbelow(True)
             
-            # Set x-ticks to actual horizon values
+            # Set x-ticks to actual horizon values with 's' suffix
             all_horizons = sorted(df_task['time_horizon'].unique())
             ax.set_xticks(all_horizons)
+            ax.set_xticklabels([f'{int(h)}s' for h in all_horizons])
             ax.tick_params(axis='both', labelsize=7, pad=2)
     
     # Add single legend at the bottom

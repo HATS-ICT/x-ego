@@ -43,6 +43,9 @@ class BaseDataModule(L.LightningDataModule, ABC):
     def _build_label_path(self) -> Path:
         """Build label path from config components."""
         data_cfg = self.cfg.data
+        map_name = getattr(data_cfg, 'map', None)
+        if map_name:
+            return Path(self.cfg.path.data) / map_name / data_cfg.labels_folder / data_cfg.labels_filename
         return Path(self.cfg.path.data) / data_cfg.labels_folder / data_cfg.labels_filename
     
     def _build_data_root_path(self) -> Path:

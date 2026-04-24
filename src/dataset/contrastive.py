@@ -14,6 +14,7 @@ Key features:
 
 from pathlib import Path
 from typing import Any, Dict, List, Union
+import json
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -103,6 +104,22 @@ class ContrastiveDataset(Dataset):
         # Initialize video processor
         self._init_video_processor()
         
+        # Load time offsets
+        data_root = Path(self.cfg.path.data)
+        map_name = getattr(self.cfg.data, 'map', None)
+        if map_name:
+            offset_path = data_root / map_name / "time_offset.json"
+        else:
+            offset_path = data_root / "time_offset.json"
+            
+        assert offset_path.exists(), (
+            f"time_offset.json not found at {offset_path}. "
+            f"Run compute_offset.py for map '{map_name}' first."
+        )
+        with open(offset_path, "r") as f:
+            self.time_offsets = json.load(f)
+        rprint(f"[green]OK[/green] Loaded time offsets from {offset_path.name}")
+        
         rprint(f"[green]OK[/green] Contrastive dataset initialized with [bold]{len(self.df):,}[/bold] samples")
     
     def _init_video_processor(self):
@@ -153,7 +170,27 @@ class ContrastiveDataset(Dataset):
         agent_videos_unmasked = []
         for agent_id in agent_ids:
             video_path = construct_video_path(self.cfg, match_id, agent_id, round_num)
-            video_result = load_video_clip(self.cfg, video_path, start_seconds, end_seconds)
+            
+            # Get offset — assert to catch missing entries early
+            round_key = f"round_{round_num}"
+            match_offsets = self.time_offsets.get(str(match_id))
+            assert match_offsets is not None, (
+                f"No offset data for match '{match_id}' in time_offset.json"
+            )
+            agent_offsets = match_offsets.get(str(agent_id))
+            assert agent_offsets is not None, (
+                f"No offset data for agent '{agent_id}' in match '{match_id}'"
+            )
+            round_offsets = agent_offsets.get(round_key)
+            assert round_offsets is not None, (
+                f"No offset data for '{match_id}/{agent_id}/{round_key}'"
+            )
+            offset_sec = float(round_offsets["offset_sec"])
+
+            video_start = start_seconds + offset_sec
+            video_end = end_seconds + offset_sec
+            
+            video_result = load_video_clip(self.cfg, video_path, video_start, video_end)
             
             video_clip = video_result['video']  # [T, C, H, W]
             

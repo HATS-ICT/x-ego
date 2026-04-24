@@ -191,7 +191,13 @@ def construct_video_path(cfg: Dict, match_id: str, player_id: str, round_num: in
     """Construct video path for a player's round."""
     video_folder = cfg.data.video_folder
     data_root = Path(cfg.path.data)
-    video_path = data_root / video_folder / str(match_id) / str(player_id) / f"round_{round_num}.mp4"
+    
+    map_name = getattr(cfg.data, 'map', None)
+    if map_name:
+        video_path = data_root / map_name / video_folder / str(match_id) / str(player_id) / f"round_{round_num}.mp4"
+    else:
+        video_path = data_root / video_folder / str(match_id) / str(player_id) / f"round_{round_num}.mp4"
+    
     return str(video_path)
 
 

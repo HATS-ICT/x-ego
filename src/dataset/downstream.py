@@ -8,6 +8,7 @@ No precomputed embeddings - video is processed through the model's encoder.
 """
 
 from typing import Dict
+import json
 import polars as pl
 import torch
 from torch.utils.data import Dataset
@@ -66,6 +67,22 @@ class DownstreamDataset(Dataset):
         
         # Parse label column configuration
         self._parse_label_columns()
+        
+        # Load time offsets
+        data_root = Path(self.cfg.path.data)
+        map_name = getattr(self.cfg.data, 'map', None)
+        if map_name:
+            offset_path = data_root / map_name / "time_offset.json"
+        else:
+            offset_path = data_root / "time_offset.json"
+            
+        try:
+            with open(offset_path, "r") as f:
+                self.time_offsets = json.load(f)
+            rprint(f"[green]OK[/green] Loaded time offsets from {offset_path.name}")
+        except Exception as e:
+            rprint(f"[yellow]WARN[/yellow] Could not load time offsets from {offset_path}: {e}")
+            self.time_offsets = {}
         
         rprint(f"[green]OK[/green] Task: [bold]{cfg.task.task_id}[/bold] ([cyan]{cfg.task.ml_form}[/cyan])")
         rprint(f"  Output dim: [bold]{cfg.task.output_dim}[/bold], Num classes: [bold]{cfg.task.num_classes}[/bold]")
@@ -170,8 +187,8 @@ class DownstreamDataset(Dataset):
         # Extract video metadata
         # Convert ticks to seconds (tick_rate = 64)
         tick_rate = 64
-        start_seconds = row['start_tick'] / tick_rate
-        end_seconds = row['end_tick'] / tick_rate
+        start_seconds = row['start_tick_norm'] / tick_rate
+        end_seconds = row['end_tick_norm'] / tick_rate
         match_id = row['match_id']
         round_num = row['round_num']
         
@@ -180,7 +197,18 @@ class DownstreamDataset(Dataset):
         
         # Construct video path and load video
         video_path = construct_video_path(self.cfg, match_id, player_id, round_num)
-        video_result = load_video_clip(self.cfg, video_path, start_seconds, end_seconds)
+        
+        # Get offset
+        offset_sec = 0.0
+        try:
+            offset_sec = float(self.time_offsets.get(str(match_id), {}).get(str(player_id), {}).get(f"round_{round_num}", {}).get("offset_sec", 0.0))
+        except Exception:
+            pass
+            
+        video_start = start_seconds + offset_sec
+        video_end = end_seconds + offset_sec
+        
+        video_result = load_video_clip(self.cfg, video_path, video_start, video_end)
         video_clip = video_result['video']  # Extract video tensor from result dict
         video = transform_video(self.video_processor, self.processor_type, video_clip)  # [T, C, H, W]
         

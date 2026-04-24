@@ -1,76 +1,28 @@
-"""Compute video-to-trajectory time offsets for all CS2 round recordings.
-
-Strategy
---------
-The CS2 HUD shows a countdown timer at a fixed location on screen (format M:SS,
-starting at 1:55 = trajectory time 0).  We read three digit slots:
-  d0  minute     (624-632, 5-18)   – always "1" in CS2 rounds
-  d1  tens-sec   (638-646, 5-18)
-  d2  units-sec  (647-655, 5-18)
-
-For each digit slot we keep pre-cropped grayscale templates stored in
-  digit_templates/named/{d0,d1,d2}_<value>.png
-Template matching (normalised cross-correlation) gives a robust read even
-against the noisy/compressed background.
-
-Alignment logic
----------------
-Timer 1:55  ↔  trajectory game_sec = 0  (match start)
-Timer 1:MM  ↔  game_sec = (115 - total_seconds)
-             where total_seconds = (1*60 + MM)
-
-The video starts recording some seconds *after* the match has begun, so the
-first visible timer value is < 1:55.
-
-We scan every frame (30 fps), read the timer, and look for the *first tick* –
-the frame where the units digit first changes (from whatever the starting
-value is to the next lower value).  That transition happens exactly at a
-whole-second boundary in game time.
-
-  game_time_of_transition = 115 - (first_timer_reading_after_transition)
-    (because game_sec=0 ↔ 1:55=115 s, game_sec=1 ↔ 1:54=114 s, …)
-
-  video_time_of_transition = transition_frame / video_fps
-
-  offset = video_time_of_transition - game_time_of_transition
-
-With this offset:  game_sec - offset = video_time
-
-Output
-------
-For every round folder that has at least one video+parquet pair, writes/updates
-  data/<videos|state_action>/match=.../round=<N>/metadata.json
-
-The metadata dict maps player_id → {offset_sec, video_fps, start_timer,
-transition_frame, transition_video_sec, transition_game_sec}.
-
-A shared "round_offset" key (mean across players) is also stored for use in
-multi-player video grid alignment.
-
-Usage
------
-  python scripts/compute_offset.py            # process all rounds
-  python scripts/compute_offset.py --verbose  # print per-frame debug
-"""
+"""Compute video-to-trajectory time offsets for all CS2 round recordings."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 import cv2
 import numpy as np
-import polars as pl
 
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = BASE_DIR / "data"
-VIDEOS_DIR = DATA_DIR / "videos"
-STATE_ACTION_DIR = DATA_DIR / "state_action"
-TEMPLATES_DIR = BASE_DIR / "digit_templates"
+TEMPLATES_DIR = Path(r"C:\Users\wangy\projects\x-ego\src\digit_templates")
+
+VIDEO_DIR = Path(r"E:\files\data\cs101\recording\video")
+OUT_DATA_DIR = Path(r"c:\Users\wangy\projects\x-ego\data")
+
+MAP_LIST_FILES = {
+    'dust2': r'c:\Users\wangy\projects\x-ego\data\dust2\video_list.txt',
+    'inferno': r'c:\Users\wangy\projects\x-ego\data\inferno\video_list.txt',
+    'mirage': r'c:\Users\wangy\projects\x-ego\data\mirage\video_list.txt'
+}
 
 # ---------------------------------------------------------------------------
 # Digit crop coordinates (in original 1280×720 frame)
@@ -89,7 +41,6 @@ TIMER_AT_ZERO = 115  # 1:55 in total seconds
 # Template loading
 # ---------------------------------------------------------------------------
 def _load_templates() -> dict[int, np.ndarray]:
-    """Return {digit: gray_template_array} for digits 0-9 (shared font across all slots)."""
     templates: dict[int, np.ndarray] = {}
     for d in range(10):
         p = TEMPLATES_DIR / f"{d}.png"
@@ -101,7 +52,6 @@ def _load_templates() -> dict[int, np.ndarray]:
 
 
 def _match_digit(crop_gray: np.ndarray, templates: dict[int, np.ndarray]) -> int:
-    """Return the best-matching digit for a cropped gray region."""
     best_val = -np.inf
     best_digit = -1
     crop_f = crop_gray.astype(np.float32)
@@ -121,7 +71,6 @@ def _match_digit(crop_gray: np.ndarray, templates: dict[int, np.ndarray]) -> int
 
 def read_timer(frame: np.ndarray,
                templates: dict[int, np.ndarray]) -> tuple[int, int, int]:
-    """Return (minute, tens, units) digits read from frame."""
     digits = []
     for x1, y1, x2, y2 in DIGIT_BOXES:
         crop = frame[y1:y2, x1:x2]
@@ -131,7 +80,6 @@ def read_timer(frame: np.ndarray,
 
 
 def timer_to_game_sec(minute: int, tens: int, units: int) -> float:
-    """Convert timer reading to game_sec (0 at 1:55)."""
     total = minute * 60 + tens * 10 + units
     return float(TIMER_AT_ZERO - total)
 
@@ -142,7 +90,6 @@ def timer_to_game_sec(minute: int, tens: int, units: int) -> float:
 def compute_offset_for_video(video_path: Path,
                               templates: dict[int, np.ndarray],
                               verbose: bool = False) -> dict | None:
-    """Scan video frames and return offset metadata dict, or None on failure."""
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         print(f"  [WARN] Cannot open {video_path.name}")
@@ -171,7 +118,6 @@ def compute_offset_for_video(video_path: Path,
             timer_at_start = timer_str
 
         if prev_units is not None and u != prev_units:
-            # First digit change detected
             transition_frame = fn
             timer_after_transition = timer_str
             if verbose:
@@ -190,10 +136,9 @@ def compute_offset_for_video(video_path: Path,
     game_sec_at_transition = timer_to_game_sec(m2, t2, u2)
     video_sec_at_transition = transition_frame / fps
 
-    # offset: add to game_sec to get video_time
     offset_sec = video_sec_at_transition - game_sec_at_transition
 
-    print(f"  {video_path.name}: start={timer_at_start}  transition@f{transition_frame}"
+    print(f"    start={timer_at_start}  transition@f{transition_frame}"
           f"  game={game_sec_at_transition:.3f}s  video={video_sec_at_transition:.3f}s"
           f"  offset={offset_sec:+.4f}s")
 
@@ -208,23 +153,23 @@ def compute_offset_for_video(video_path: Path,
     }
 
 
-# ---------------------------------------------------------------------------
-# Round discovery and main loop
-# ---------------------------------------------------------------------------
-def iter_rounds():
-    """Yield (match_id, round_num, round_video_dir, round_sa_dir) for all rounds."""
-    if not VIDEOS_DIR.exists():
-        return
-    for match_dir in sorted(VIDEOS_DIR.iterdir()):
-        if not match_dir.is_dir() or not match_dir.name.startswith("match="):
+def load_map_match_mapping() -> dict[str, str]:
+    mapping = {}
+    for map_name, list_file in MAP_LIST_FILES.items():
+        if not os.path.exists(list_file):
             continue
-        match_id = match_dir.name.removeprefix("match=")
-        for round_dir in sorted(match_dir.iterdir()):
-            if not round_dir.is_dir() or not round_dir.name.startswith("round="):
-                continue
-            round_num = round_dir.name.removeprefix("round=")
-            sa_dir = STATE_ACTION_DIR / f"match={match_id}" / f"round={round_num}"
-            yield match_id, round_num, round_dir, sa_dir
+        with open(list_file, 'rb') as f:
+            raw_data = f.read()
+        if raw_data.startswith(b'\xff\xfe') or raw_data.startswith(b'\xfe\xff'):
+            encoding = 'utf-16'
+        else:
+            encoding = 'utf-8'
+        with open(list_file, 'r', encoding=encoding) as f:
+            for line in f:
+                vid = line.strip()
+                if vid:
+                    mapping[vid] = map_name
+    return mapping
 
 
 def process_all(verbose: bool = False) -> None:
@@ -232,42 +177,56 @@ def process_all(verbose: bool = False) -> None:
     templates = _load_templates()
     print(f"Loaded templates for digits: {sorted(templates.keys())}")
 
-    for match_id, round_num, vid_dir, sa_dir in iter_rounds():
-        print(f"\n{'='*60}")
-        print(f"Match {match_id}  round {round_num}")
+    mapping = load_map_match_mapping()
+    
+    results = {'dust2': {}, 'inferno': {}, 'mirage': {}}
+    
+    if not VIDEO_DIR.exists():
+        print(f"Video directory not found: {VIDEO_DIR}")
+        return
 
-        metadata: dict[str, object] = {}
-        player_offsets: list[float] = []
-
-        for video_file in sorted(vid_dir.glob("*.mp4")):
-            player_id = video_file.stem
-            pq = sa_dir / f"{player_id}.parquet"
-            if not pq.exists():
-                print(f"  [SKIP] No parquet for {player_id}")
-                continue
-
-            print(f"  Processing {player_id} …")
-            result = compute_offset_for_video(video_file, templates, verbose=verbose)
-            if result:
-                metadata[player_id] = result
-                player_offsets.append(result["offset_sec"])
-
-        if not metadata:
-            print("  [SKIP] No valid players found, skipping metadata write.")
+    for match_dir in sorted(VIDEO_DIR.iterdir()):
+        if not match_dir.is_dir():
             continue
+            
+        match_id = match_dir.name
+        map_name = mapping.get(match_id, 'unknown')
+        
+        if map_name not in results:
+            results[map_name] = {}
+            
+        if match_id not in results[map_name]:
+            results[map_name][match_id] = {}
+            
+        print(f"\n{'='*60}")
+        print(f"Match {match_id} (Map: {map_name})")
+        
+        for player_dir in sorted(match_dir.iterdir()):
+            if not player_dir.is_dir():
+                continue
+            player_id = player_dir.name
+            
+            if player_id not in results[map_name][match_id]:
+                results[map_name][match_id][player_id] = {}
+                
+            for video_file in sorted(player_dir.glob("*.mp4")):
+                round_name = video_file.stem
+                print(f"  Processing {player_id} / {round_name} …")
+                
+                result = compute_offset_for_video(video_file, templates, verbose=verbose)
+                if result:
+                    results[map_name][match_id][player_id][round_name] = result
 
-        # Round-level offset: mean across players (for grid alignment)
-        metadata["round_offset_sec"] = round(float(np.mean(player_offsets)), 6)
+    print("\nSaving results...")
+    for map_name, data in results.items():
+        if not data:
+            continue
+            
+        out_file = OUT_DATA_DIR / map_name / "time_offset.json"
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        out_file.write_text(json.dumps(data, indent=2))
+        print(f"Saved {len(data)} matches for map '{map_name}' to {out_file}")
 
-        # Write to video round dir
-        meta_path = vid_dir / "metadata.json"
-        meta_path.write_text(json.dumps(metadata, indent=2))
-        print(f"\n  Wrote {meta_path}")
-
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Compute video-trajectory offsets.")
     parser.add_argument("--verbose", action="store_true",

@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>X-EGO Video Label Alignment Tool</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 20px; display: flex; flex-direction: column; align-items: center; background: #121212; color: white;}
+        .controls { margin-bottom: 20px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;}
+        select, button { padding: 8px; border-radius: 4px; border: 1px solid #444; background: #333; color: white; cursor: pointer;}
+        button:hover { background: #444; }
+        video { max-width: 1000px; border: 2px solid #555; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.5); }
+        .info-panel { margin-top: 20px; padding: 20px; background: #222; border-radius: 8px; width: 1000px; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px;}
+        .header-info { display: flex; gap: 20px; border-bottom: 1px solid #444; padding-bottom: 10px; }
+        .label-data { margin-top: 10px; font-family: monospace; white-space: pre-wrap; background: #000; padding: 15px; border-radius: 4px; font-size: 1.1em; color: #4CAF50;}
+        .status { color: #aaa; font-size: 0.9em; margin-top: 5px; }
+        .kb-shortcuts { margin-top: 15px; font-size: 0.8em; color: #888; }
+        .segment-item { background: #222; padding: 12px; border-radius: 6px; cursor: pointer; border: 1px solid #444; font-size: 0.9em; font-family: monospace; display: flex; flex-direction: column; gap: 8px; }
+        .segment-item:hover { background: #333; border-color: #4CAF50; }
+        .player-controls { width: 1000px; background: #222; padding: 10px; border-radius: 8px; margin-top: 10px; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; border: 1px solid #444; }
+        #timeline-wrapper { width: 100%; position: relative; height: 30px; background: #1a1a1a; border-radius: 4px; overflow: hidden; border: 1px solid #555; cursor: pointer; }
+        #markers-container { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
+        #playhead { position: absolute; left: 0%; top: 0; bottom: 0; width: 2px; background: red; z-index: 10; pointer-events: none; }
+    </style>
+</head>
+<body>
+    <h2>X-EGO Alignment Verifier</h2>
+    
+    <div class="controls">
+        <select id="video-select" style="max-width: 400px;"><option value="">-- Select Video --</option></select>
+        <select id="task-select" disabled><option value="">-- Select Task --</option></select>
+        <button id="load-btn">Load Data</button>
+        <button id="next-video-btn" style="background: #2196F3;">Next Video & Load</button>
+        <button id="random-video-btn" style="background: #FF9800;">Next Random Video & Load</button>
+    </div>
+    
+    <video id="video-player" preload="auto" style="display: block; width: 1000px;"></video>
+    
+    <div class="player-controls">
+        <div id="timeline-wrapper">
+            <div id="markers-container"></div>
+            <div id="playhead"></div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; gap: 10px;">
+                <button id="play-pause" style="width: 60px;">Play</button>
+                <button id="prev-frame">-1 Frame</button>
+                <button id="next-frame">+1 Frame</button>
+            </div>
+            <div style="font-family: monospace; font-size: 1.1em;">
+                <span id="time-display">0.000 / 0.000</span>
+            </div>
+            <div>
+                FPS: <input type="number" id="fps-input" value="30" style="width: 50px; background: #333; color: white; border: 1px solid #444; padding: 4px;">
+            </div>
+        </div>
+    </div>
+    
+    <div class="info-panel">
+        <div class="header-info">
+            <div><strong>Map:</strong> <span id="v-map">-</span></div>
+            <div><strong>Offset:</strong> <span id="v-offset">0.000</span>s</div>
+            <div><strong>Video Time:</strong> <span id="v-time">0.000</span>s</div>
+            <div><strong>Game Time:</strong> <span id="g-time">0.000</span>s</div>
+            <div><strong>Tick (64TPS):</strong> <span id="v-tick">0</span></div>
+        </div>
+        <div class="status" id="status-msg">Ready.</div>
+        <div>
+            <h3 style="margin: 10px 0 5px 0;">Current Labels</h3>
+            <div class="label-data" id="label-display">No label data loaded.</div>
+        </div>
+    </div>
+    
+    <div class="info-panel" style="margin-top: 20px;">
+        <h3 style="margin: 0 0 10px 0;">All Label Segments (Click to Seek)</h3>
+        <div id="segment-list" style="max-height: 250px; overflow-y: auto; background: #111; padding: 10px; border-radius: 4px; display: flex; flex-direction: column; gap: 5px;">
+            <div style="color: #666; font-style: italic;">No segments loaded.</div>
+        </div>
+    </div>
+    
+    <div class="kb-shortcuts">
+        Shortcuts: Left/Right Arrow = Step Frame | Space = Play/Pause
+    </div>
+
+    <script>
+        const videoSelect = document.getElementById('video-select');
+        const taskSelect = document.getElementById('task-select');
+        const loadBtn = document.getElementById('load-btn');
+        const nextVideoBtn = document.getElementById('next-video-btn');
+        const randomVideoBtn = document.getElementById('random-video-btn');
+        const video = document.getElementById('video-player');
+        const prevBtn = document.getElementById('prev-frame');
+        const playBtn = document.getElementById('play-pause');
+        const nextBtn = document.getElementById('next-frame');
+        const fpsInput = document.getElementById('fps-input');
+        
+        const vTime = document.getElementById('v-time');
+        const gTime = document.getElementById('g-time');
+        const vOffset = document.getElementById('v-offset');
+        const vMap = document.getElementById('v-map');
+        const vTick = document.getElementById('v-tick');
+        const labelDisplay = document.getElementById('label-display');
+        const statusMsg = document.getElementById('status-msg');
+        const timelineWrapper = document.getElementById('timeline-wrapper');
+        const markersContainer = document.getElementById('markers-container');
+        const playhead = document.getElementById('playhead');
+        const timeDisplay = document.getElementById('time-display');
+        const segmentList = document.getElementById('segment-list');
+
+        let currentRecords = [];
+        let currentOffset = 0.0;
+        let currentMap = "";
+        let videoDuration = 0;
+        let currentTaskIsSnapshot = false;
+
+        function isRecordActiveAtTime(record, timeSec) {
+            return timeSec >= record.video_start && timeSec <= record.video_end;
+        }
+
+        function selectVideoAndAutoLoad(nextIndex) {
+            if (nextIndex <= 0 || nextIndex >= videoSelect.options.length) {
+                return false;
+            }
+            videoSelect.selectedIndex = nextIndex;
+            window._autoLoadPending = true;
+            videoSelect.dispatchEvent(new Event('change'));
+            return true;
+        }
+
+        // Fetch videos
+        fetch('/api/videos').then(r => r.json()).then(videos => {
+            videos.forEach(v => {
+                const opt = document.createElement('option');
+                opt.value = v;
+                opt.textContent = v;
+                videoSelect.appendChild(opt);
+            });
+            if(videos.length === 0) {
+                statusMsg.textContent = "No videos found in temp_test_video_label/data";
+            }
+        });
+
+        // When video changes, fetch tasks for its map
+        videoSelect.addEventListener('change', () => {
+            const vid = videoSelect.value;
+            if (!vid) {
+                taskSelect.disabled = true;
+                return;
+            }
+            
+            statusMsg.textContent = "Fetching map info...";
+            fetch(`/api/video_info?video=${encodeURIComponent(vid)}`)
+                .then(r => r.json())
+                .then(info => {
+                    if (info.map) {
+                        currentMap = info.map;
+                        vMap.textContent = currentMap;
+                        statusMsg.textContent = `Map is ${currentMap}. Fetching tasks...`;
+                        
+                        // Fetch tasks
+                        fetch(`/api/tasks?map=${currentMap}`)
+                            .then(r => r.json())
+                            .then(tasks => {
+                                const prevTask = taskSelect.value;
+                                taskSelect.innerHTML = '<option value="">-- Select Task --</option>';
+                                tasks.forEach(t => {
+                                    const opt = document.createElement('option');
+                                    opt.value = t;
+                                    opt.textContent = t;
+                                    taskSelect.appendChild(opt);
+                                });
+                                if (tasks.includes(prevTask)) {
+                                    taskSelect.value = prevTask;
+                                } else if (tasks.length > 0) {
+                                    taskSelect.selectedIndex = 1;
+                                }
+                                taskSelect.disabled = false;
+                                statusMsg.textContent = `Ready. Found ${tasks.length} tasks.`;
+                                
+                                if (window._autoLoadPending) {
+                                    window._autoLoadPending = false;
+                                    if (taskSelect.value) {
+                                        loadBtn.click();
+                                    }
+                                }
+                            });
+                    } else {
+                        statusMsg.textContent = "Error: Could not determine map for video.";
+                    }
+                });
+        });
+
+        nextVideoBtn.addEventListener('click', () => {
+            let nextIndex = videoSelect.selectedIndex + 1;
+            // Skip the placeholder option if we are at the end
+            if (!selectVideoAndAutoLoad(nextIndex)) {
+                statusMsg.textContent = "Already at the last video.";
+            }
+        });
+
+        randomVideoBtn.addEventListener('click', () => {
+            const lastIndex = videoSelect.options.length - 1;
+            if (lastIndex < 1) {
+                statusMsg.textContent = "No videos available.";
+                return;
+            }
+
+            if (lastIndex === 1) {
+                selectVideoAndAutoLoad(1);
+                return;
+            }
+
+            let nextIndex = Math.floor(Math.random() * lastIndex) + 1;
+            if (nextIndex === videoSelect.selectedIndex) {
+                nextIndex = (nextIndex % lastIndex) + 1;
+            }
+            selectVideoAndAutoLoad(nextIndex);
+        });
+
+        loadBtn.addEventListener('click', () => {
+            const vid = videoSelect.value;
+            const task = taskSelect.value;
+            if (!vid || !task) return;
+
+            statusMsg.textContent = "Loading data...";
+            video.src = `/video/${vid}`;
+            video.load();
+
+            fetch(`/api/label_data?video=${encodeURIComponent(vid)}&task=${encodeURIComponent(task)}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.error) {
+                        statusMsg.textContent = `Error: ${data.error}`;
+                        currentRecords = [];
+                        labelDisplay.textContent = "Error loading data.";
+                        renderMarkers();
+                        return;
+                    }
+                    currentRecords = data.records;
+                    currentOffset = data.offset_sec;
+                    currentTaskIsSnapshot = currentRecords.some(r => r.is_snapshot);
+                    vOffset.textContent = currentOffset.toFixed(3);
+                    statusMsg.textContent = `Loaded ${currentRecords.length} label records successfully.`;
+                    renderMarkers();
+                    updateUI();
+                });
+        });
+
+        video.addEventListener('loadedmetadata', () => {
+            videoDuration = video.duration;
+            renderMarkers();
+        });
+
+        video.addEventListener('play', () => playBtn.textContent = 'Pause');
+        video.addEventListener('pause', () => playBtn.textContent = 'Play');
+
+        let isDragging = false;
+        function updateTimelineScrub(e) {
+            if (!videoDuration) return;
+            const rect = timelineWrapper.getBoundingClientRect();
+            let pos = (e.clientX - rect.left) / rect.width;
+            pos = Math.max(0, Math.min(1, pos));
+            video.currentTime = pos * videoDuration;
+        }
+
+        timelineWrapper.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            updateTimelineScrub(e);
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (isDragging) updateTimelineScrub(e);
+        });
+
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+
+        function renderMarkers() {
+            markersContainer.innerHTML = '';
+            segmentList.innerHTML = '';
+            
+            if (!videoDuration || currentRecords.length === 0) {
+                segmentList.innerHTML = '<div style="color: #666; font-style: italic;">No segments loaded.</div>';
+                return;
+            }
+
+            currentRecords.forEach((r, idx) => {
+                if (r.is_snapshot) {
+                    const startPct = (r.video_start / videoDuration) * 100;
+                    const widthPct = ((r.video_end - r.video_start) / videoDuration) * 100;
+                    const predictionPct = (r.video_prediction / videoDuration) * 100;
+
+                    const windowMarker = document.createElement('div');
+                    windowMarker.style.position = 'absolute';
+                    windowMarker.style.left = startPct + '%';
+                    windowMarker.style.width = widthPct + '%';
+                    windowMarker.style.height = '100%';
+                    windowMarker.style.backgroundColor = 'rgba(76, 175, 80, 0.35)';
+                    windowMarker.style.borderLeft = '1px solid #4CAF50';
+                    windowMarker.style.borderRight = '1px solid #4CAF50';
+                    windowMarker.style.pointerEvents = 'none';
+                    windowMarker.title = `Segment ${idx+1}: ${r.video_start.toFixed(2)}s - ${r.video_end.toFixed(2)}s`;
+                    markersContainer.appendChild(windowMarker);
+
+                    const predictionMarker = document.createElement('div');
+                    predictionMarker.style.position = 'absolute';
+                    predictionMarker.style.left = predictionPct + '%';
+                    predictionMarker.style.width = '3px';
+                    predictionMarker.style.height = '100%';
+                    predictionMarker.style.backgroundColor = '#FFC107';
+                    predictionMarker.style.pointerEvents = 'none';
+                    predictionMarker.title = `Snapshot ${idx+1}: ${r.video_prediction.toFixed(2)}s`;
+                    markersContainer.appendChild(predictionMarker);
+                } else {
+                    const marker = document.createElement('div');
+                    marker.style.position = 'absolute';
+                    const startPct = (r.video_start / videoDuration) * 100;
+                    const widthPct = ((r.video_end - r.video_start) / videoDuration) * 100;
+                    marker.style.left = startPct + '%';
+                    marker.style.width = widthPct + '%';
+                    marker.style.height = '100%';
+                    marker.style.backgroundColor = 'rgba(76, 175, 80, 0.7)';
+                    marker.style.borderLeft = '1px solid #4CAF50';
+                    marker.style.borderRight = '1px solid #4CAF50';
+                    marker.style.pointerEvents = 'none';
+                    marker.title = `Segment ${idx+1}: ${r.video_start.toFixed(2)}s - ${r.video_end.toFixed(2)}s`;
+                    markersContainer.appendChild(marker);
+                }
+
+                // Segment list item
+                const item = document.createElement('div');
+                item.className = 'segment-item';
+                const segmentHeader = r.is_snapshot
+                    ? `[${r.video_prediction.toFixed(2)}s]`
+                    : `[${r.video_start.toFixed(2)}s - ${r.video_end.toFixed(2)}s]`;
+                const gameHeader = r.is_snapshot
+                    ? `(Game snapshot: ${r.game_prediction.toFixed(2)}s)`
+                    : `(Game: ${r.game_start.toFixed(2)}s - ${r.game_end.toFixed(2)}s)`;
+                const timingDetails = r.is_snapshot
+                    ? `<span><b style="color: #cc7a00;">video_window:</b> ${r.video_start.toFixed(2)}s - ${r.video_end.toFixed(2)}s</span>
+                        <span><b style="color: #cc7a00;">game_window:</b> ${r.game_start.toFixed(2)}s - ${r.game_end.toFixed(2)}s</span>`
+                    : '';
+                item.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #333; padding-bottom: 4px;">
+                        <strong style="color: #4CAF50;">${segmentHeader}</strong>
+                        <span style="color:#aaa;">${gameHeader}</span>
+                    </div>
+                    <div style="color: #ff9800; font-size: 0.85em; display: flex; flex-wrap: wrap; gap: 10px;">
+                        <span><b style="color: #cc7a00;">idx:</b> ${r.idx}</span>
+                        <span><b style="color: #cc7a00;">partition:</b> ${r.partition}</span>
+                        <span><b style="color: #cc7a00;">start_tick:</b> ${r.start_tick}</span>
+                        <span><b style="color: #cc7a00;">end_tick:</b> ${r.end_tick}</span>
+                        <span><b style="color: #cc7a00;">prediction_tick:</b> ${r.prediction_tick}</span>
+                        <span><b style="color: #cc7a00;">start_tick_norm:</b> ${r.start_tick_norm}</span>
+                        <span><b style="color: #cc7a00;">end_tick_norm:</b> ${r.end_tick_norm}</span>
+                        <span><b style="color: #cc7a00;">prediction_tick_norm:</b> ${r.prediction_tick_norm}</span>
+                        ${timingDetails}
+                        <span><b style="color: #cc7a00;">match_id:</b> ${r.match_id}</span>
+                        <span><b style="color: #cc7a00;">round_num:</b> ${r.round_num}</span>
+                        <span><b style="color: #cc7a00;">pov_steamid:</b> ${r.pov_steamid}</span>
+                    </div>
+                    <div style="color: #ddd; background: #1a1a1a; padding: 6px; border-radius: 4px;">
+                        <b style="color: #888;">Labels:</b> ${JSON.stringify(r.labels)}
+                    </div>
+                `;
+                item.addEventListener('click', () => {
+                    video.currentTime = r.is_snapshot ? r.video_prediction : r.video_start;
+                    if (video.paused) video.play();
+                });
+                segmentList.appendChild(item);
+            });
+        }
+
+        video.addEventListener('timeupdate', updateUI);
+
+        function updateUI() {
+            const t = video.currentTime;
+            vTime.textContent = t.toFixed(3);
+            const gT = t - currentOffset;
+            gTime.textContent = gT.toFixed(3);
+            
+            // Calculate tick starting from 0, 64 ticks per second
+            const tick = Math.max(0, Math.floor(gT * 64));
+            vTick.textContent = tick;
+
+            if (videoDuration) {
+                playhead.style.left = ((t / videoDuration) * 100) + '%';
+                timeDisplay.textContent = `${t.toFixed(3)} / ${videoDuration.toFixed(3)}`;
+            }
+
+            if (currentRecords.length === 0) {
+                return;
+            }
+
+            // Find active record
+            let active = null;
+            for (let r of currentRecords) {
+                if (isRecordActiveAtTime(r, t)) {
+                    active = r;
+                    break;
+                }
+            }
+
+            if (active) {
+                labelDisplay.innerHTML = JSON.stringify(active.labels, null, 2);
+                if (active.is_snapshot) {
+                    statusMsg.textContent = `Snapshot label shown for window ${active.video_start.toFixed(3)}s-${active.video_end.toFixed(3)}s; prediction tick at ${active.video_prediction.toFixed(3)}s (game ${active.game_prediction.toFixed(3)}s).`;
+                }
+            } else {
+                labelDisplay.textContent = currentTaskIsSnapshot
+                    ? "No snapshot label active at this exact timestamp."
+                    : "No label active at this exact timestamp.";
+            }
+        }
+
+        prevBtn.addEventListener('click', () => {
+            const fps = parseFloat(fpsInput.value) || 30;
+            video.currentTime = Math.max(0, video.currentTime - (1/fps));
+        });
+
+        nextBtn.addEventListener('click', () => {
+            const fps = parseFloat(fpsInput.value) || 30;
+            video.currentTime = Math.min(video.duration, video.currentTime + (1/fps));
+        });
+
+        playBtn.addEventListener('click', () => {
+            if (video.paused) video.play();
+            else video.pause();
+        });
+        
+        document.addEventListener('keydown', (e) => {
+            // Ignore if typing in input
+            if (e.target.tagName === 'INPUT') return;
+
+            if (e.key === 'ArrowLeft') {
+                prevBtn.click();
+            } else if (e.key === 'ArrowRight') {
+                nextBtn.click();
+            } else if (e.key === ' ') {
+                playBtn.click();
+                e.preventDefault();
+            }
+        });
+    </script>
+</body>
+</html>

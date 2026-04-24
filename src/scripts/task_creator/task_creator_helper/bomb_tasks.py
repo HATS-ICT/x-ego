@@ -70,19 +70,16 @@ class BombPlantedStateCreator(TaskCreatorBase):
         segment_ticks = segment_length_sec * self.tick_rate
         stride_ticks = int(self.stride_sec * self.tick_rate)
         
-        # Get global tick range from all trajectories
-        all_min_ticks = []
-        all_max_ticks = []
-        for df in player_trajectories.values():
-            if not df.empty:
-                all_min_ticks.append(df['tick'].min())
-                all_max_ticks.append(df['tick'].max())
-        
-        if not all_min_ticks:
+        # Load metadata to get freeze_end_tick
+        metadata = self._load_metadata(match_id)
+        if not metadata or 'rounds' not in metadata:
             return []
-        
-        global_min_tick = min(all_min_ticks)
-        global_max_tick = max(all_max_ticks)
+            
+        round_info = next((r for r in metadata['rounds'] if r['round_number'] == round_num), None)
+        if not round_info or 'freeze_end_tick' not in round_info:
+            return []
+            
+        global_min_tick = round_info['freeze_end_tick']
         
         # Get map name
         map_name = 'de_mirage'
@@ -98,8 +95,11 @@ class BombPlantedStateCreator(TaskCreatorBase):
             
             # Find death tick for this player (or use max tick if they survive)
             death_tick = self._find_death_tick(pov_df)
+            global_max_tick = round_info.get('end_tick', pov_df['tick'].max())
             if death_tick is None:
-                death_tick = pov_df['tick'].max()
+                death_tick = global_max_tick
+            else:
+                death_tick = min(death_tick, global_max_tick)
             
             pov_min_tick = pov_df['tick'].min()
             pov_side = pov_df.iloc[0]['side']
@@ -120,9 +120,12 @@ class BombPlantedStateCreator(TaskCreatorBase):
                 bomb_planted = self._get_bomb_state_at_tick(bomb_df, middle_tick)
                 
                 segment_info = {
-                    'start_tick': current_tick - global_min_tick,  # Relative to round start
-                    'end_tick': end_tick - global_min_tick,
-                    'prediction_tick': middle_tick - global_min_tick,
+                    'start_tick': current_tick,
+                    'end_tick': end_tick,
+                    'prediction_tick': middle_tick,
+                    'start_tick_norm': current_tick - global_min_tick,
+                    'end_tick_norm': end_tick - global_min_tick,
+                    'prediction_tick_norm': middle_tick - global_min_tick,
                     'start_seconds': current_tick / self.tick_rate,
                     'end_seconds': end_tick / self.tick_rate,
                     'prediction_seconds': middle_tick / self.tick_rate,
@@ -156,6 +159,9 @@ class BombPlantedStateCreator(TaskCreatorBase):
                 'start_tick': segment['start_tick'],
                 'end_tick': segment['end_tick'],
                 'prediction_tick': segment['prediction_tick'],
+                'start_tick_norm': segment['start_tick_norm'],
+                'end_tick_norm': segment['end_tick_norm'],
+                'prediction_tick_norm': segment['prediction_tick_norm'],
                 'match_id': segment['match_id'],
                 'round_num': segment['round_num'],
                 'map_name': segment['map_name'],
@@ -181,17 +187,6 @@ class BombSitePredictionCreator(TaskCreatorBase):
     Only creates segments for T-side before bomb is planted.
     Output: Binary classification (0=A, 1=B).
     """
-    
-    def _find_player_death_tick(self, player_df: pd.DataFrame) -> Optional[int]:
-        """Find the tick when a player dies, or None if they survive."""
-        if player_df.empty or 'health' not in player_df.columns:
-            return None
-        
-        death_mask = player_df['health'] <= 0
-        if death_mask.any():
-            first_death_idx = death_mask.idxmax()
-            return player_df.loc[first_death_idx, 'tick']
-        return None
     
     def _extract_segments_from_round(self, match_id: str, round_num: int,
                                      config: Dict[str, Any]) -> List[Dict]:
@@ -227,16 +222,16 @@ class BombSitePredictionCreator(TaskCreatorBase):
         segment_ticks = segment_length_sec * self.tick_rate
         stride_ticks = int(self.stride_sec * self.tick_rate)
         
-        # Get global tick range
-        all_min_ticks = []
-        for df in player_trajectories.values():
-            if not df.empty:
-                all_min_ticks.append(df['tick'].min())
-        
-        if not all_min_ticks:
+        # Load metadata to get freeze_end_tick
+        metadata = self._load_metadata(match_id)
+        if not metadata or 'rounds' not in metadata:
             return []
-        
-        global_min_tick = min(all_min_ticks)
+            
+        round_info = next((r for r in metadata['rounds'] if r['round_number'] == round_num), None)
+        if not round_info or 'freeze_end_tick' not in round_info:
+            return []
+            
+        global_min_tick = round_info['freeze_end_tick']
         
         # Get map name
         map_name = 'de_mirage'
@@ -254,9 +249,12 @@ class BombSitePredictionCreator(TaskCreatorBase):
             if pov_side != 't':
                 continue  # Skip CT players
             
-            death_tick = self._find_player_death_tick(pov_df)
+            death_tick = self._find_player_death_tick(metadata, round_num, pov_steamid)
+            global_max_tick = round_info.get('end_tick', pov_df['tick'].max())
             if death_tick is None:
-                death_tick = pov_df['tick'].max()
+                death_tick = global_max_tick
+            else:
+                death_tick = min(death_tick, global_max_tick)
             
             # Only use segments before plant
             max_valid_tick = min(death_tick, plant_tick - segment_ticks)
@@ -275,9 +273,12 @@ class BombSitePredictionCreator(TaskCreatorBase):
                     continue
                 
                 segment_info = {
-                    'start_tick': current_tick - global_min_tick,  # Relative to round start
-                    'end_tick': end_tick - global_min_tick,
-                    'prediction_tick': middle_tick - global_min_tick,
+                    'start_tick': current_tick,
+                    'end_tick': end_tick,
+                    'prediction_tick': middle_tick,
+                    'start_tick_norm': current_tick - global_min_tick,
+                    'end_tick_norm': end_tick - global_min_tick,
+                    'prediction_tick_norm': middle_tick - global_min_tick,
                     'start_seconds': current_tick / self.tick_rate,
                     'end_seconds': end_tick / self.tick_rate,
                     'prediction_seconds': middle_tick / self.tick_rate,
@@ -312,6 +313,9 @@ class BombSitePredictionCreator(TaskCreatorBase):
                 'start_tick': segment['start_tick'],
                 'end_tick': segment['end_tick'],
                 'prediction_tick': segment['prediction_tick'],
+                'start_tick_norm': segment['start_tick_norm'],
+                'end_tick_norm': segment['end_tick_norm'],
+                'prediction_tick_norm': segment['prediction_tick_norm'],
                 'match_id': segment['match_id'],
                 'round_num': segment['round_num'],
                 'map_name': segment['map_name'],
@@ -382,7 +386,18 @@ class PostPlantOutcomeCreator(TaskCreatorBase):
         segments = []
         segment_ticks = segment_length_sec * self.tick_rate
         
-        # Get tick range after plant
+        # Load metadata to get freeze_end_tick
+        metadata = self._load_metadata(match_id)
+        if not metadata or 'rounds' not in metadata:
+            return []
+            
+        round_info = next((r for r in metadata['rounds'] if r['round_number'] == round_num), None)
+        if not round_info or 'freeze_end_tick' not in round_info:
+            return []
+            
+        global_min_tick = round_info['freeze_end_tick']
+        
+        # Get max tick
         all_ticks = []
         for df in player_trajectories.values():
             if not df.empty:
@@ -390,9 +405,8 @@ class PostPlantOutcomeCreator(TaskCreatorBase):
         
         if not all_ticks:
             return []
-        
-        global_min_tick = min(all_ticks)
-        max_tick = max(all_ticks)
+            
+        max_tick = min(max(all_ticks), round_info.get('end_tick', max(all_ticks)))
         
         # Only use segments after plant
         min_valid_tick = plant_tick + segment_ticks // 2
@@ -429,9 +443,12 @@ class PostPlantOutcomeCreator(TaskCreatorBase):
                         break
                 
                 segment_info = {
-                    'start_tick': current_tick - global_min_tick,  # Relative to round start
-                    'end_tick': end_tick - global_min_tick,
-                    'prediction_tick': middle_tick - global_min_tick,
+                    'start_tick': current_tick,
+                    'end_tick': end_tick,
+                    'prediction_tick': middle_tick,
+                    'start_tick_norm': current_tick - global_min_tick,
+                    'end_tick_norm': end_tick - global_min_tick,
+                    'prediction_tick_norm': middle_tick - global_min_tick,
                     'plant_tick': plant_tick,
                     'start_seconds': current_tick / self.tick_rate,
                     'end_seconds': end_tick / self.tick_rate,
@@ -465,6 +482,9 @@ class PostPlantOutcomeCreator(TaskCreatorBase):
                 'start_tick': segment['start_tick'],
                 'end_tick': segment['end_tick'],
                 'prediction_tick': segment['prediction_tick'],
+                'start_tick_norm': segment['start_tick_norm'],
+                'end_tick_norm': segment['end_tick_norm'],
+                'prediction_tick_norm': segment['prediction_tick_norm'],
                 'plant_tick': segment['plant_tick'],
                 'match_id': segment['match_id'],
                 'round_num': segment['round_num'],
@@ -490,17 +510,6 @@ class RoundWinnerCreator(TaskCreatorBase):
     Predicts which team will win the round.
     Output: Binary classification (0=CT wins, 1=T wins).
     """
-    
-    def _find_player_death_tick(self, player_df: pd.DataFrame) -> Optional[int]:
-        """Find the tick when a player dies, or None if they survive."""
-        if player_df.empty or 'health' not in player_df.columns:
-            return None
-        
-        death_mask = player_df['health'] <= 0
-        if death_mask.any():
-            first_death_idx = death_mask.idxmax()
-            return player_df.loc[first_death_idx, 'tick']
-        return None
     
     def _extract_segments_from_round(self, match_id: str, round_num: int,
                                      config: Dict[str, Any]) -> List[Dict]:
@@ -530,16 +539,16 @@ class RoundWinnerCreator(TaskCreatorBase):
         segment_ticks = segment_length_sec * self.tick_rate
         stride_ticks = int(self.stride_sec * self.tick_rate)
         
-        # Get global tick range
-        all_min_ticks = []
-        for df in player_trajectories.values():
-            if not df.empty:
-                all_min_ticks.append(df['tick'].min())
-        
-        if not all_min_ticks:
+        # Load metadata to get freeze_end_tick
+        metadata = self._load_metadata(match_id)
+        if not metadata or 'rounds' not in metadata:
             return []
-        
-        global_min_tick = min(all_min_ticks)
+            
+        round_info = next((r for r in metadata['rounds'] if r['round_number'] == round_num), None)
+        if not round_info or 'freeze_end_tick' not in round_info:
+            return []
+            
+        global_min_tick = round_info['freeze_end_tick']
         
         # Get map name
         map_name = 'de_mirage'
@@ -553,9 +562,12 @@ class RoundWinnerCreator(TaskCreatorBase):
             if pov_df.empty:
                 continue
             
-            death_tick = self._find_player_death_tick(pov_df)
+            death_tick = self._find_player_death_tick(metadata, round_num, pov_steamid)
+            global_max_tick = round_info.get('end_tick', pov_df['tick'].max())
             if death_tick is None:
-                death_tick = pov_df['tick'].max()
+                death_tick = global_max_tick
+            else:
+                death_tick = min(death_tick, global_max_tick)
             
             pov_min_tick = pov_df['tick'].min()
             pov_side = pov_df.iloc[0]['side']
@@ -573,9 +585,12 @@ class RoundWinnerCreator(TaskCreatorBase):
                     continue
                 
                 segment_info = {
-                    'start_tick': current_tick - global_min_tick,  # Relative to round start
-                    'end_tick': end_tick - global_min_tick,
-                    'prediction_tick': middle_tick - global_min_tick,
+                    'start_tick': current_tick,
+                    'end_tick': end_tick,
+                    'prediction_tick': middle_tick,
+                    'start_tick_norm': current_tick - global_min_tick,
+                    'end_tick_norm': end_tick - global_min_tick,
+                    'prediction_tick_norm': middle_tick - global_min_tick,
                     'start_seconds': current_tick / self.tick_rate,
                     'end_seconds': end_tick / self.tick_rate,
                     'prediction_seconds': middle_tick / self.tick_rate,
@@ -610,6 +625,9 @@ class RoundWinnerCreator(TaskCreatorBase):
                 'start_tick': segment['start_tick'],
                 'end_tick': segment['end_tick'],
                 'prediction_tick': segment['prediction_tick'],
+                'start_tick_norm': segment['start_tick_norm'],
+                'end_tick_norm': segment['end_tick_norm'],
+                'prediction_tick_norm': segment['prediction_tick_norm'],
                 'match_id': segment['match_id'],
                 'round_num': segment['round_num'],
                 'map_name': segment['map_name'],
@@ -673,16 +691,16 @@ class RoundOutcomeReasonCreator(TaskCreatorBase):
         segment_ticks = segment_length_sec * self.tick_rate
         stride_ticks = int(self.stride_sec * self.tick_rate)
         
-        # Get global tick range
-        all_min_ticks = []
-        for df in player_trajectories.values():
-            if not df.empty:
-                all_min_ticks.append(df['tick'].min())
-        
-        if not all_min_ticks:
+        # Load metadata to get freeze_end_tick
+        metadata = self._load_metadata(match_id)
+        if not metadata or 'rounds' not in metadata:
             return []
-        
-        global_min_tick = min(all_min_ticks)
+            
+        round_info = next((r for r in metadata['rounds'] if r['round_number'] == round_num), None)
+        if not round_info or 'freeze_end_tick' not in round_info:
+            return []
+            
+        global_min_tick = round_info['freeze_end_tick']
         
         # Get map name
         map_name = 'de_mirage'
@@ -696,9 +714,12 @@ class RoundOutcomeReasonCreator(TaskCreatorBase):
             if pov_df.empty:
                 continue
             
-            death_tick = self._find_player_death_tick(pov_df)
+            death_tick = self._find_player_death_tick(metadata, round_num, pov_steamid)
+            global_max_tick = round_info.get('end_tick', pov_df['tick'].max())
             if death_tick is None:
-                death_tick = pov_df['tick'].max()
+                death_tick = global_max_tick
+            else:
+                death_tick = min(death_tick, global_max_tick)
             
             pov_min_tick = pov_df['tick'].min()
             pov_side = pov_df.iloc[0]['side']
@@ -716,9 +737,12 @@ class RoundOutcomeReasonCreator(TaskCreatorBase):
                     continue
                 
                 segment_info = {
-                    'start_tick': current_tick - global_min_tick,
-                    'end_tick': end_tick - global_min_tick,
-                    'prediction_tick': middle_tick - global_min_tick,
+                    'start_tick': current_tick,
+                    'end_tick': end_tick,
+                    'prediction_tick': middle_tick,
+                    'start_tick_norm': current_tick - global_min_tick,
+                    'end_tick_norm': end_tick - global_min_tick,
+                    'prediction_tick_norm': middle_tick - global_min_tick,
                     'duration_seconds': segment_length_sec,
                     'map_name': map_name,
                     'pov_steamid': pov_steamid,
@@ -747,6 +771,9 @@ class RoundOutcomeReasonCreator(TaskCreatorBase):
                 'start_tick': segment['start_tick'],
                 'end_tick': segment['end_tick'],
                 'prediction_tick': segment['prediction_tick'],
+                'start_tick_norm': segment['start_tick_norm'],
+                'end_tick_norm': segment['end_tick_norm'],
+                'prediction_tick_norm': segment['prediction_tick_norm'],
                 'match_id': segment['match_id'],
                 'round_num': segment['round_num'],
                 'map_name': segment['map_name'],

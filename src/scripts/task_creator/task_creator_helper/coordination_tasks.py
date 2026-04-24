@@ -28,22 +28,20 @@ class AliveCountCreator(TaskCreatorBase):
                                      config: Dict[str, Any]) -> List[Dict]:
         """Extract segments for alive count."""
         segment_length_sec = config['segment_length_sec']
-        target_type = config.get('target_type', 'teammate')  # 'teammate' or 'enemy'
+        target_type = config['count_type']  # 'teammate' or 'enemy'
         
         player_trajectories = self._load_player_trajectories(match_id, round_num)
-        
-        if len(player_trajectories) != 10:
-            return []
         
         segments = []
         segment_ticks = segment_length_sec * self.tick_rate
         
-        # For alive count, we want to include segments after deaths
-        global_min_tick = min(df['tick'].min() for df in player_trajectories.values() if not df.empty)
-        max_tick = max(df['tick'].max() for df in player_trajectories.values() if not df.empty)
+        # Load metadata to get freeze_end_tick
+        metadata = self._load_metadata(match_id)
+            
+        round_info = next((r for r in metadata['rounds'] if r['round_number'] == round_num), None)
+        global_min_tick = round_info['freeze_end_tick']
         
-        if max_tick - global_min_tick < segment_ticks:
-            return []
+        max_tick = round_info['end_tick']
         
         stride_ticks = int(self.stride_sec * self.tick_rate)
         current_tick = global_min_tick
@@ -66,38 +64,38 @@ class AliveCountCreator(TaskCreatorBase):
             sides = set(p['side'] for p in all_players_data)
             
             for side in sides:
-                # Find a POV player from this side who is alive
+                # Find ALL POV players from this side who are alive
                 pov_candidates = [p for p in all_players_data 
                                  if p['side'] == side and p.get('health', 0) > 0]
                 
-                if not pov_candidates:
-                    continue
-                
-                pov_data = pov_candidates[0]
-                pov_steamid = pov_data['steamid']
-                pov_side = side
-                
-                if target_type == 'teammate':
-                    # Count alive teammates (excluding POV) - 4 teammates max
-                    targets = [p for p in all_players_data 
-                              if p['side'] == pov_side and p['steamid'] != pov_steamid]
-                    alive_count = sum(1 for p in targets if p.get('health', 0) > 0)
-                else:  # enemy
-                    # Count alive enemies - 5 enemies max
-                    enemy_side = self._get_opposite_side(pov_side)
-                    targets = [p for p in all_players_data if p['side'] == enemy_side]
-                    alive_count = sum(1 for p in targets if p.get('health', 0) > 0)
-                
-                segment_info = {
-                    'start_tick': current_tick - global_min_tick,  # Relative to round start
-                    'end_tick': end_tick - global_min_tick,
-                    'prediction_tick': middle_tick - global_min_tick,
-                    'duration_seconds': segment_length_sec,
-                    'pov_steamid': pov_steamid,
-                    'pov_side': pov_side,
-                    'alive_count': alive_count
-                }
-                segments.append(segment_info)
+                for pov_data in pov_candidates:
+                    pov_steamid = pov_data['steamid']
+                    pov_side = side
+                    
+                    if target_type == 'teammate':
+                        # Count alive teammates (excluding POV) - 4 teammates max
+                        targets = [p for p in all_players_data 
+                                  if p['side'] == pov_side and p['steamid'] != pov_steamid]
+                        alive_count = sum(1 for p in targets if p.get('health', 0) > 0)
+                    else:  # enemy
+                        # Count alive enemies - 5 enemies max
+                        enemy_side = self._get_opposite_side(pov_side)
+                        targets = [p for p in all_players_data if p['side'] == enemy_side]
+                        alive_count = sum(1 for p in targets if p.get('health', 0) > 0)
+                    
+                    segment_info = {
+                        'start_tick': current_tick,
+                        'end_tick': end_tick,
+                        'prediction_tick': middle_tick,
+                        'start_tick_norm': current_tick - global_min_tick,
+                        'end_tick_norm': end_tick - global_min_tick,
+                        'prediction_tick_norm': middle_tick - global_min_tick,
+                        'duration_seconds': segment_length_sec,
+                        'pov_steamid': pov_steamid,
+                        'pov_side': pov_side,
+                        'alive_count': alive_count
+                    }
+                    segments.append(segment_info)
             
             current_tick += stride_ticks
         
@@ -118,6 +116,9 @@ class AliveCountCreator(TaskCreatorBase):
                 'start_tick': segment['start_tick'],
                 'end_tick': segment['end_tick'],
                 'prediction_tick': segment['prediction_tick'],
+                'start_tick_norm': segment['start_tick_norm'],
+                'end_tick_norm': segment['end_tick_norm'],
+                'prediction_tick_norm': segment['prediction_tick_norm'],
                 'match_id': segment['match_id'],
                 'round_num': segment['round_num'],
                 'label': segment['alive_count']

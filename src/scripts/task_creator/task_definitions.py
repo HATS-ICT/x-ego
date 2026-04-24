@@ -81,7 +81,7 @@ class TaskDefinition:
         return self.temporal_type == TemporalType.FORECAST
 
 
-# Map places on de_mirage to indices (actual places found in dataset)
+# Map-specific place vocabularies
 MIRAGE_PLACES = [
     "Apartments", "BackAlley", "BombsiteA", "BombsiteB", "CTSpawn",
     "Catwalk", "Connector", "House", "Jungle", "Ladder",
@@ -90,9 +90,57 @@ MIRAGE_PLACES = [
     "TopofMid", "Truck", "Underpass"
 ]
 
+DUST2_PLACES = [
+    "ARamp", "BDoors", "BombsiteA", "BombsiteB", "CTSpawn",
+    "Catwalk", "ExtendedA", "Hole", "LongA", "LongDoors",
+    "LowerTunnel", "MidDoors", "Middle", "OutsideLong", "OutsideTunnel",
+    "Pit", "ShortStairs", "Side", "TRamp", "TSpawn", "TopofMid",
+    "TunnelStairs", "UnderA", "UpperTunnel"
+]
+
+INFERNO_PLACES = [
+    "Apartments", "Arch", "BackAlley", "Balcony", "Banana",
+    "BombsiteA", "BombsiteB", "Bridge", "CTSpawn", "Deck",
+    "Graveyard", "Kitchen", "Library", "LowerMid", "Middle",
+    "Pit", "Quad", "Ruins", "SecondMid", "TRamp",
+    "TSpawn", "TopofMid", "Underpass", "Upstairs"
+]
+
+MAP_PLACES = {
+    "mirage": MIRAGE_PLACES,
+    "de_mirage": MIRAGE_PLACES,
+    "dust2": DUST2_PLACES,
+    "de_dust2": DUST2_PLACES,
+    "inferno": INFERNO_PLACES,
+    "de_inferno": INFERNO_PLACES,
+}
+
+# Backward-compatible defaults
 PLACE_TO_IDX = {place: idx for idx, place in enumerate(MIRAGE_PLACES)}
 IDX_TO_PLACE = {idx: place for idx, place in enumerate(MIRAGE_PLACES)}
 NUM_PLACES = len(MIRAGE_PLACES)
+
+
+def normalize_map_name(map_name: Optional[str]) -> str:
+    """Normalize a map name like 'de_dust2' to a lookup key."""
+    if not map_name:
+        return "mirage"
+    return str(map_name).strip().lower()
+
+
+def get_place_names_for_map(map_name: Optional[str]) -> List[str]:
+    """Return the ordered place vocabulary for a map."""
+    normalized = normalize_map_name(map_name)
+    if normalized in MAP_PLACES:
+        return MAP_PLACES[normalized]
+    stripped = normalized.removeprefix("de_")
+    return MAP_PLACES.get(stripped, MIRAGE_PLACES)
+
+
+def get_place_to_idx_for_map(map_name: Optional[str]) -> dict:
+    """Return a place-to-index mapping for a map."""
+    place_names = get_place_names_for_map(map_name)
+    return {place: idx for idx, place in enumerate(place_names)}
 
 # Movement direction mapping (8 directions + stationary)
 MOVEMENT_DIRECTIONS = [

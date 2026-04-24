@@ -41,16 +41,16 @@ class TeammateMovementDirectionCreator(TaskCreatorBase):
         stride_ticks = int(self.stride_sec * self.tick_rate)
         stride_ticks = max(1, stride_ticks)
         
-        # Get global tick range
-        all_min_ticks = []
-        for df in player_trajectories.values():
-            if not df.empty:
-                all_min_ticks.append(df['tick'].min())
-        
-        if not all_min_ticks:
+        # Load metadata to get freeze_end_tick
+        metadata = self._load_metadata(match_id)
+        if not metadata or 'rounds' not in metadata:
             return []
-        
-        global_min_tick = min(all_min_ticks)
+            
+        round_info = next((r for r in metadata['rounds'] if r['round_number'] == round_num), None)
+        if not round_info or 'freeze_end_tick' not in round_info:
+            return []
+            
+        global_min_tick = round_info['freeze_end_tick']
         
         # Need some history for movement computation
         lookback_ticks = int(0.5 * self.tick_rate)  # 0.5 second lookback
@@ -60,9 +60,12 @@ class TeammateMovementDirectionCreator(TaskCreatorBase):
             if pov_df.empty:
                 continue
             
-            death_tick = self._find_player_death_tick(pov_df)
+            death_tick = self._find_player_death_tick(metadata, round_num, pov_steamid)
+            global_max_tick = round_info.get('end_tick', pov_df['tick'].max())
             if death_tick is None:
-                death_tick = pov_df['tick'].max()
+                death_tick = global_max_tick
+            else:
+                death_tick = min(death_tick, global_max_tick)
             
             pov_min_tick = pov_df['tick'].min()
             pov_side = pov_df.iloc[0]['side']
@@ -122,9 +125,12 @@ class TeammateMovementDirectionCreator(TaskCreatorBase):
                     teammate_directions.append(-1)
                 
                 segment_info = {
-                    'start_tick': current_tick - global_min_tick,
-                    'end_tick': end_tick - global_min_tick,
-                    'prediction_tick': middle_tick - global_min_tick,
+                    'start_tick': current_tick,
+                    'end_tick': end_tick,
+                    'prediction_tick': middle_tick,
+                    'start_tick_norm': current_tick - global_min_tick,
+                    'end_tick_norm': end_tick - global_min_tick,
+                    'prediction_tick_norm': middle_tick - global_min_tick,
                     'duration_seconds': segment_length_sec,
                     'pov_steamid': pov_steamid,
                     'pov_side': pov_side,
@@ -151,6 +157,9 @@ class TeammateMovementDirectionCreator(TaskCreatorBase):
                 'start_tick': segment['start_tick'],
                 'end_tick': segment['end_tick'],
                 'prediction_tick': segment['prediction_tick'],
+                'start_tick_norm': segment['start_tick_norm'],
+                'end_tick_norm': segment['end_tick_norm'],
+                'prediction_tick_norm': segment['prediction_tick_norm'],
                 'match_id': segment['match_id'],
                 'round_num': segment['round_num'],
             }
@@ -200,16 +209,16 @@ class TeammateSpeedCreator(TaskCreatorBase):
         stride_ticks = int(self.stride_sec * self.tick_rate)
         stride_ticks = max(1, stride_ticks)
         
-        # Get global tick range
-        all_min_ticks = []
-        for df in player_trajectories.values():
-            if not df.empty:
-                all_min_ticks.append(df['tick'].min())
-        
-        if not all_min_ticks:
+        # Load metadata to get freeze_end_tick
+        metadata = self._load_metadata(match_id)
+        if not metadata or 'rounds' not in metadata:
             return []
-        
-        global_min_tick = min(all_min_ticks)
+            
+        round_info = next((r for r in metadata['rounds'] if r['round_number'] == round_num), None)
+        if not round_info or 'freeze_end_tick' not in round_info:
+            return []
+            
+        global_min_tick = round_info['freeze_end_tick']
         
         # Need some history for speed computation
         lookback_ticks = int(0.5 * self.tick_rate)  # 0.5 second lookback
@@ -220,9 +229,12 @@ class TeammateSpeedCreator(TaskCreatorBase):
             if pov_df.empty:
                 continue
             
-            death_tick = self._find_player_death_tick(pov_df)
+            death_tick = self._find_player_death_tick(metadata, round_num, pov_steamid)
+            global_max_tick = round_info.get('end_tick', pov_df['tick'].max())
             if death_tick is None:
-                death_tick = pov_df['tick'].max()
+                death_tick = global_max_tick
+            else:
+                death_tick = min(death_tick, global_max_tick)
             
             pov_min_tick = pov_df['tick'].min()
             pov_side = pov_df.iloc[0]['side']
@@ -289,9 +301,12 @@ class TeammateSpeedCreator(TaskCreatorBase):
                     teammate_speeds.append(0.0)
                 
                 segment_info = {
-                    'start_tick': current_tick - global_min_tick,
-                    'end_tick': end_tick - global_min_tick,
-                    'prediction_tick': middle_tick - global_min_tick,
+                    'start_tick': current_tick,
+                    'end_tick': end_tick,
+                    'prediction_tick': middle_tick,
+                    'start_tick_norm': current_tick - global_min_tick,
+                    'end_tick_norm': end_tick - global_min_tick,
+                    'prediction_tick_norm': middle_tick - global_min_tick,
                     'duration_seconds': segment_length_sec,
                     'pov_steamid': pov_steamid,
                     'pov_side': pov_side,
@@ -318,6 +333,9 @@ class TeammateSpeedCreator(TaskCreatorBase):
                 'start_tick': segment['start_tick'],
                 'end_tick': segment['end_tick'],
                 'prediction_tick': segment['prediction_tick'],
+                'start_tick_norm': segment['start_tick_norm'],
+                'end_tick_norm': segment['end_tick_norm'],
+                'prediction_tick_norm': segment['prediction_tick_norm'],
                 'match_id': segment['match_id'],
                 'round_num': segment['round_num'],
             }

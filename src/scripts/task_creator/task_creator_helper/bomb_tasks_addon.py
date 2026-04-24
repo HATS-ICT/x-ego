@@ -19,18 +19,7 @@ class WillPlantPredictionCreator(TaskCreatorBase):
     Only creates segments for T-side before bomb is planted.
     Output: Binary classification (0=no plant, 1=will plant).
     """
-    
-    def _find_player_death_tick(self, player_df: pd.DataFrame) -> Optional[int]:
-        """Find the tick when a player dies, or None if they survive."""
-        if player_df.empty or 'health' not in player_df.columns:
-            return None
-        
-        death_mask = player_df['health'] <= 0
-        if death_mask.any():
-            first_death_idx = death_mask.idxmax()
-            return player_df.loc[first_death_idx, 'tick']
-        return None
-    
+
     def _extract_segments_from_round(self, match_id: str, round_num: int,
                                      config: Dict[str, Any]) -> List[Dict]:
         """Extract segments for will plant prediction."""
@@ -56,16 +45,16 @@ class WillPlantPredictionCreator(TaskCreatorBase):
         segment_ticks = segment_length_sec * self.tick_rate
         stride_ticks = int(self.stride_sec * self.tick_rate)
         
-        # Get global tick range
-        all_min_ticks = []
-        for df in player_trajectories.values():
-            if not df.empty:
-                all_min_ticks.append(df['tick'].min())
-        
-        if not all_min_ticks:
+        # Load metadata to get freeze_end_tick
+        metadata = self._load_metadata(match_id)
+        if not metadata or 'rounds' not in metadata:
             return []
-        
-        global_min_tick = min(all_min_ticks)
+            
+        round_info = next((r for r in metadata['rounds'] if r['round_number'] == round_num), None)
+        if not round_info or 'freeze_end_tick' not in round_info:
+            return []
+            
+        global_min_tick = round_info['freeze_end_tick']
         
         # Get map name
         map_name = 'de_mirage'
@@ -83,9 +72,12 @@ class WillPlantPredictionCreator(TaskCreatorBase):
             if pov_side != 't':
                 continue  # Skip CT players
             
-            death_tick = self._find_player_death_tick(pov_df)
+            death_tick = self._find_player_death_tick(metadata, round_num, pov_steamid)
+            global_max_tick = round_info.get('end_tick', pov_df['tick'].max())
             if death_tick is None:
-                death_tick = pov_df['tick'].max()
+                death_tick = global_max_tick
+            else:
+                death_tick = min(death_tick, global_max_tick)
             
             # Only use segments before plant (if plant happened)
             if plant_tick is not None:
@@ -108,9 +100,12 @@ class WillPlantPredictionCreator(TaskCreatorBase):
                     continue
                 
                 segment_info = {
-                    'start_tick': current_tick - global_min_tick,  # Relative to round start
-                    'end_tick': end_tick - global_min_tick,
-                    'prediction_tick': middle_tick - global_min_tick,
+                    'start_tick': current_tick,
+                    'end_tick': end_tick,
+                    'prediction_tick': middle_tick,
+                    'start_tick_norm': current_tick - global_min_tick,
+                    'end_tick_norm': end_tick - global_min_tick,
+                    'prediction_tick_norm': middle_tick - global_min_tick,
                     'start_seconds': current_tick / self.tick_rate,
                     'end_seconds': end_tick / self.tick_rate,
                     'prediction_seconds': middle_tick / self.tick_rate,
@@ -144,6 +139,9 @@ class WillPlantPredictionCreator(TaskCreatorBase):
                 'start_tick': segment['start_tick'],
                 'end_tick': segment['end_tick'],
                 'prediction_tick': segment['prediction_tick'],
+                'start_tick_norm': segment['start_tick_norm'],
+                'end_tick_norm': segment['end_tick_norm'],
+                'prediction_tick_norm': segment['prediction_tick_norm'],
                 'match_id': segment['match_id'],
                 'round_num': segment['round_num'],
                 'map_name': segment['map_name'],

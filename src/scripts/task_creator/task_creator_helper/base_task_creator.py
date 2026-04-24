@@ -286,65 +286,62 @@ class TaskCreatorBase(ABC):
     
     # ========== Tick Range Utilities ==========
     
-    def _find_player_death_tick(self, player_df: pd.DataFrame) -> Optional[int]:
-        """Find the tick when a specific player dies, or None if they survive."""
-        if player_df.empty or 'health' not in player_df.columns:
+    def _find_player_death_tick(self, metadata: Dict, round_num: int, steamid: str) -> Optional[int]:
+        """Find the tick when a specific player dies from metadata, or None if they survive."""
+        str_round = str(round_num)
+        if 'player_alive_times' not in metadata or str_round not in metadata['player_alive_times']:
             return None
-        
-        death_mask = player_df['health'] <= 0
-        if death_mask.any():
-            first_death_idx = death_mask.idxmax()
-            return player_df.loc[first_death_idx, 'tick']
+            
+        for p in metadata['player_alive_times'][str_round]:
+            if p['steamid'] == str(steamid):
+                if p['died_in_round']:
+                    return p['alive_end_tick']
+                return None
         return None
     
-    def _find_first_death_tick(self, player_trajectories: Dict[str, pd.DataFrame]) -> int:
-        """Find the tick when the first player dies."""
-        if not player_trajectories:
+    def _find_first_death_tick(self, metadata: Dict, round_num: int, steamids: List[str]) -> int:
+        """Find the tick when the first player dies among a list of steamids."""
+        str_round = str(round_num)
+        if 'player_alive_times' not in metadata or str_round not in metadata['player_alive_times']:
             return 0
-        
+            
         death_ticks = []
-        
-        for df in player_trajectories.values():
-            if not df.empty and 'health' in df.columns:
-                death_mask = df['health'] <= 0
-                if death_mask.any():
-                    first_death_idx = death_mask.idxmax()
-                    death_tick = df.loc[first_death_idx, 'tick']
-                    death_ticks.append(death_tick)
-        
+        for p in metadata['player_alive_times'][str_round]:
+            if p['steamid'] in steamids and p['died_in_round']:
+                death_ticks.append(p['alive_end_tick'])
+                
         if death_ticks:
             return min(death_ticks)
-        else:
-            all_ticks = []
-            for df in player_trajectories.values():
-                if not df.empty:
-                    all_ticks.extend(df['tick'].tolist())
-            return max(all_ticks) if all_ticks else 0
+            
+        # If no one dies, return the round's end tick
+        round_info = next((r for r in metadata.get('rounds', []) if r['round_number'] == round_num), None)
+        if round_info and 'end_tick' in round_info:
+            return round_info['end_tick']
+        return 0
     
-    def _get_valid_tick_range(self, player_trajectories: Dict[str, pd.DataFrame]) -> Tuple[int, int]:
+    def _get_valid_tick_range(self, metadata: Dict, round_num: int, steamids: List[str]) -> Tuple[int, int]:
         """
-        Get the valid tick range where all players have data and are alive.
+        Get the valid tick range where all specified players are alive, using metadata.
         
         Returns:
             Tuple of (min_tick, max_tick_before_death)
         """
-        if not player_trajectories:
+        if not steamids:
             return 0, 0
-        
-        all_ticks = []
-        for df in player_trajectories.values():
-            if not df.empty:
-                all_ticks.extend(df['tick'].tolist())
-        
-        if not all_ticks:
+            
+        round_info = next((r for r in metadata.get('rounds', []) if r['round_number'] == round_num), None)
+        if not round_info:
             return 0, 0
+            
+        min_tick = round_info['freeze_end_tick']
+        max_tick = round_info['end_tick']
         
-        min_tick = min(all_ticks)
-        max_tick = max(all_ticks)
-        
-        first_death_tick = self._find_first_death_tick(player_trajectories)
-        max_tick_alive = min(max_tick, first_death_tick)
-        
+        first_death_tick = self._find_first_death_tick(metadata, round_num, steamids)
+        if first_death_tick > 0:
+            max_tick_alive = min(max_tick, first_death_tick)
+        else:
+            max_tick_alive = max_tick
+            
         return min_tick, max_tick_alive
     
     # ========== Data Extraction ==========

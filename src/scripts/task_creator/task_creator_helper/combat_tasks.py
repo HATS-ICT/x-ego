@@ -44,25 +44,28 @@ class ImminentKillCreator(TaskCreatorBase):
         horizon_ticks = int(horizon_sec * self.tick_rate)
         stride_ticks = int(self.stride_sec * self.tick_rate)
         
-        # Get global tick range
-        all_min_ticks = []
-        for df in player_trajectories.values():
-            if not df.empty:
-                all_min_ticks.append(df['tick'].min())
-        
-        if not all_min_ticks:
+        # Load metadata to get freeze_end_tick
+        metadata = self._load_metadata(match_id)
+        if not metadata or 'rounds' not in metadata:
             return []
-        
-        global_min_tick = min(all_min_ticks)
+            
+        round_info = next((r for r in metadata['rounds'] if r['round_number'] == round_num), None)
+        if not round_info or 'freeze_end_tick' not in round_info:
+            return []
+            
+        global_min_tick = round_info['freeze_end_tick']
         
         # For each player as POV
         for pov_steamid, pov_df in player_trajectories.items():
             if pov_df.empty:
                 continue
             
-            death_tick = self._find_player_death_tick(pov_df)
+            death_tick = self._find_player_death_tick(metadata, round_num, pov_steamid)
+            global_max_tick = round_info.get('end_tick', pov_df['tick'].max())
             if death_tick is None:
-                death_tick = pov_df['tick'].max()
+                death_tick = global_max_tick
+            else:
+                death_tick = min(death_tick, global_max_tick)
             
             pov_min_tick = pov_df['tick'].min()
             pov_side = pov_df.iloc[0]['side']
@@ -88,9 +91,12 @@ class ImminentKillCreator(TaskCreatorBase):
                     has_kill = self._check_event_in_window(kills_df, forecast_start, forecast_end)
                 
                 segment_info = {
-                    'start_tick': current_tick - global_min_tick,
-                    'end_tick': end_tick - global_min_tick,
-                    'prediction_tick': middle_tick - global_min_tick,
+                    'start_tick': current_tick,
+                    'end_tick': end_tick,
+                    'prediction_tick': middle_tick,
+                    'start_tick_norm': current_tick - global_min_tick,
+                    'end_tick_norm': end_tick - global_min_tick,
+                    'prediction_tick_norm': middle_tick - global_min_tick,
                     'horizon_sec': horizon_sec,
                     'duration_seconds': segment_length_sec,
                     'pov_steamid': pov_steamid,
@@ -119,6 +125,9 @@ class ImminentKillCreator(TaskCreatorBase):
                 'start_tick': segment['start_tick'],
                 'end_tick': segment['end_tick'],
                 'prediction_tick': segment['prediction_tick'],
+                'start_tick_norm': segment['start_tick_norm'],
+                'end_tick_norm': segment['end_tick_norm'],
+                'prediction_tick_norm': segment['prediction_tick_norm'],
                 'match_id': segment['match_id'],
                 'round_num': segment['round_num'],
                 'label': segment['has_kill']
@@ -162,25 +171,28 @@ class ImminentDeathSelfCreator(TaskCreatorBase):
         horizon_ticks = int(horizon_sec * self.tick_rate)
         stride_ticks = int(self.stride_sec * self.tick_rate)
         
-        # Get global tick range
-        all_min_ticks = []
-        for df in player_trajectories.values():
-            if not df.empty:
-                all_min_ticks.append(df['tick'].min())
-        
-        if not all_min_ticks:
+        # Load metadata to get freeze_end_tick
+        metadata = self._load_metadata(match_id)
+        if not metadata or 'rounds' not in metadata:
             return []
-        
-        global_min_tick = min(all_min_ticks)
+            
+        round_info = next((r for r in metadata['rounds'] if r['round_number'] == round_num), None)
+        if not round_info or 'freeze_end_tick' not in round_info:
+            return []
+            
+        global_min_tick = round_info['freeze_end_tick']
         
         # For each player as POV
         for pov_steamid, pov_df in player_trajectories.items():
             if pov_df.empty:
                 continue
             
-            death_tick = self._find_player_death_tick(pov_df)
+            death_tick = self._find_player_death_tick(metadata, round_num, pov_steamid)
+            global_max_tick = round_info.get('end_tick', pov_df['tick'].max())
             if death_tick is None:
-                death_tick = pov_df['tick'].max()
+                death_tick = global_max_tick
+            else:
+                death_tick = min(death_tick, global_max_tick)
             
             pov_min_tick = pov_df['tick'].min()
             pov_side = pov_df.iloc[0]['side']
@@ -208,9 +220,12 @@ class ImminentDeathSelfCreator(TaskCreatorBase):
                         pov_dies = (window_kills['victim_steamid'].astype(str) == str(pov_steamid)).any()
                 
                 segment_info = {
-                    'start_tick': current_tick - global_min_tick,
-                    'end_tick': end_tick - global_min_tick,
-                    'prediction_tick': middle_tick - global_min_tick,
+                    'start_tick': current_tick,
+                    'end_tick': end_tick,
+                    'prediction_tick': middle_tick,
+                    'start_tick_norm': current_tick - global_min_tick,
+                    'end_tick_norm': end_tick - global_min_tick,
+                    'prediction_tick_norm': middle_tick - global_min_tick,
                     'horizon_sec': horizon_sec,
                     'duration_seconds': segment_length_sec,
                     'pov_steamid': pov_steamid,
@@ -239,6 +254,9 @@ class ImminentDeathSelfCreator(TaskCreatorBase):
                 'start_tick': segment['start_tick'],
                 'end_tick': segment['end_tick'],
                 'prediction_tick': segment['prediction_tick'],
+                'start_tick_norm': segment['start_tick_norm'],
+                'end_tick_norm': segment['end_tick_norm'],
+                'prediction_tick_norm': segment['prediction_tick_norm'],
                 'match_id': segment['match_id'],
                 'round_num': segment['round_num'],
                 'label': segment['pov_dies']
@@ -284,25 +302,28 @@ class InCombatCreator(TaskCreatorBase):
         combat_window_ticks = int(combat_window_sec * self.tick_rate)
         stride_ticks = int(self.stride_sec * self.tick_rate)
         
-        # Get global tick range
-        all_min_ticks = []
-        for df in player_trajectories.values():
-            if not df.empty:
-                all_min_ticks.append(df['tick'].min())
-        
-        if not all_min_ticks:
+        # Load metadata to get freeze_end_tick
+        metadata = self._load_metadata(match_id)
+        if not metadata or 'rounds' not in metadata:
             return []
-        
-        global_min_tick = min(all_min_ticks)
+            
+        round_info = next((r for r in metadata['rounds'] if r['round_number'] == round_num), None)
+        if not round_info or 'freeze_end_tick' not in round_info:
+            return []
+            
+        global_min_tick = round_info['freeze_end_tick']
         
         # For each player as POV
         for pov_steamid, pov_df in player_trajectories.items():
             if pov_df.empty:
                 continue
             
-            death_tick = self._find_player_death_tick(pov_df)
+            death_tick = self._find_player_death_tick(metadata, round_num, pov_steamid)
+            global_max_tick = round_info.get('end_tick', pov_df['tick'].max())
             if death_tick is None:
-                death_tick = pov_df['tick'].max()
+                death_tick = global_max_tick
+            else:
+                death_tick = min(death_tick, global_max_tick)
             
             pov_min_tick = pov_df['tick'].min()
             pov_side = pov_df.iloc[0]['side']
@@ -354,9 +375,12 @@ class InCombatCreator(TaskCreatorBase):
                                 break
                 
                 segment_info = {
-                    'start_tick': current_tick - global_min_tick,
-                    'end_tick': end_tick - global_min_tick,
-                    'prediction_tick': middle_tick - global_min_tick,
+                    'start_tick': current_tick,
+                    'end_tick': end_tick,
+                    'prediction_tick': middle_tick,
+                    'start_tick_norm': current_tick - global_min_tick,
+                    'end_tick_norm': end_tick - global_min_tick,
+                    'prediction_tick_norm': middle_tick - global_min_tick,
                     'duration_seconds': segment_length_sec,
                     'pov_steamid': pov_steamid,
                     'pov_side': pov_side,
@@ -383,6 +407,9 @@ class InCombatCreator(TaskCreatorBase):
                 'start_tick': segment['start_tick'],
                 'end_tick': segment['end_tick'],
                 'prediction_tick': segment['prediction_tick'],
+                'start_tick_norm': segment['start_tick_norm'],
+                'end_tick_norm': segment['end_tick_norm'],
+                'prediction_tick_norm': segment['prediction_tick_norm'],
                 'match_id': segment['match_id'],
                 'round_num': segment['round_num'],
                 'label': segment['in_combat']
@@ -424,16 +451,16 @@ class ImminentKillSelfCreator(TaskCreatorBase):
         horizon_ticks = int(horizon_sec * self.tick_rate)
         stride_ticks = int(self.stride_sec * self.tick_rate)
         
-        # Get global tick range
-        all_min_ticks = []
-        for df in player_trajectories.values():
-            if not df.empty:
-                all_min_ticks.append(df['tick'].min())
-        
-        if not all_min_ticks:
+        # Load metadata to get freeze_end_tick
+        metadata = self._load_metadata(match_id)
+        if not metadata or 'rounds' not in metadata:
             return []
-        
-        global_min_tick = min(all_min_ticks)
+            
+        round_info = next((r for r in metadata['rounds'] if r['round_number'] == round_num), None)
+        if not round_info or 'freeze_end_tick' not in round_info:
+            return []
+            
+        global_min_tick = round_info['freeze_end_tick']
         
         # Get map name
         map_name = 'de_mirage'
@@ -447,9 +474,12 @@ class ImminentKillSelfCreator(TaskCreatorBase):
             if pov_df.empty:
                 continue
             
-            death_tick = self._find_player_death_tick(pov_df)
+            death_tick = self._find_player_death_tick(metadata, round_num, pov_steamid)
+            global_max_tick = round_info.get('end_tick', pov_df['tick'].max())
             if death_tick is None:
-                death_tick = pov_df['tick'].max()
+                death_tick = global_max_tick
+            else:
+                death_tick = min(death_tick, global_max_tick)
             
             pov_min_tick = pov_df['tick'].min()
             pov_side = pov_df.iloc[0]['side']
@@ -477,9 +507,12 @@ class ImminentKillSelfCreator(TaskCreatorBase):
                         pov_kills = (window_kills['attacker_steamid'].astype(str) == str(pov_steamid)).any()
                 
                 segment_info = {
-                    'start_tick': current_tick - global_min_tick,
-                    'end_tick': end_tick - global_min_tick,
-                    'prediction_tick': middle_tick - global_min_tick,
+                    'start_tick': current_tick,
+                    'end_tick': end_tick,
+                    'prediction_tick': middle_tick,
+                    'start_tick_norm': current_tick - global_min_tick,
+                    'end_tick_norm': end_tick - global_min_tick,
+                    'prediction_tick_norm': middle_tick - global_min_tick,
                     'horizon_sec': horizon_sec,
                     'duration_seconds': segment_length_sec,
                     'map_name': map_name,
@@ -509,6 +542,9 @@ class ImminentKillSelfCreator(TaskCreatorBase):
                 'start_tick': segment['start_tick'],
                 'end_tick': segment['end_tick'],
                 'prediction_tick': segment['prediction_tick'],
+                'start_tick_norm': segment['start_tick_norm'],
+                'end_tick_norm': segment['end_tick_norm'],
+                'prediction_tick_norm': segment['prediction_tick_norm'],
                 'match_id': segment['match_id'],
                 'round_num': segment['round_num'],
                 'map_name': segment['map_name'],

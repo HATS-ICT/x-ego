@@ -2,9 +2,13 @@
 
 This is a lightweight preflight check for the contrastive pipeline. It verifies:
 - each map label CSV exists
+- each map labels folder exists
 - each map time_offset.json exists
 - every referenced teammate video exists
 - every referenced teammate has an offset entry
+- every referenced teammate trajectory round CSV exists
+- every referenced match has a metadata JSON and demo file
+- every referenced match has an event folder with expected CSVs
 
 Example:
     uv run python src/scripts/data_analysis/verify_data_integrity.py --strict
@@ -24,6 +28,7 @@ from dotenv import load_dotenv
 
 DEFAULT_MAPS = ("dust2", "inferno", "mirage")
 DEFAULT_PARTITIONS = ("train", "val", "test")
+DEFAULT_EVENT_FILES = ("bomb.csv", "damages.csv", "kills.csv", "rounds.csv", "shots.csv")
 
 
 def resolve_data_root(cli_data_root: str | None) -> Path:
@@ -58,20 +63,38 @@ def check_contrastive_map(
     map_name: str,
     labels_filename: str,
     video_folder: str,
+    trajectory_folder: str,
+    demo_folder: str,
+    metadata_folder: str,
+    event_folder: str,
+    event_files: tuple[str, ...],
     partitions: set[str],
     limit: int,
 ) -> int:
     map_root = data_root / map_name
-    label_path = map_root / "labels" / labels_filename
+    labels_root = map_root / "labels"
+    label_path = labels_root / labels_filename
     offset_path = map_root / "time_offset.json"
     video_root = map_root / video_folder
+    trajectory_root = map_root / trajectory_folder
+    demo_root = map_root / demo_folder
+    metadata_root = map_root / metadata_folder
+    event_root = map_root / event_folder
 
     print(f"\n=== {map_name} ===")
+    print(f"labels folder: {labels_root}")
     print(f"labels: {label_path}")
     print(f"offset: {offset_path}")
     print(f"videos: {video_root}")
+    print(f"trajectory: {trajectory_root}")
+    print(f"demo: {demo_root}")
+    print(f"metadata: {metadata_root}")
+    print(f"event: {event_root}")
 
     problems = 0
+    if not labels_root.exists():
+        print("  ERROR: labels folder is missing")
+        return 1
     if not label_path.exists():
         print("  ERROR: label CSV is missing")
         return 1
@@ -81,14 +104,31 @@ def check_contrastive_map(
     if not video_root.exists():
         print("  ERROR: video folder is missing")
         return 1
+    if not trajectory_root.exists():
+        print("  ERROR: trajectory folder is missing")
+        return 1
+    if not demo_root.exists():
+        print("  ERROR: demo folder is missing")
+        return 1
+    if not metadata_root.exists():
+        print("  ERROR: metadata folder is missing")
+        return 1
+    if not event_root.exists():
+        print("  ERROR: event folder is missing")
+        return 1
 
     offsets = json.loads(offset_path.read_text(encoding="utf-8"))
 
     row_count = 0
     checked_refs = 0
     partition_counts: Counter[str] = Counter()
+    checked_matches: set[str] = set()
     missing_videos: list[str] = []
     missing_offsets: list[str] = []
+    missing_trajectories: list[str] = []
+    missing_demos: list[str] = []
+    missing_metadata: list[str] = []
+    missing_events: list[str] = []
     bad_rows: list[str] = []
 
     with label_path.open(newline="", encoding="utf-8") as f:
@@ -113,6 +153,7 @@ def check_contrastive_map(
             partition_counts[partition] += 1
             match_id = row["match_id"]
             round_name = round_key(row["round_num"])
+            checked_matches.add(str(match_id))
 
             try:
                 num_alive = int(float(row["num_alive_teammates"]))
@@ -134,15 +175,47 @@ def check_contrastive_map(
                     missing_videos.append(f"line={csv_line} {match_id}/{player_id}/{round_name}")
                     problems += 1
 
+                trajectory_path = trajectory_root / str(match_id) / str(player_id) / f"{round_name}.csv"
+                if not trajectory_path.exists():
+                    missing_trajectories.append(f"line={csv_line} {match_id}/{player_id}/{round_name}")
+                    problems += 1
+
                 if not has_offset(offsets, match_id, player_id, round_name):
                     missing_offsets.append(f"line={csv_line} {match_id}/{player_id}/{round_name}")
                     problems += 1
 
+    for match_id in sorted(checked_matches):
+        demo_path = demo_root / f"{match_id}.dem"
+        if not demo_path.exists():
+            missing_demos.append(match_id)
+            problems += 1
+
+        metadata_path = metadata_root / f"{match_id}.json"
+        if not metadata_path.exists():
+            missing_metadata.append(match_id)
+            problems += 1
+
+        match_event_root = event_root / match_id
+        if not match_event_root.exists():
+            missing_events.append(f"{match_id}/")
+            problems += 1
+        else:
+            for event_file in event_files:
+                event_path = match_event_root / event_file
+                if not event_path.exists():
+                    missing_events.append(f"{match_id}/{event_file}")
+                    problems += 1
+
     print(f"  rows checked: {row_count:,} {dict(partition_counts)}")
+    print(f"  matches    : {len(checked_matches):,}")
     print(f"  video refs : {checked_refs:,}")
     print_examples("bad rows", bad_rows, limit)
     print_examples("missing videos", missing_videos, limit)
     print_examples("missing offsets", missing_offsets, limit)
+    print_examples("missing trajectories", missing_trajectories, limit)
+    print_examples("missing demos", missing_demos, limit)
+    print_examples("missing metadata", missing_metadata, limit)
+    print_examples("missing events", missing_events, limit)
 
     return problems
 
@@ -154,6 +227,11 @@ def main() -> None:
     parser.add_argument("--partitions", nargs="+", default=list(DEFAULT_PARTITIONS))
     parser.add_argument("--labels_filename", default="contrastive.csv")
     parser.add_argument("--video_folder", default="video_306x306_4fps")
+    parser.add_argument("--trajectory_folder", default="trajectory")
+    parser.add_argument("--demo_folder", default="demo")
+    parser.add_argument("--metadata_folder", default="metadata")
+    parser.add_argument("--event_folder", default="event")
+    parser.add_argument("--event_files", nargs="+", default=list(DEFAULT_EVENT_FILES))
     parser.add_argument("--limit", type=int, default=20, help="Examples to print per issue type")
     parser.add_argument("--strict", action="store_true", help="Exit non-zero if any problem is found")
     args = parser.parse_args()
@@ -168,6 +246,11 @@ def main() -> None:
             map_name=map_name,
             labels_filename=args.labels_filename,
             video_folder=args.video_folder,
+            trajectory_folder=args.trajectory_folder,
+            demo_folder=args.demo_folder,
+            metadata_folder=args.metadata_folder,
+            event_folder=args.event_folder,
+            event_files=tuple(args.event_files),
             partitions=partitions,
             limit=args.limit,
         )

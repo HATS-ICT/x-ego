@@ -11,6 +11,7 @@ from typing import Dict
 import json
 import polars as pl
 import torch
+from pathlib import Path
 from torch.utils.data import Dataset
 from rich import print as rprint
 
@@ -70,11 +71,8 @@ class DownstreamDataset(Dataset):
         
         # Load time offsets
         data_root = Path(self.cfg.path.data)
-        map_name = getattr(self.cfg.data, 'map', None)
-        if map_name:
-            offset_path = data_root / map_name / "time_offset.json"
-        else:
-            offset_path = data_root / "time_offset.json"
+        map_name = self.cfg.data.map
+        offset_path = data_root / map_name / "time_offset.json"
             
         try:
             with open(offset_path, "r") as f:

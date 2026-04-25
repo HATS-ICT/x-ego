@@ -138,19 +138,19 @@ class VideoEncoderClip(nn.Module):
             self.vision_model,
             self.vision_model.encoder.layers,
             cfg.finetune_last_k_layers,
-            getattr(self.vision_model, 'post_layernorm', None)
+            self.vision_model.post_layernorm
         )
 
         # Optional temporal transformer (bidirectional across frames, applied before spatial pooling)
-        temporal_heads = getattr(cfg, 'temporal_heads', None)
-        temporal_depth = getattr(cfg, 'temporal_depth', 1)
+        temporal_heads = cfg.temporal_heads
+        temporal_depth = cfg.temporal_depth
         self.temporal = TemporalTransformer(
             embed_dim=self.embed_dim,
             num_heads=temporal_heads,
             depth=temporal_depth,
             causal=False,
         ) if temporal_heads is not None else None
-    
+
     def forward(self, pixel_values: torch.Tensor, return_temporal_features: bool = False) -> Tensor:
         """
         Forward pass through the CLIP video encoder.
@@ -208,19 +208,19 @@ class VideoEncoderSigLIP2(nn.Module):
             self.vision_model,
             self.vision_model.encoder.layers,
             cfg.finetune_last_k_layers,
-            getattr(self.vision_model, 'post_layernorm', None)
+            self.vision_model.post_layernorm
         )
 
         # Optional temporal transformer (bidirectional across frames, applied before spatial pooling)
-        temporal_heads = getattr(cfg, 'temporal_heads', None)
-        temporal_depth = getattr(cfg, 'temporal_depth', 1)
+        temporal_heads = cfg.temporal_heads
+        temporal_depth = cfg.temporal_depth
         self.temporal = TemporalTransformer(
             embed_dim=self.embed_dim,
             num_heads=temporal_heads,
             depth=temporal_depth,
             causal=False,
         ) if temporal_heads is not None else None
-    
+
     def forward(self, pixel_values: torch.Tensor, return_temporal_features: bool = False) -> Tensor:
         """
         Forward pass through the SigLIP2 video encoder.
@@ -278,13 +278,13 @@ class VideoEncoderDinov2(nn.Module):
             self.vision_model,
             self.vision_model.encoder.layer,  # DINOv2 uses .layer not .layers
             cfg.finetune_last_k_layers,
-            getattr(self.vision_model, 'layernorm', None)
+            self.vision_model.layernorm
         )
 
         # Temporal transformer runs on hidden_size (not *2) since it operates on
         # raw patch tokens before the CLS-concat output projection.
-        temporal_heads = getattr(cfg, 'temporal_heads', None)
-        temporal_depth = getattr(cfg, 'temporal_depth', 1)
+        temporal_heads = cfg.temporal_heads
+        temporal_depth = cfg.temporal_depth
         self.temporal = TemporalTransformer(
             embed_dim=self._hidden_size,
             num_heads=temporal_heads,
@@ -352,12 +352,12 @@ class VideoEncoderDinov3(nn.Module):
             self.vision_model,
             self.vision_model.encoder.layer,  # DINOv3 uses .layer like DINOv2
             cfg.finetune_last_k_layers,
-            getattr(self.vision_model, 'layernorm', None)
+            self.vision_model.layernorm
         )
 
         # Temporal transformer runs on hidden_size (not *2) — same reasoning as DINOv2.
-        temporal_heads = getattr(cfg, 'temporal_heads', None)
-        temporal_depth = getattr(cfg, 'temporal_depth', 1)
+        temporal_heads = cfg.temporal_heads
+        temporal_depth = cfg.temporal_depth
         self.temporal = TemporalTransformer(
             embed_dim=self._hidden_size,
             num_heads=temporal_heads,
@@ -434,8 +434,8 @@ class VideoEncoderResNet50(nn.Module):
         self.embed_dim = 2048
 
         # Optional temporal transformer (bidirectional, applied on spatial patches before pooling)
-        temporal_heads = getattr(cfg, 'temporal_heads', None)
-        temporal_depth = getattr(cfg, 'temporal_depth', 1)
+        temporal_heads = cfg.temporal_heads
+        temporal_depth = cfg.temporal_depth
         self.temporal = TemporalTransformer(
             embed_dim=self.embed_dim,
             num_heads=temporal_heads,
@@ -505,7 +505,7 @@ class VideoEncoderVivit(nn.Module):
             self.vision_model,
             self.vision_model.encoder.layer,  # ViViT uses .layer not .layers
             cfg.finetune_last_k_layers,
-            getattr(self.vision_model, 'layernorm', None)
+            self.vision_model.layernorm
         )
     
     def forward(self, pixel_values: torch.Tensor, return_temporal_features: bool = False) -> Tensor:
@@ -568,7 +568,7 @@ class VideoEncoderVideoMAE(nn.Module):
             self.vision_model,
             self.vision_model.encoder.layer,  # VideoMAE uses .layer
             cfg.finetune_last_k_layers,
-            getattr(self.vision_model, 'layernorm', None)
+            self.vision_model.layernorm
         )
     
     def forward(self, pixel_values: torch.Tensor, return_temporal_features: bool = False) -> Tensor:
@@ -637,7 +637,7 @@ class VideoEncoderVJEPA2(nn.Module):
             self.vision_model,
             self.vision_model.encoder.layer,  # VJEPA2 uses encoder.layer
             cfg.finetune_last_k_layers,
-            getattr(self.vision_model.encoder, 'layernorm', None)
+            self.vision_model.encoder.layernorm
         )
             
     def _get_patch_grid_shape(self, input_shape: Tuple[int, ...]) -> Tuple[int, int, int]:

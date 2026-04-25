@@ -26,6 +26,16 @@ if not SRC_BASE_PATH.is_absolute():
 VIDEO_DIR = "video_544x306_30fps"
 OUTPUT_FILE = "match_round_partitioned.csv"
 
+# Known invalid data that should not be assigned to any train/val/test split.
+INVALID_MATCH_IDS = {
+    "1-71716080-4b64-428b-b7a2-a47135abfd74-1-1",
+    "1-7481ec2c-5b16-423e-be12-32dcefcd5734-1-1",
+}
+
+INVALID_MATCH_ROUNDS = {
+    ("1-5031dc07-1f3d-406e-b33e-6f73b386b563-1-1", 21),
+}
+
 
 def get_video_list_from_dir(dir_path):
     """Get all video paths from a directory."""
@@ -86,9 +96,18 @@ def assign_random_split():
         return "test"
 
 
+def is_invalid_match_round(match_id, round_number):
+    """Return True for known invalid matches or specific bad match-rounds."""
+    return (
+        match_id in INVALID_MATCH_IDS
+        or (match_id, round_number) in INVALID_MATCH_ROUNDS
+    )
+
+
 def get_all_match_round_combinations(data_dir):
     """Get all unique match_id and round_number combinations from the video directory."""
     match_round_combinations = set()
+    skipped_invalid = set()
     
     # Look directly in the VIDEO_DIR
     video_dir_path = data_dir / VIDEO_DIR
@@ -103,12 +122,18 @@ def get_all_match_round_combinations(data_dir):
                 # Extract round number from round_info (e.g., "round_1" -> "1")
                 try:
                     round_number = int(round_info.split('_')[-1]) if 'round_' in round_info else int(round_info)
+                    if is_invalid_match_round(match_id, round_number):
+                        skipped_invalid.add((match_id, round_number))
+                        continue
                     match_round_combinations.add((match_id, round_number))
                 except ValueError:
                     print(f"Warning: Could not extract round number from {round_info}")
     else:
         print(f"Warning: Video directory {video_dir_path} does not exist")
     
+    if skipped_invalid:
+        print(f"Skipped {len(skipped_invalid)} known invalid match-round combinations")
+
     return list(match_round_combinations)
 
 

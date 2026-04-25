@@ -2,6 +2,7 @@
 
 meta:
   seed: 42
+  exp_name: null
   run_name: contrastive-${model.encoder.model_type}
   resume_exp: null
 

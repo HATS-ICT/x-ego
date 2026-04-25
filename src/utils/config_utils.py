@@ -7,6 +7,8 @@ from pathlib import Path
 import pandas as pd
 from omegaconf import OmegaConf
 
+from src.scripts.task_creator.task_definitions import get_place_names_for_map
+
 
 _MISSING = object()
 
@@ -159,24 +161,55 @@ def _task_id_to_labels_filename(task_id: str) -> str:
     
     CSV files are named exactly as their task_id: {task_id}.csv
     """
-    return f"all_tasks/{task_id}.csv"
+    return f"{task_id}.csv"
 
 
-def load_task_config(task_id: str, data_path: Path) -> dict:
+def _find_task_definitions_path(data_path: Path, map_name: str | None) -> Path:
+    """Find the most specific task_definitions.csv available."""
+    candidates = []
+    if map_name:
+        candidates.append(data_path / str(map_name) / "labels" / "task_definitions.csv")
+    candidates.append(data_path / "labels" / "task_definitions.csv")
+
+    for path in candidates:
+        if path.exists():
+            return path
+
+    for path in sorted(data_path.glob("*/labels/task_definitions.csv")):
+        if path.exists():
+            return path
+
+    formatted = "\n".join(f"  - {path}" for path in candidates)
+    raise FileNotFoundError(
+        "Task definitions file not found. Checked:\n"
+        f"{formatted}\n"
+        f"  - {data_path}/*/labels/task_definitions.csv"
+    )
+
+
+def _uses_place_vocabulary(task_id: str, row: pd.Series | None = None) -> bool:
+    """Return whether a task's output dimension is the map-specific place vocabulary."""
+    if row is not None:
+        category = str(row.get("category", "")).lower()
+        label_field = str(row.get("label_field", "")).lower()
+        if category == "location" or label_field == "place":
+            return True
+    return "location" in task_id
+
+
+def load_task_config(task_id: str, data_path: Path, map_name: str | None = None) -> dict:
     """
     Load task configuration from task_definitions.csv based on task_id.
     
     Args:
         task_id: Task identifier (e.g., 'self_location_0s', 'enemy_location_5s')
-        data_path: Path to data directory containing labels/task_definitions.csv
+        data_path: Path to data directory containing task_definitions.csv
+        map_name: Optional map name for map-specific task dimensions
         
     Returns:
         Dictionary with task configuration (ml_form, num_classes, output_dim, label_column, labels_filename)
     """
-    task_def_path = data_path / "labels" / "task_definitions.csv"
-    
-    if not task_def_path.exists():
-        raise FileNotFoundError(f"Task definitions file not found: {task_def_path}")
+    task_def_path = _find_task_definitions_path(data_path, map_name)
     
     df = pd.read_csv(task_def_path)
     task_row = df[df['task_id'] == task_id]
@@ -186,17 +219,24 @@ def load_task_config(task_id: str, data_path: Path) -> dict:
         raise ValueError(f"Task '{task_id}' not found in task_definitions.csv. Available: {available_tasks}")
     
     row = task_row.iloc[0]
+    output_dim = int(row['output_dim'])
+    num_classes = int(row['num_classes']) if pd.notna(row['num_classes']) else None
+
+    if _uses_place_vocabulary(task_id, row):
+        output_dim = len(get_place_names_for_map(map_name))
+        if pd.notna(row['num_classes']):
+            num_classes = output_dim
     
     # Determine label column based on task type
-    label_column = _get_label_column_for_task(task_id, row['ml_form'], int(row['output_dim']))
+    label_column = _get_label_column_for_task(task_id, row['ml_form'], output_dim)
     
     # Determine labels filename from task_id
     labels_filename = _task_id_to_labels_filename(task_id)
     
     config = {
         'ml_form': row['ml_form'],
-        'num_classes': int(row['num_classes']) if pd.notna(row['num_classes']) else None,
-        'output_dim': int(row['output_dim']),
+        'num_classes': num_classes,
+        'output_dim': output_dim,
         'label_column': label_column,
         'labels_filename': labels_filename,
     }
@@ -244,11 +284,11 @@ def _get_label_column_for_task(task_id: str, ml_form: str, output_dim: int) -> s
     # Multi-label classification and multi-output regression use label_0, label_1, etc.
     if ml_form == 'multi_label_cls':
         # Multi-label tasks have one column per class (e.g., 23 location classes)
-        # For location tasks, we have 23 columns (label_0 to label_22)
+        # For location tasks, the number of place columns depends on the map.
         # For movement direction, we have 4 columns (label_0 to label_3) for 4 teammates
         if 'location' in task_id and ('teammate' in task_id or 'enemy' in task_id):
-            # Location multi-label: 23 places
-            return ';'.join([f'label_{i}' for i in range(23)])
+            # Location multi-label: one column per map-specific place.
+            return ';'.join([f'label_{i}' for i in range(output_dim)])
         elif 'movementDir' in task_id and 'teammate' in task_id:
             # Teammate movement direction: 4 teammates
             return ';'.join([f'label_{i}' for i in range(4)])
@@ -279,9 +319,10 @@ def apply_task_config(cfg, data_path: Path):
         Updated configuration
     """
     task_id = cfg.task.task_id
+    map_name = cfg.data.map
     
     try:
-        task_config = load_task_config(task_id, data_path)
+        task_config = load_task_config(task_id, data_path, map_name)
         
         # Update task configuration
         task_updates = OmegaConf.create({
@@ -307,6 +348,24 @@ def apply_task_config(cfg, data_path: Path):
     except Exception as e:
         print(f"[Task Config] Warning: Could not auto-load task config: {e}")
         print("[Task Config] Using config values from YAML file")
+        if _uses_place_vocabulary(task_id):
+            output_dim = len(get_place_names_for_map(map_name))
+            task_updates = OmegaConf.create({
+                'task': {
+                    'num_classes': output_dim if cfg.task.num_classes is not None else None,
+                    'output_dim': output_dim,
+                    'label_column': _get_label_column_for_task(
+                        task_id,
+                        cfg.task.ml_form,
+                        output_dim,
+                    ),
+                }
+            })
+            cfg = OmegaConf.merge(cfg, task_updates)
+            print(
+                f"[Task Config] Applied map-specific place vocabulary for "
+                f"'{map_name}': {output_dim} classes"
+            )
     
     return cfg
 

@@ -68,6 +68,7 @@ class DownstreamDataset(Dataset):
         
         # Parse label column configuration
         self._parse_label_columns()
+        self._validate_label_values()
         
         # Load time offsets
         data_root = Path(self.cfg.path.data)
@@ -110,6 +111,46 @@ class DownstreamDataset(Dataset):
                 raise ValueError(f"Label column '{col}' not found in CSV. Available: {list(df_columns)}")
         
         rprint(f"  Label columns: [magenta]{self.label_columns}[/magenta]")
+
+    def _validate_label_values(self) -> None:
+        """Validate labels against the configured task shape before CUDA sees them."""
+        ml_form = self.cfg.task.ml_form
+        label_path = self.cfg.data.label_path
+
+        if ml_form == 'multi_cls':
+            col = self.label_columns[0]
+            stats = self.df.select(
+                pl.col(col).cast(pl.Int64).min().alias("min_label"),
+                pl.col(col).cast(pl.Int64).max().alias("max_label"),
+                pl.col(col).is_null().sum().alias("null_count"),
+            ).row(0, named=True)
+            min_label = stats["min_label"]
+            max_label = stats["max_label"]
+            null_count = stats["null_count"]
+            num_classes = self.cfg.task.num_classes
+
+            if null_count:
+                raise ValueError(
+                    f"{label_path} contains {null_count} null label(s) in '{col}'"
+                )
+            if num_classes is None:
+                raise ValueError(f"Task '{self.cfg.task.task_id}' requires task.num_classes")
+            if min_label < 0 or max_label >= num_classes:
+                raise ValueError(
+                    f"Label values for task '{self.cfg.task.task_id}' must be in "
+                    f"[0, {num_classes - 1}], but {label_path} has range "
+                    f"[{min_label}, {max_label}]. Check map-specific task.num_classes."
+                )
+
+        elif ml_form == 'multi_label_cls':
+            num_classes = self.cfg.task.num_classes
+            if num_classes is None:
+                raise ValueError(f"Task '{self.cfg.task.task_id}' requires task.num_classes")
+            if len(self.label_columns) != num_classes:
+                raise ValueError(
+                    f"Task '{self.cfg.task.task_id}' expects {num_classes} label columns, "
+                    f"but config resolved {len(self.label_columns)} columns from {label_path}"
+                )
     
     
     def _get_label(self, row: Dict) -> torch.Tensor:

@@ -7,20 +7,48 @@ metadata and teammate information needed for loading videos.
 
 Usage:
     python -m scripts.task_creator.create_contrastive_data [--stride STRIDE] [--output_dir OUTPUT_DIR]
+    Omit --map to process dust2, inferno, and mirage in sequence.
 """
 
 import os
 import sys
+import json
 from pathlib import Path
 from typing import Dict, List, Tuple
 import argparse
+from functools import lru_cache
 import pandas as pd
 import numpy as np
+import cv2
 from tqdm import tqdm
 from dotenv import load_dotenv
 from multiprocessing import Pool, cpu_count
 
+# Maps used when --map is not passed (same set as elsewhere in this repo).
+CONTRASTIVE_MAPS = ("dust2", "inferno", "mirage")
+
 sys.path.append(str(Path(__file__).parent.parent.parent))
+
+
+@lru_cache(maxsize=8)
+def _load_time_offsets(offset_path: str) -> Dict:
+    with open(offset_path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+@lru_cache(maxsize=8192)
+def _get_video_duration_seconds(video_path: str) -> float | None:
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return None
+
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+    cap.release()
+
+    if not fps or fps <= 0 or not frame_count or frame_count <= 0:
+        return None
+    return float(frame_count / fps)
 
 
 def _load_player_trajectories(data_dir: Path, trajectory_folder: str,
@@ -75,21 +103,54 @@ def _get_player_steamid(df: pd.DataFrame) -> str:
     return df.iloc[0]['steamid']
 
 
+def _has_full_aligned_video_clip(
+    data_dir: Path,
+    video_folder: str,
+    time_offsets: Dict,
+    match_id: str,
+    steamid: str,
+    round_num: int,
+    start_seconds: float,
+    end_seconds: float,
+) -> bool:
+    """Return True only when the aligned segment maps fully inside the video."""
+    round_key = f"round_{round_num}"
+    try:
+        offset_sec = float(time_offsets[str(match_id)][str(steamid)][round_key]["offset_sec"])
+    except (KeyError, TypeError, ValueError):
+        return False
+
+    video_path = data_dir / video_folder / str(match_id) / str(steamid) / f"{round_key}.mp4"
+    duration_sec = _get_video_duration_seconds(str(video_path))
+    if duration_sec is None:
+        return False
+
+    video_start = start_seconds + offset_sec
+    video_end = end_seconds + offset_sec
+
+    return video_start >= 0 and video_end <= duration_sec
+
+
 def _process_single_round(args: Tuple) -> List[Dict]:
     """
     Process a single match-round. This is the worker function for multiprocessing.
     
     Args:
         args: Tuple of (match_id, round_num, partition, data_dir, trajectory_folder,
-                       tick_rate, stride_sec, segment_length_sec)
+                       video_folder, tick_rate, stride_sec, segment_length_sec)
     
     Returns:
         List of segment dictionaries
     """
-    (match_id, round_num, partition, data_dir, trajectory_folder,
+    (match_id, round_num, partition, data_dir, trajectory_folder, video_folder,
      tick_rate, stride_sec, segment_length_sec) = args
     
     data_dir = Path(data_dir)
+    offset_path = data_dir / "time_offset.json"
+    if not offset_path.exists():
+        raise FileNotFoundError(f"time_offset.json not found: {offset_path}")
+    time_offsets = _load_time_offsets(str(offset_path))
+
     player_trajectories = _load_player_trajectories(data_dir, trajectory_folder,
                                                      match_id, round_num)
     
@@ -139,20 +200,38 @@ def _process_single_round(args: Tuple) -> List[Dict]:
         while current_tick + segment_ticks <= global_max_tick:
             end_tick = current_tick + segment_ticks
             
-            # Get teammates alive throughout the entire segment
+            # Normalized times (relative to round start)
+            norm_start_seconds = (current_tick - global_min_tick) / tick_rate
+            norm_end_seconds = (end_tick - global_min_tick) / tick_rate
+
+            # Get teammates alive throughout the entire segment. Keep only
+            # segments where every included teammate has a full aligned clip.
             teammates = []
+            missing_or_incomplete_clip = False
             for steamid, df in team_trajectories.items():
                 if _is_player_alive_in_segment(df, current_tick, end_tick):
+                    if not _has_full_aligned_video_clip(
+                        data_dir=data_dir,
+                        video_folder=video_folder,
+                        time_offsets=time_offsets,
+                        match_id=match_id,
+                        steamid=steamid,
+                        round_num=round_num,
+                        start_seconds=norm_start_seconds,
+                        end_seconds=norm_end_seconds,
+                    ):
+                        missing_or_incomplete_clip = True
+                        break
                     teammates.append({'steamid': steamid})
+
+            if missing_or_incomplete_clip:
+                current_tick += stride_ticks
+                continue
             
             # Need at least 2 alive teammates for contrastive learning
             if len(teammates) >= 2:
                 # Sort teammates by steamid for consistency
                 teammates.sort(key=lambda x: x['steamid'])
-                
-                # Normalized times (relative to round start)
-                norm_start_seconds = (current_tick - global_min_tick) / tick_rate
-                norm_end_seconds = (end_tick - global_min_tick) / tick_rate
                 
                 segment_info = {
                     'partition': partition,
@@ -185,7 +264,7 @@ class ContrastiveDataCreator:
     
     def __init__(self, data_dir: str, output_dir: str, partition_csv_path: str,
                  trajectory_folder: str = "trajectory",
-                 video_folder: str = "video_544x306_30fps",
+                 video_folder: str = "video_306x306_4fps",
                  tick_rate: int = 64, seed: int = 42,
                  stride_sec: float = 5.0, segment_length_sec: float = 5.0,
                  num_workers: int = None):
@@ -289,6 +368,7 @@ class ContrastiveDataCreator:
         print("=" * 60)
         print(f"Stride: {self.stride_sec}s")
         print(f"Segment length: {self.segment_length_sec}s")
+        print(f"Video folder: {self.video_folder}")
         print(f"Partitions: {partitions}")
         print(f"Workers: {self.num_workers}")
         
@@ -311,6 +391,7 @@ class ContrastiveDataCreator:
                 row['split'],
                 str(self.data_dir),
                 self.trajectory_folder,
+                self.video_folder,
                 self.tick_rate,
                 self.stride_sec,
                 self.segment_length_sec
@@ -367,12 +448,14 @@ def main():
                         help="Stride between segments in seconds (default: 5.0)")
     parser.add_argument("--segment_length", type=float, default=5.0,
                         help="Segment length in seconds (default: 5.0)")
+    parser.add_argument("--video_folder", type=str, default="video_306x306_4fps",
+                        help="Video folder used to validate full aligned clips")
     parser.add_argument("--partitions", type=str, nargs="+", default=None,
                         help="Partitions to include (default: train val test)")
     parser.add_argument("--num_workers", type=int, default=None,
                         help="Number of worker processes (default: cpu_count)")
     parser.add_argument("--map", type=str, default=None,
-                        help="Specific map name to process (e.g. dust2, inferno)")
+                        help="Map name (e.g. dust2). If omitted, runs for all: dust2, inferno, mirage.")
     args = parser.parse_args()
     
     # Load environment
@@ -381,30 +464,38 @@ def main():
     DATA_BASE_PATH = Path(os.getenv('DATA_BASE_PATH', 'data'))
     if not DATA_BASE_PATH.is_absolute():
         DATA_BASE_PATH = Path(__file__).resolve().parent.parent.parent.parent / DATA_BASE_PATH
-    
-    if args.map:
-        data_dir = DATA_BASE_PATH / args.map
-    else:
-        data_dir = DATA_BASE_PATH
 
-    output_dir = args.output_dir
-    if output_dir is None:
-        output_dir = data_dir / 'labels'
-    
-    partition_csv = data_dir / 'match_round_partitioned.csv'
-    
-    creator = ContrastiveDataCreator(
-        data_dir=data_dir,
-        output_dir=output_dir,
-        partition_csv_path=partition_csv,
-        stride_sec=args.stride,
-        segment_length_sec=args.segment_length,
-        num_workers=args.num_workers
-    )
-    
+    maps_to_run = [args.map] if args.map else list(CONTRASTIVE_MAPS)
+    multi_map = len(maps_to_run) > 1
+
     partitions = args.partitions if args.partitions else ['train', 'val', 'test']
-    
-    creator.process(partitions=partitions, output_filename=args.output_filename)
+
+    for map_name in maps_to_run:
+        data_dir = DATA_BASE_PATH / map_name
+
+        if args.output_dir is None:
+            output_dir = data_dir / 'labels'
+        elif multi_map:
+            output_dir = Path(args.output_dir) / map_name
+        else:
+            output_dir = Path(args.output_dir)
+
+        partition_csv = data_dir / 'match_round_partitioned.csv'
+
+        if multi_map:
+            print(f"\n{'=' * 60}\nMap: {map_name}\n{'=' * 60}")
+
+        creator = ContrastiveDataCreator(
+            data_dir=data_dir,
+            output_dir=output_dir,
+            partition_csv_path=partition_csv,
+            video_folder=args.video_folder,
+            stride_sec=args.stride,
+            segment_length_sec=args.segment_length,
+            num_workers=args.num_workers
+        )
+
+        creator.process(partitions=partitions, output_filename=args.output_filename)
 
 
 if __name__ == "__main__":

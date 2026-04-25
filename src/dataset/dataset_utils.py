@@ -1,10 +1,14 @@
 from pathlib import Path
 import random
 import json
+from functools import lru_cache
 import torch
 import numpy as np
 from typing import Tuple, Any, Dict
 from decord import VideoReader, cpu
+
+UI_MASK_PATH = Path(__file__).resolve().parent.parent / "assets" / "ui_mask.json"
+DEFAULT_UI_MASK_RESOLUTION = "306x306"
 
 
 def get_random_segment(full_duration, fixed_segment_duration):
@@ -56,52 +60,46 @@ def apply_minimap_mask(video_clip: torch.Tensor) -> torch.Tensor:
     return video_clip
 
 
+@lru_cache(maxsize=1)
+def load_ui_mask_boxes() -> dict:
+    with open(UI_MASK_PATH, "r", encoding="utf-8") as f:
+        return json.load(f)["ui_mask"]
+
+
+def get_ui_mask_boxes_for_resolution(width: int, height: int) -> list[dict]:
+    masks_by_resolution = load_ui_mask_boxes()
+    resolution_key = f"{width}x{height}"
+    if resolution_key in masks_by_resolution:
+        return masks_by_resolution[resolution_key]
+
+    source_key = DEFAULT_UI_MASK_RESOLUTION
+    if source_key not in masks_by_resolution:
+        raise KeyError(f"{UI_MASK_PATH} does not contain a {source_key} UI mask")
+
+    source_width, source_height = (int(value) for value in source_key.split("x"))
+    scale_x = width / source_width
+    scale_y = height / source_height
+    return [
+        {
+            "x": box["x"] * scale_x,
+            "y": box["y"] * scale_y,
+            "w": box["w"] * scale_x,
+            "h": box["h"] * scale_y,
+        }
+        for box in masks_by_resolution[source_key]
+    ]
+
+
 def apply_all_ui_mask(video_clip: torch.Tensor) -> torch.Tensor:
-    """
-    Apply UI mask for 'all' case:
-    - Minimap (top-left corner)
-    - Top-right corner (same size as minimap)
-    - Middle top (width 1/3, height 1/5)
-    - Lower left square (width 1/10, height 1/10)
-    - Low middle bar (width 1/3, height 1/10)
-    - Lower right bar (width 1/5, height 3/10)
-    """
-    num_frames, channels, height, width = video_clip.shape
-    
-    # Minimap mask dimensions (top-left)
-    mask_width = width // 6
-    mask_height = height * 3 // 10
-    
-    # Mask minimap (top-left corner)
-    video_clip[:, :, :mask_height, :mask_width] = 0
-    
-    # Mask top-right corner (same size as minimap)
-    top_right_mask_width = width // 6
-    top_right_mask_height = height * 3 // 10
-    video_clip[:, :, :mask_height, width - mask_width:] = 0
-    
-    # Mask middle top (width 1/3, height 1/5, centered horizontally)
-    middle_mask_width = width * 4 // 10
-    middle_mask_height = height // 6
-    middle_start_x = (width - middle_mask_width) // 2  # Center horizontally
-    
-    video_clip[:, :, :middle_mask_height, middle_start_x:middle_start_x + middle_mask_width] = 0
-    
-    # Mask lower left square (width 1/10, height 1/10)
-    lower_left_size = width // 12
-    lower_left_height = height // 13
-    video_clip[:, :, height - lower_left_height:, :lower_left_size] = 0
-    
-    # Mask low middle bar (width 1/3, height 1/10, centered horizontally)
-    low_middle_width = width * 5 // 10
-    low_middle_height = height // 9
-    low_middle_start_x = (width - low_middle_width) // 2  # Center horizontally
-    video_clip[:, :, height - low_middle_height:, low_middle_start_x:low_middle_start_x + low_middle_width] = 0
-    
-    # Mask lower right bar (width 1/5, height 3/10)
-    lower_right_width = width // 9
-    lower_right_height = height * 3 // 10
-    video_clip[:, :, height - lower_right_height:, width - lower_right_width:] = 0
+    _, _, height, width = video_clip.shape
+
+    for box in get_ui_mask_boxes_for_resolution(width, height):
+        x1 = max(0, min(width, int(round(box["x"]))))
+        y1 = max(0, min(height, int(round(box["y"]))))
+        x2 = max(0, min(width, int(round(box["x"] + box["w"]))))
+        y2 = max(0, min(height, int(round(box["y"] + box["h"]))))
+        if x2 > x1 and y2 > y1:
+            video_clip[:, :, y1:y2, x1:x2] = 0
     
     return video_clip
 

@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>UI Mask Finder</title>
+    <link rel="stylesheet" href="/static/style.css">
+  </head>
+  <body>
+    <main class="app">
+      <header class="topbar">
+        <div>
+          <h1>UI Mask Finder</h1>
+          <p>Paste or upload 1280x720 frames, draw UI boxes, then test the saved mask on video.</p>
+        </div>
+        <div class="upload-row">
+          <label class="button">
+            Add images
+            <input id="imageInput" type="file" accept="image/*" multiple>
+          </label>
+          <a id="exportButton" class="button ghost" href="/api/export" download="ui_mask.json">Export UI mask</a>
+        </div>
+      </header>
+
+      <section class="workspace">
+        <aside class="sidebar">
+          <div class="panel">
+            <h2>Frames</h2>
+            <div id="dropZone" class="drop-zone">Paste images anywhere, or drop files here.</div>
+            <div id="imageList" class="image-list"></div>
+          </div>
+          <div class="panel">
+            <h2>Current Frame Boxes</h2>
+            <div id="currentBoxes" class="box-list"></div>
+            <button id="clearFrame" class="button danger" type="button">Clear current frame</button>
+          </div>
+        </aside>
+
+        <section class="canvas-area">
+          <div class="canvas-wrap">
+            <img id="frameImage" alt="">
+            <canvas id="drawCanvas" width="1280" height="720"></canvas>
+            <div id="emptyCanvas" class="empty-state">Add or paste a frame to start drawing.</div>
+          </div>
+          <div class="tools">
+            <span id="statusText">Drag on the image to create a rectangle. Click a rectangle to select it, Delete removes it.</span>
+          </div>
+        </section>
+
+        <aside class="sidebar right">
+          <div class="panel">
+            <h2>Union 1280x720</h2>
+            <pre id="coordsRaw"></pre>
+          </div>
+          <div class="panel">
+            <h2>Union 544x306</h2>
+            <pre id="coords544"></pre>
+          </div>
+          <div class="panel">
+            <h2>Union 306x306</h2>
+            <pre id="coords306"></pre>
+          </div>
+        </aside>
+      </section>
+
+      <section class="video-panel">
+        <div class="video-heading">
+          <h2>Video Mask Test</h2>
+          <div class="upload-row">
+            <label class="button ghost">
+              Test 1280x720 video
+              <input id="videoInput1280" type="file" accept="video/*">
+            </label>
+            <label class="button ghost">
+              Test 306x306 video
+              <input id="videoInput306" type="file" accept="video/*">
+            </label>
+          </div>
+        </div>
+        <div class="video-stage">
+          <video id="testVideo" controls></video>
+          <div id="videoOverlay"></div>
+          <div id="emptyVideo" class="empty-state">Upload a video to preview the black mask overlay.</div>
+        </div>
+      </section>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

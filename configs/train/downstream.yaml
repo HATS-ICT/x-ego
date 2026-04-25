@@ -83,6 +83,7 @@ training:
   limit_test_batches: 1.0
 
 optimization:
+  optimizer: adamw  # downstream trains the linear head with AdamW
   lr: 0.0004
   weight_decay: 0.0
   fused_optimizer: true

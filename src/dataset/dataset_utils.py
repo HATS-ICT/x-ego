@@ -156,6 +156,7 @@ def init_video_processor(cfg: Dict) -> Tuple[Any, str]:
         Tuple of (video_processor, processor_type)
         processor_type: 'image' uses images= param and returns pixel_values
                        'video' uses videos= param and returns pixel_values_videos
+                       'torchvision_image' applies tensor transforms locally
     """
     from transformers import AutoImageProcessor, VivitImageProcessor, VideoMAEImageProcessor, VJEPA2VideoProcessor
     from ..models.modules.video_encoder import MODEL_TYPE_TO_PRETRAINED, normalize_model_type
@@ -181,6 +182,14 @@ def init_video_processor(cfg: Dict) -> Tuple[Any, str]:
         # VJEPA2: video processor, returns pixel_values_videos
         video_processor = VJEPA2VideoProcessor.from_pretrained(pretrained_model)
         processor_type = 'video'
+    elif model_type == 'resnet50':
+        # Torchvision ResNet-50 uses standard ImageNet tensor preprocessing.
+        video_processor = {
+            "size": 224,
+            "mean": torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1),
+            "std": torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1),
+        }
+        processor_type = 'torchvision_image'
     else:
         raise ValueError(f"Unknown model type: {model_type}")
     
@@ -272,7 +281,7 @@ def transform_video(video_processor: Any, processor_type: str, video_clip: torch
     
     Args:
         video_processor: The video processor instance
-        processor_type: 'image' or 'video' or 'video_frames'
+        processor_type: 'image', 'video', 'video_frames', or 'torchvision_image'
         video_clip: Video tensor of shape [T, C, H, W] in range [0, 255]
         
     Returns:
@@ -296,6 +305,17 @@ def transform_video(video_processor: Any, processor_type: str, video_clip: torch
         processed = video_processor(images=video_clip, return_tensors="pt")
         video_features = processed.pixel_values
         # Returns [T, C, H, W]
+    elif processor_type == 'torchvision_image':
+        video_features = video_clip.float() / 255.0
+        video_features = torch.nn.functional.interpolate(
+            video_features,
+            size=(video_processor["size"], video_processor["size"]),
+            mode="bilinear",
+            align_corners=False,
+        )
+        mean = video_processor["mean"].to(device=video_features.device, dtype=video_features.dtype)
+        std = video_processor["std"].to(device=video_features.device, dtype=video_features.dtype)
+        video_features = (video_features - mean) / std
     else:
         raise ValueError(f"Unknown processor_type: {processor_type}")
     

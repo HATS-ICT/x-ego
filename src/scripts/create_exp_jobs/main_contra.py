@@ -31,6 +31,12 @@ MODELS = [
     "resnet50",
 ]
 
+MAPS = [
+    "dust2",
+    "inferno",
+    "mirage",
+]
+
 # UI mask setting (fixed)
 UI_MASK = "all"
 
@@ -57,6 +63,7 @@ cd {project_src}
 
 uv run python main.py --mode train --task contrastive \\
   model.encoder.model_type={model} \\
+  data.map={map_name} \\
   data.ui_mask={ui_mask} \\
   data.batch_size={batch_size} \\
   data.num_workers={num_workers} \\
@@ -122,40 +129,43 @@ def main():
     all_jobs = []
     all_commands = []  # Store commands for sequential run script
 
-    # Generate one job for each model with the all-UI mask.
+    # Generate one job for each model/map with the all-UI mask.
     for model in MODELS:
-        batch_size, accumulate_grad_batches = get_training_settings(model)
-        run_name = f"{EXP_PREFIX}-{model}-ui-all"
+        for map_name in MAPS:
+            batch_size, accumulate_grad_batches = get_training_settings(model)
+            run_name = f"{EXP_PREFIX}-{model}-{map_name}-ui-all"
 
-        header = SCRIPT_HEADER.format(
-            account=ACCOUNT, partition=PARTITION, cpus=CPUS,
-            gpu_constraint=GPU_CONSTRAINT, gpu_count=GPU_COUNT,
-            mem=MEM, time=TIME,
-            job_name=run_name, log_dir=str(log_root),
-            mail_block=mail_block,
-        ).rstrip()
+            header = SCRIPT_HEADER.format(
+                account=ACCOUNT, partition=PARTITION, cpus=CPUS,
+                gpu_constraint=GPU_CONSTRAINT, gpu_count=GPU_COUNT,
+                mem=MEM, time=TIME,
+                job_name=run_name, log_dir=str(log_root),
+                mail_block=mail_block,
+            ).rstrip()
 
-        body = JOB_BODY.format(
-            project_src=str(project_src),
-            model=model,
-            ui_mask=UI_MASK,
-            batch_size=batch_size,
-            num_workers=8,
-            max_epochs=40,
-            accumulate_grad_batches=accumulate_grad_batches,
-            exp_name=EXP_PREFIX,
-            run_name=run_name,
-        ).rstrip()
+            body = JOB_BODY.format(
+                project_src=str(project_src),
+                model=model,
+                map_name=map_name,
+                ui_mask=UI_MASK,
+                batch_size=batch_size,
+                num_workers=8,
+                max_epochs=40,
+                accumulate_grad_batches=accumulate_grad_batches,
+                exp_name=EXP_PREFIX,
+                run_name=run_name,
+            ).rstrip()
 
-        content = header + "\n\n" + body + "\n"
-        job_path = jobs_root / f"{run_name}.job"
-        job_path.write_text(content, encoding="utf-8")
-        job_path.chmod(0o750)
-        all_jobs.append(job_path)
+            content = header + "\n\n" + body + "\n"
+            job_path = jobs_root / f"{run_name}.job"
+            job_path.write_text(content, encoding="utf-8")
+            job_path.chmod(0o750)
+            all_jobs.append(job_path)
 
-        # Extract the command for sequential run script
-        command = f"""uv run python main.py --mode train --task contrastive \\
+            # Extract the command for sequential run script
+            command = f"""uv run python main.py --mode train --task contrastive \\
   model.encoder.model_type={model} \\
+  data.map={map_name} \\
   data.ui_mask={UI_MASK} \\
   data.batch_size={batch_size} \\
   data.num_workers=8 \\
@@ -163,7 +173,7 @@ def main():
   training.accumulate_grad_batches={accumulate_grad_batches} \\
   meta.exp_name={EXP_PREFIX} \\
   meta.run_name={run_name}"""
-        all_commands.append((run_name, command))
+            all_commands.append((run_name, command))
 
     # Generate sbatch_all script
     sbatch_all_path = jobs_root / f"sbatch_all_{EXP_PREFIX}.sh"
@@ -185,8 +195,9 @@ def main():
     print(f"Logs will be written to {log_root}")
     print("\nBreakdown:")
     print(f"  - {len(MODELS)} models: {', '.join(MODELS)}")
+    print(f"  - {len(MAPS)} maps: {', '.join(MAPS)}")
     print(f"  - UI mask: {UI_MASK}")
-    print(f"  - Total: {len(MODELS)} jobs")
+    print(f"  - Total: {len(MODELS) * len(MAPS)} jobs")
     print("\nTo submit all jobs to SLURM, run:")
     print(f"  bash {sbatch_all_path}")
     print("\nTo run all jobs sequentially on a single machine, run:")

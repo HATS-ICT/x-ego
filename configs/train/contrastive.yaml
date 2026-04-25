@@ -78,9 +78,14 @@ training:
   limit_test_batches: 1.0
 
 optimization:
+  optimizer: muon  # adamw or muon
   lr: 0.0001
+  betas: [0.9, 0.95]
   weight_decay: 0.01
   fused_optimizer: true
+  muon:
+    lr: 0.001
+    weight_decay: 0.01
   scheduler:
     type: cosine
     warmup_steps: 500

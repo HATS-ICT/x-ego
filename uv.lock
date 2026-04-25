@@ -994,6 +994,11 @@ wheels = [
 ]
 
 [[package]]
+name = "muon-optimizer"
+version = "0.1.0"
+source = { git = "https://github.com/KellerJordan/Muon#6399c658d3c4a3356ba823fa6664b10e23871068" }
+
+[[package]]
 name = "networkx"
 version = "3.6.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2335,6 +2340,7 @@ dependencies = [
     { name = "flask" },
     { name = "h5py" },
     { name = "lightning" },
+    { name = "muon-optimizer" },
     { name = "omegaconf" },
     { name = "opencv-python" },
     { name = "polars" },
@@ -2360,6 +2366,7 @@ requires-dist = [
     { name = "flask", specifier = ">=3.1.3" },
     { name = "h5py", specifier = ">=3.15.1" },
     { name = "lightning", specifier = ">=2.5.5" },
+    { name = "muon-optimizer", git = "https://github.com/KellerJordan/Muon" },
     { name = "omegaconf", specifier = ">=2.3.0" },
     { name = "opencv-python", specifier = ">=4.13.0.90" },
     { name = "polars", specifier = ">=1.37.1" },

@@ -19,7 +19,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import lightning as L
-from torch.optim import AdamW
 import torch._dynamo
 from torchmetrics.classification import (
     MultilabelExactMatch, MultilabelHammingDistance, MultilabelF1Score, MultilabelAUROC,
@@ -29,6 +28,7 @@ from torchmetrics.classification import (
 from torchmetrics import MeanSquaredError, MeanAbsoluteError, R2Score
 
 from src.models.modules.video_encoder import VideoEncoder
+from src.models.modules.optimizer_utils import build_optimizer
 
 
 class LinearProbeHead(nn.Module):
@@ -413,15 +413,7 @@ class LinearProbeModel(L.LightningModule):
         """Configure optimizer - only train unfrozen parameters (linear head)."""
         opt_config = self.cfg.optimization
         
-        # Only train parameters that require gradients (the linear head)
-        trainable_params = filter(lambda p: p.requires_grad, self.parameters())
-        
-        optimizer = AdamW(
-            trainable_params,
-            lr=opt_config.lr,
-            weight_decay=opt_config.weight_decay,
-            fused=opt_config.fused_optimizer,
-        )
+        optimizer = build_optimizer(self, opt_config)
         
         return {'optimizer': optimizer}
 

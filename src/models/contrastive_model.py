@@ -18,10 +18,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import lightning as L
-from torch.optim import AdamW
 
 from src.models.modules.video_encoder import VideoEncoder
 from src.models.modules.architecture_utils import build_mlp
+from src.models.modules.optimizer_utils import build_optimizer
 
 
 class ContrastiveModel(L.LightningModule):
@@ -359,12 +359,7 @@ class ContrastiveModel(L.LightningModule):
         """Configure optimizer and learning rate scheduler."""
         opt_config = self.cfg.optimization
         
-        optimizer = AdamW(
-            filter(lambda p: p.requires_grad, self.parameters()),
-            lr=opt_config.lr,
-            weight_decay=opt_config.weight_decay,
-            fused=opt_config.fused_optimizer,
-        )
+        optimizer = build_optimizer(self, opt_config)
         
         # Check if scheduler is configured.
         if opt_config.scheduler is None:
@@ -373,7 +368,8 @@ class ContrastiveModel(L.LightningModule):
         sched_config = opt_config.scheduler
         
         if sched_config.type == 'cosine':
-            from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
+            import math
+            from torch.optim.lr_scheduler import LambdaLR
             
             warmup_steps = sched_config.warmup_steps
             min_lr_ratio = sched_config.min_lr_ratio
@@ -381,29 +377,17 @@ class ContrastiveModel(L.LightningModule):
             # Total steps from trainer (set by Lightning)
             # Use max_steps if specified, otherwise estimate from max_epochs
             total_steps = self.trainer.estimated_stepping_batches
-            
-            # Warmup scheduler: linear warmup from 0 to initial LR
-            warmup_scheduler = LinearLR(
-                optimizer,
-                start_factor=1e-8 / opt_config.lr,  # Start from near-zero
-                end_factor=1.0,
-                total_iters=warmup_steps
-            )
-            
-            # Cosine decay scheduler: decay from initial LR to min_lr
             cosine_steps = max(total_steps - warmup_steps, 1)
-            cosine_scheduler = CosineAnnealingLR(
-                optimizer,
-                T_max=cosine_steps,
-                eta_min=opt_config.lr * min_lr_ratio
-            )
-            
-            # Combine warmup and cosine decay
-            scheduler = SequentialLR(
-                optimizer,
-                schedulers=[warmup_scheduler, cosine_scheduler],
-                milestones=[warmup_steps]
-            )
+
+            def lr_lambda(step: int) -> float:
+                if step < warmup_steps:
+                    return max(step, 1) / max(warmup_steps, 1)
+
+                progress = min((step - warmup_steps) / cosine_steps, 1.0)
+                cosine_factor = 0.5 * (1.0 + math.cos(math.pi * progress))
+                return min_lr_ratio + (1.0 - min_lr_ratio) * cosine_factor
+
+            scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
             
             return {
                 'optimizer': optimizer,

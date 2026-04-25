@@ -47,8 +47,7 @@ def run_training_pipeline(cfg, model_class, datamodule_class, task_name, print_h
     # Update model with dataset info for location prediction tasks
     setup_model_with_dataset_info(cfg, datamodule, model)
     
-    if cfg.training.torch_compile and sys.platform.startswith('linux'):
-        model.video_encoder = torch.compile(model.video_encoder)
+    compile_video_encoder_if_requested(cfg, model)
     
     callbacks = setup_callbacks(cfg)
     logger = setup_logger(cfg)
@@ -71,6 +70,38 @@ def run_training_pipeline(cfg, model_class, datamodule_class, task_name, print_h
         wandb.finish()
     
     print(f"{task_name.replace('_', ' ').title()} training completed!")
+
+
+def compile_video_encoder_if_requested(cfg, model):
+    """
+    Compile only the video encoder module.
+
+    Keep the LightningModule, optimizer setup, metric objects, logging calls, and
+    task losses outside Dynamo. This limits torch.compile to the neural-network
+    encoder weights while preserving Lightning's Python-side training behavior.
+    """
+    if not cfg.training.torch_compile:
+        return
+
+    if not sys.platform.startswith("linux"):
+        print("[torch.compile] Skipping compile: only enabled on Linux")
+        return
+
+    if not hasattr(model, "video_encoder"):
+        raise AttributeError(
+            "training.torch_compile=true requires the model to expose a "
+            "'video_encoder' nn.Module"
+        )
+
+    if hasattr(model.video_encoder, "_orig_mod"):
+        print("[torch.compile] video_encoder is already compiled")
+        return
+
+    print(
+        "[torch.compile] Compiling model.video_encoder only "
+        f"({model.video_encoder.__class__.__name__}); Lightning/logging/metrics stay eager"
+    )
+    model.video_encoder = torch.compile(model.video_encoder)
 
 
 def setup_model_with_dataset_info(cfg, datamodule, model):

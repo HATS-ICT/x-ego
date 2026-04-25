@@ -33,6 +33,7 @@ from typing import Optional
 MODEL_TYPES = ["siglip2", "dinov3", "clip", "vjepa2", "resnet50"]
 MAPS = ["dust2", "inferno", "mirage"]
 TASK_ID = "self_location_0s"
+CHECK_TORCH_COMPILE = sys.platform.startswith("linux")
 
 
 @dataclass
@@ -73,6 +74,11 @@ def run_command(cmd: list[str], description: str) -> tuple[bool, str, str]:
     except Exception as e:
         print(f"EXCEPTION: {e}")
         return False, "", str(e)
+
+
+def compile_overrides() -> list[str]:
+    """Enable torch.compile coverage on Linux setup tests."""
+    return [f"training.torch_compile={str(CHECK_TORCH_COMPILE).lower()}"]
 
 
 def find_checkpoint(stdout: str, stderr: str, model_type: str, map_name: str) -> Optional[str]:
@@ -131,6 +137,7 @@ def test_contrastive(model_type: str, map_name: str) -> TestResult:
         f"model.encoder.model_type={model_type}",
         f"data.map={map_name}",
         f"meta.run_name=contrastive-{model_type}-{map_name}",
+        *compile_overrides(),
     ]
 
     success, stdout, stderr = run_command(
@@ -160,6 +167,7 @@ def test_baseline_downstream(model_type: str, map_name: str) -> TestResult:
         f"model.encoder.model_type={model_type}",
         f"data.map={map_name}",
         f"meta.run_name=probe-{TASK_ID}-{model_type}-{map_name}",
+        *compile_overrides(),
     ]
 
     success, stdout, stderr = run_command(
@@ -187,6 +195,7 @@ def test_downstream_with_checkpoint(model_type: str, map_name: str, checkpoint_p
         f"data.map={map_name}",
         f"model.stage1_checkpoint={checkpoint_path}",
         f"meta.run_name=probe-{TASK_ID}-{model_type}-{map_name}-stage1",
+        *compile_overrides(),
     ]
 
     success, stdout, stderr = run_command(
@@ -260,6 +269,7 @@ def main():
     print(f"Task: {TASK_ID}")
     print(f"Models: {', '.join(MODEL_TYPES)}")
     print(f"Maps: {', '.join(MAPS)}")
+    print(f"torch.compile check: {'enabled' if CHECK_TORCH_COMPILE else 'disabled'}")
     print("="*80)
 
     results: list[TestResult] = []

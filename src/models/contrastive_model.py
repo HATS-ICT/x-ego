@@ -12,10 +12,6 @@ Key features:
 - Example: batch with [3, 2] agents -> video [5, T, C, H, W], agent_counts [3, 2]
 - Creates alignment matrix where positive pairs are agents from same sample
 
-Multi-task Learning (optional):
-- Video reconstruction auxiliary loss for regularization
-- L_total = L_contrastive + lambda * L_recon
-- Reconstructs a randomly selected single view per sample
 """
 
 import torch
@@ -25,7 +21,6 @@ import lightning as L
 from torch.optim import AdamW
 
 from src.models.modules.video_encoder import VideoEncoder
-from src.models.modules.video_decoder import VideoDecoder
 from src.models.modules.architecture_utils import build_mlp
 
 
@@ -35,15 +30,9 @@ class ContrastiveModel(L.LightningModule):
     
     Architecture:
         Video Encoder -> Video Projector -> Contrastive Module
-                                        |-> Video Decoder (optional reconstruction)
     
     The model learns to align agent embeddings from the same team/batch
     while pushing apart embeddings from different teams/batches.
-    
-    Multi-task Learning (optional):
-        When reconstruction is enabled, adds auxiliary reconstruction loss:
-        L_total = L_contrastive + lambda * L_recon
-        Only reconstructs 1 randomly selected view per sample for efficiency.
     
     Variable Agent Support:
         Supports batches with variable number of agents per sample.
@@ -72,6 +61,8 @@ class ContrastiveModel(L.LightningModule):
         )
         
         # Contrastive parameters (learnable temperature and bias, following SigLIP)
+        self.use_contrastive = cfg.model.contrastive.enable
+        self.contrastive_loss_weight = cfg.model.contrastive.loss_weight
         self.turn_off_bias = cfg.model.contrastive.turn_off_bias
         self.logit_scale = nn.Parameter(
             torch.tensor(cfg.model.contrastive.logit_scale_init, dtype=torch.float32).log(),
@@ -85,6 +76,9 @@ class ContrastiveModel(L.LightningModule):
         # Store dimensions
         self.video_embed_dim = video_embed_dim
         self.proj_dim = proj_dim
+
+        if not self.use_contrastive:
+            raise ValueError("model.contrastive.enable must be true for contrastive training")
         
         # Output directory
         self.output_dir = cfg.path.exp
@@ -126,7 +120,7 @@ class ContrastiveModel(L.LightningModule):
     
     def forward(self, batch):
         """
-        Forward pass for contrastive learning with optional reconstruction.
+        Forward pass for contrastive learning.
         
         Args:
             batch: Dictionary containing:
@@ -136,7 +130,7 @@ class ContrastiveModel(L.LightningModule):
         Returns:
             Dictionary containing:
                 - embeddings: [total_agents, proj_dim] projected embeddings
-                - loss: Total loss (contrastive + lambda * reconstruction if enabled)
+                - loss: Contrastive loss
                 - metrics: Dictionary of metrics
         """
         video = batch['video']  # [total_agents, T, C, H, W]
@@ -157,24 +151,13 @@ class ContrastiveModel(L.LightningModule):
         # Create alignment labels
         labels = self.create_alignment_matrix(agent_counts, device)
         
-        # Compute contrastive loss
-        contrastive_loss, metrics = self.compute_contrastive_loss(projected, labels)
-        
-        # Total loss starts with contrastive
-        total_loss = contrastive_loss
-        
-        # Add reconstruction loss if enabled
-        if self.use_reconstruction:
-            # Use unmasked video as reconstruction target if available
-            # (when random_mask is enabled, we want to reconstruct the unmasked version)
-            recon_target = batch.get('video_unmasked', video)
-            recon_loss, recon_metrics = self.compute_reconstruction_loss(
-                video, recon_target, projected, agent_counts
-            )
-            total_loss = contrastive_loss + self.recon_loss_weight * recon_loss
-            metrics.update(recon_metrics)
-            metrics['recon_loss_raw'] = recon_loss
-            metrics['recon_loss_weighted'] = self.recon_loss_weight * recon_loss
+        metrics = {}
+        contrastive_loss = projected.new_zeros(())
+        total_loss = projected.new_zeros(())
+
+        if self.use_contrastive:
+            contrastive_loss, metrics = self.compute_contrastive_loss(projected, labels)
+            total_loss = total_loss + self.contrastive_loss_weight * contrastive_loss
         
         return {
             'embeddings': projected,
@@ -183,109 +166,6 @@ class ContrastiveModel(L.LightningModule):
             'metrics': metrics,
             'labels': labels,
         }
-    
-    def compute_reconstruction_loss(self, video: torch.Tensor,
-                                    recon_target: torch.Tensor,
-                                    projected: torch.Tensor,
-                                    agent_counts: torch.Tensor):
-        """
-        Compute reconstruction loss for a selected view per sample.
-        
-        For efficiency, we only reconstruct 1 agent's view per sample,
-        not all agents. This provides regularization without excessive compute.
-        
-        During training: randomly select 1 agent per sample
-        During eval: deterministically select first agent per sample
-        
-        Args:
-            video: [total_agents, T, C, H, W] input video (possibly masked)
-            recon_target: [total_agents, T, C, H, W] reconstruction target (unmasked if random_mask enabled)
-            projected: [total_agents, proj_dim] projected embeddings
-            agent_counts: [B] number of agents per sample
-            
-        Returns:
-            loss: Reconstruction MSE loss
-            metrics: Dictionary with reconstruction metrics
-        """
-        device = video.device
-        batch_size = len(agent_counts)
-        
-        # Build cumulative indices to find sample boundaries
-        cumsum = torch.cumsum(agent_counts, dim=0)
-        start_indices = torch.cat([torch.tensor([0], device=device), cumsum[:-1]])
-        
-        # Select 1 agent per sample for reconstruction
-        selected_indices = []
-        for i in range(batch_size):
-            start = start_indices[i].item()
-            count = agent_counts[i].item()
-            if self.training:
-                # Random index within this sample's agents during training
-                rand_offset = torch.randint(0, count, (1,), device=device).item()
-            else:
-                # Deterministic: use first agent during eval
-                rand_offset = 0
-            selected_indices.append(start + rand_offset)
-        
-        selected_indices = torch.tensor(selected_indices, device=device, dtype=torch.long)
-        
-        # Get selected embeddings (from masked video encoder output)
-        selected_proj = projected[selected_indices]  # [B, proj_dim]
-        
-        # Get selected target videos (unmasked version for reconstruction)
-        selected_target = recon_target[selected_indices]  # [B, T, C, H, W]
-        
-        # Prepare target: downsample and temporally sample the video
-        target = self._prepare_reconstruction_target(selected_target)  # [B, num_frames, 3, H, W]
-        
-        # Decode embeddings to reconstruct frames
-        reconstructed = self.video_decoder(selected_proj)  # [B, num_frames, 3, H, W]
-        
-        # MSE loss
-        loss = F.mse_loss(reconstructed, target)
-        
-        metrics = {
-            'recon_mse': loss.detach(),
-        }
-        
-        return loss, metrics
-    
-    def _prepare_reconstruction_target(self, video: torch.Tensor) -> torch.Tensor:
-        """
-        Prepare reconstruction target by downsampling spatially and temporally.
-        
-        Args:
-            video: [B, T, C, H, W] input video
-            
-        Returns:
-            target: [B, num_frames, C, target_H, target_W] downsampled video
-        """
-        B, T, C, H, W = video.shape
-        
-        # Temporal sampling: uniformly sample num_frames from T frames
-        if T <= self.recon_num_frames:
-            # If fewer frames than target, just use all and pad/repeat
-            indices = torch.linspace(0, T - 1, self.recon_num_frames).long()
-        else:
-            indices = torch.linspace(0, T - 1, self.recon_num_frames).long()
-        
-        video_sampled = video[:, indices]  # [B, num_frames, C, H, W]
-        
-        # Spatial downsampling
-        # Reshape for interpolate: [B * num_frames, C, H, W]
-        video_flat = video_sampled.view(-1, C, H, W)
-        video_down = F.interpolate(
-            video_flat, 
-            size=(self.recon_target_size, self.recon_target_size),
-            mode='bilinear',
-            align_corners=False
-        )
-        
-        # Reshape back: [B, num_frames, C, target_H, target_W]
-        target = video_down.view(B, self.recon_num_frames, C, 
-                                 self.recon_target_size, self.recon_target_size)
-        
-        return target
     
     def compute_contrastive_loss(self, embeddings: torch.Tensor, labels: torch.Tensor):
         """
@@ -418,18 +298,10 @@ class ContrastiveModel(L.LightningModule):
         self.log('train/contrastive_loss', contrastive_loss, batch_size=batch_size,
                      on_step=True, on_epoch=True, prog_bar=True)
         
-        # Log reconstruction loss if enabled
-        if self.use_reconstruction:
-            self.log('train/recon_loss_raw', metrics.get('recon_loss_raw', 0), 
-                     batch_size=batch_size, on_step=True, on_epoch=True, prog_bar=False)
-            self.log('train/recon_loss_weighted', metrics.get('recon_loss_weighted', 0),
-                     batch_size=batch_size, on_step=True, on_epoch=True, prog_bar=True)
-        
         # Log contrastive metrics
         for name, value in metrics.items():
-            if not name.startswith('recon_'):
-                self.log(f'train/contrastive_{name}', value, batch_size=batch_size,
-                             on_step=True, on_epoch=True, prog_bar=False)
+            self.log(f'train/contrastive_{name}', value, batch_size=batch_size,
+                         on_step=True, on_epoch=True, prog_bar=False)
         
         return loss
     
@@ -450,18 +322,10 @@ class ContrastiveModel(L.LightningModule):
         self.log('val/contrastive_loss', contrastive_loss, batch_size=batch_size,
                      on_step=False, on_epoch=True, prog_bar=True)
         
-        # Log reconstruction loss if enabled
-        if self.use_reconstruction:
-            self.log('val/recon_loss_raw', metrics.get('recon_loss_raw', 0),
-                     batch_size=batch_size, on_step=False, on_epoch=True, prog_bar=False)
-            self.log('val/recon_mse', metrics.get('recon_mse', 0),
-                     batch_size=batch_size, on_step=False, on_epoch=True, prog_bar=False)
-        
         # Log contrastive metrics
         for name, value in metrics.items():
-            if not name.startswith('recon_'):
-                self.log(f'val/contrastive_{name}', value, batch_size=batch_size,
-                             on_step=False, on_epoch=True, prog_bar=False)
+            self.log(f'val/contrastive_{name}', value, batch_size=batch_size,
+                         on_step=False, on_epoch=True, prog_bar=False)
         
         return loss
     
@@ -473,7 +337,7 @@ class ContrastiveModel(L.LightningModule):
         metrics = outputs['metrics']
         
         batch_size = len(batch['agent_counts'])
-        checkpoint_name = getattr(self, 'checkpoint_name', 'last')
+        checkpoint_name = self.checkpoint_name
         prefix = f'test/{checkpoint_name}'
         
         # Log total loss
@@ -484,18 +348,10 @@ class ContrastiveModel(L.LightningModule):
         self.log(f'{prefix}/contrastive_loss', contrastive_loss, batch_size=batch_size,
                      on_step=False, on_epoch=True, prog_bar=True)
         
-        # Log reconstruction loss if enabled
-        if self.use_reconstruction:
-            self.log(f'{prefix}/recon_loss_raw', metrics.get('recon_loss_raw', 0),
-                     batch_size=batch_size, on_step=False, on_epoch=True, prog_bar=False)
-            self.log(f'{prefix}/recon_mse', metrics.get('recon_mse', 0),
-                     batch_size=batch_size, on_step=False, on_epoch=True, prog_bar=False)
-        
         # Log contrastive metrics
         for name, value in metrics.items():
-            if not name.startswith('recon_'):
-                self.log(f'{prefix}/contrastive_{name}', value, batch_size=batch_size,
-                             on_step=False, on_epoch=True, prog_bar=False)
+            self.log(f'{prefix}/contrastive_{name}', value, batch_size=batch_size,
+                         on_step=False, on_epoch=True, prog_bar=False)
         
         return loss
     
@@ -510,8 +366,8 @@ class ContrastiveModel(L.LightningModule):
             fused=opt_config.fused_optimizer,
         )
         
-        # Check if scheduler is configured
-        if not hasattr(opt_config, 'scheduler') or opt_config.scheduler is None:
+        # Check if scheduler is configured.
+        if opt_config.scheduler is None:
             return {'optimizer': optimizer}
         
         sched_config = opt_config.scheduler

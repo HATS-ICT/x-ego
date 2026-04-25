@@ -96,7 +96,7 @@ def setup_logger(cfg):
     tags = list(wandb_cfg.tags) if wandb_cfg.tags else []
     
     # Add task type tag based on exp_name
-    exp_name = cfg.meta.exp_name if hasattr(cfg.meta, 'exp_name') else cfg.meta.run_name
+    exp_name = cfg.meta.run_name
     if 'contrastive' in exp_name.lower():
         tags.append('task:contrastive')
         tags.append('stage:1')
@@ -109,7 +109,7 @@ def setup_logger(cfg):
     if 'contrastive' in cfg.model:
         contrastive_enabled = cfg.model.contrastive.enable
         tags.append('yes_contra' if contrastive_enabled else 'no_contra')
-    elif cfg.model.get('stage1_checkpoint'):
+    elif 'stage1_checkpoint' in cfg.model and cfg.model.stage1_checkpoint:
         tags.append('yes_contra')  # Using pretrained contrastive encoder
     else:
         tags.append('no_contra')  # Baseline with off-the-shelf encoder

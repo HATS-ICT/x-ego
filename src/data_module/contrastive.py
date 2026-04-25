@@ -40,12 +40,9 @@ class ContrastiveDataModule(BaseDataModule):
     
     def _copy_dataset_attributes(self, base_dataset, partition_dataset):
         """Copy dataset attributes."""
-        attrs = ['video_processor',
-                 'cfg', 'data_cfg', 'path_cfg', 'data_root', 
-                 'target_fps', 'fixed_duration_seconds', 'time_jitter_max_seconds']
+        attrs = ['video_processor', 'processor_type', 'model_type', 'time_offsets']
         for attr in attrs:
-            if hasattr(base_dataset, attr):
-                setattr(partition_dataset, attr, getattr(base_dataset, attr))
+            setattr(partition_dataset, attr, getattr(base_dataset, attr))
     
     def _print_partition_info(self, df, partition_name: str):
         """Print partition information."""

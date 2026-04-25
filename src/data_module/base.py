@@ -52,20 +52,19 @@ class BaseDataModule(L.LightningDataModule, ABC):
     
     def _validate_paths(self) -> None:
         """Validate that required paths exist."""
-        # Check label path if it exists in config
+        # Check label path configured for this pipeline.
         data_cfg = self.cfg.data
-        if hasattr(data_cfg, 'labels_filename'):
-            label_path = self._build_label_path()
-            data_cfg.label_path = label_path
-            
-            if not label_path.exists():
-                rprint(f"[red]✗[/red] Label CSV file not found: [bold]{label_path}[/bold]")
-                raise FileNotFoundError(f"Label CSV file not found: {label_path}")
+        label_path = self._build_label_path()
+        data_cfg.label_path = label_path
+
+        if not label_path.exists():
+            rprint(f"[red]X[/red] Label CSV file not found: [bold]{label_path}[/bold]")
+            raise FileNotFoundError(f"Label CSV file not found: {label_path}")
         
         # Check data root
         data_root = self._build_data_root_path()
         if not data_root.exists():
-            rprint(f"[red]✗[/red] Data directory not found: [bold]{data_root}[/bold]")
+            rprint(f"[red]X[/red] Data directory not found: [bold]{data_root}[/bold]")
             raise FileNotFoundError(f"Data directory not found: {data_root}")
         
         # Additional path validation can be overridden by subclasses
@@ -179,12 +178,10 @@ class BaseDataModule(L.LightningDataModule, ABC):
             # Store dataset info for model configuration
             self._store_dataset_info(base_dataset)
             
-            try:
-                self.test_dataset = self._create_partition_dataset(base_dataset, 'test')
-                rprint(f"[green]OK[/green] Test dataset size: [bold]{len(self.test_dataset):,}[/bold]")
-            except Exception as e:
-                rprint(f"[yellow]WARN[/yellow] No test split found: [dim]{e}[/dim]")
-                self.test_dataset = None
+            self.test_dataset = self._create_partition_dataset(base_dataset, 'test')
+            if len(self.test_dataset) == 0:
+                raise ValueError("Test split is empty")
+            rprint(f"[green]OK[/green] Test dataset size: [bold]{len(self.test_dataset):,}[/bold]")
     
     def _store_dataset_info(self, base_dataset) -> None:
         """Store dataset information in config. Override for custom info."""

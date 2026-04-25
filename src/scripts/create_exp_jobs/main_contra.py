@@ -20,24 +20,19 @@ MAIL_TYPE = "all"
 LOGS_SUBDIR = "logs"
 
 # Experiment configuration
-EXP_PREFIX = "contrastive_mask"
+EXP_PREFIX = "main_ui_cover"
 
-# Models to sweep over (4 options)
+# Models to sweep over (5 options)
 MODELS = [
     "siglip2",
-    "dinov2",
-    "vjepa2",
+    "dinov3",
     "clip",
+    "vjepa2",
+    "resnet50",
 ]
 
 # UI mask setting (fixed)
 UI_MASK = "all"
-
-# Settings to sweep: (random_mask_enable, short_name)
-SETTINGS = [
-    (False, "nomask"),
-    (True, "mask"),
-]
 
 # ===== Templates =====
 SCRIPT_HEADER = """#!/bin/bash
@@ -63,11 +58,11 @@ cd {project_src}
 uv run python main.py --mode train --task contrastive \\
   model.encoder.model_type={model} \\
   data.ui_mask={ui_mask} \\
-  data.random_mask.enable={random_mask_enable} \\
   data.batch_size={batch_size} \\
   data.num_workers={num_workers} \\
   training.max_epochs={max_epochs} \\
   training.accumulate_grad_batches={accumulate_grad_batches} \\
+  meta.exp_name={exp_name} \\
   meta.run_name={run_name}
 """
 
@@ -105,12 +100,20 @@ def build_mail_block(mail_user: str, mail_type: str) -> str:
     return f"#SBATCH --mail-type={mail_type.upper()}\n#SBATCH --mail-user={mail_user}"
 
 
+def get_training_settings(model: str) -> tuple[int, int]:
+    if model in ["siglip2", "clip"]:
+        return 10, 4
+    if model in ["dinov3", "vjepa2"]:
+        return 4, 10
+    return 10, 4
+
+
 # ===== Main =====
 def main():
     project_src = Path(PROJECT_SRC).resolve()
     jobs_root = project_src / "jobs" / EXP_PREFIX
     log_root = project_src / LOGS_SUBDIR / EXP_PREFIX
-    
+
     jobs_root.mkdir(parents=True, exist_ok=True)
     log_root.mkdir(parents=True, exist_ok=True)
 
@@ -119,68 +122,54 @@ def main():
     all_jobs = []
     all_commands = []  # Store commands for sequential run script
 
-    # Generate jobs for each combination (4 models × 2 settings = 8 jobs)
+    # Generate one job for each model with the all-UI mask.
     for model in MODELS:
-        # Model-specific training settings
-        if model in ["siglip2", "clip"]:
-            batch_size = 10
-            accumulate_grad_batches = 4
-        elif model in ["dinov2", "vjepa2"]:
-            batch_size = 4  # 4 * 10 = 40 total batch size
-            accumulate_grad_batches = 10
-        else:
-            batch_size = 10
-            accumulate_grad_batches = 4
-        
-        for random_mask_enable, setting_name in SETTINGS:
-            run_name = f"{EXP_PREFIX}-{model}-{setting_name}"
-            
-            # Convert bool to lowercase string for config
-            random_mask_str = str(random_mask_enable).lower()
-            
-            header = SCRIPT_HEADER.format(
-                account=ACCOUNT, partition=PARTITION, cpus=CPUS,
-                gpu_constraint=GPU_CONSTRAINT, gpu_count=GPU_COUNT,
-                mem=MEM, time=TIME,
-                job_name=run_name, log_dir=str(log_root),
-                mail_block=mail_block,
-            ).rstrip()
-            
-            body = JOB_BODY.format(
-                project_src=str(project_src),
-                model=model,
-                ui_mask=UI_MASK,
-                random_mask_enable=random_mask_str,
-                batch_size=batch_size,
-                num_workers=8,
-                max_epochs=40,
-                accumulate_grad_batches=accumulate_grad_batches,
-                run_name=run_name,
-            ).rstrip()
+        batch_size, accumulate_grad_batches = get_training_settings(model)
+        run_name = f"{EXP_PREFIX}-{model}-ui-all"
 
-            content = header + "\n\n" + body + "\n"
-            job_path = jobs_root / f"{run_name}.job"
-            job_path.write_text(content, encoding="utf-8")
-            job_path.chmod(0o750)
-            all_jobs.append(job_path)
-            
-            # Extract the command for sequential run script
-            command = f"""uv run python main.py --mode train --task contrastive \\
+        header = SCRIPT_HEADER.format(
+            account=ACCOUNT, partition=PARTITION, cpus=CPUS,
+            gpu_constraint=GPU_CONSTRAINT, gpu_count=GPU_COUNT,
+            mem=MEM, time=TIME,
+            job_name=run_name, log_dir=str(log_root),
+            mail_block=mail_block,
+        ).rstrip()
+
+        body = JOB_BODY.format(
+            project_src=str(project_src),
+            model=model,
+            ui_mask=UI_MASK,
+            batch_size=batch_size,
+            num_workers=8,
+            max_epochs=40,
+            accumulate_grad_batches=accumulate_grad_batches,
+            exp_name=EXP_PREFIX,
+            run_name=run_name,
+        ).rstrip()
+
+        content = header + "\n\n" + body + "\n"
+        job_path = jobs_root / f"{run_name}.job"
+        job_path.write_text(content, encoding="utf-8")
+        job_path.chmod(0o750)
+        all_jobs.append(job_path)
+
+        # Extract the command for sequential run script
+        command = f"""uv run python main.py --mode train --task contrastive \\
   model.encoder.model_type={model} \\
   data.ui_mask={UI_MASK} \\
-  data.random_mask.enable={random_mask_str} \\
   data.batch_size={batch_size} \\
   data.num_workers=8 \\
   training.max_epochs=40 \\
   training.accumulate_grad_batches={accumulate_grad_batches} \\
+  meta.exp_name={EXP_PREFIX} \\
   meta.run_name={run_name}"""
-            all_commands.append((run_name, command))
+        all_commands.append((run_name, command))
 
     # Generate sbatch_all script
     sbatch_all_path = jobs_root / f"sbatch_all_{EXP_PREFIX}.sh"
     sbatch_all_path.write_text(SBATCH_ALL_HEADER, encoding="utf-8")
     sbatch_all_path.chmod(0o750)
-    
+
     # Generate sequential run script
     sequential_run_path = jobs_root / f"run_all_{EXP_PREFIX}_sequential.sh"
     sequential_content = SEQUENTIAL_RUN_HEADER.format(project_src=str(project_src))
@@ -196,9 +185,8 @@ def main():
     print(f"Logs will be written to {log_root}")
     print("\nBreakdown:")
     print(f"  - {len(MODELS)} models: {', '.join(MODELS)}")
-    print(f"  - {len(SETTINGS)} settings: {', '.join(s[2] for s in SETTINGS)}")
     print(f"  - UI mask: {UI_MASK}")
-    print(f"  - Total: {len(MODELS)} × {len(SETTINGS)} = {len(all_jobs)} jobs")
+    print(f"  - Total: {len(MODELS)} jobs")
     print("\nTo submit all jobs to SLURM, run:")
     print(f"  bash {sbatch_all_path}")
     print("\nTo run all jobs sequentially on a single machine, run:")

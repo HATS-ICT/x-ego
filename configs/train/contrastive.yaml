@@ -32,7 +32,7 @@ model:
   activation: gelu
   encoder:
     finetune_last_k_layers: 3  # -1: finetune all, 0: freeze all, k: finetune last k layers
-    model_type: google/siglip2-base-patch16-224
+    model_type: siglip2
     # options (full HF name or short alias):
     #   google/siglip2-base-patch16-224  (siglip2)
     #   openai/clip-vit-base-patch32     (clip)
@@ -55,21 +55,6 @@ model:
     logit_bias_init: -3
     turn_off_bias: false
     loss_weight: 1.0
-  reconstruction:
-    enable: false  # enable video reconstruction auxiliary loss
-    loss_weight: 0.001  # lambda scaling factor (start small, e.g., 0.001)
-    target_frame_size: 64  # reconstruct to smaller resolution for efficiency
-    num_reconstruct_frames: 4  # number of frames to reconstruct (temporally sampled)
-    # Transformer decoder settings
-    d_model: 512  # transformer hidden dimension
-    n_heads: 8  # number of attention heads
-    depth: 4  # number of transformer layers
-    n_latents: 1  # number of latent tokens
-    patch_size: 8  # patch size for reconstruction
-    dropout: 0.0  # dropout rate
-    mlp_ratio: 4.0  # MLP hidden dimension ratio
-    time_every: 2  # apply temporal attention every N layers
-
 training:
   max_epochs: 40
   max_steps: -1

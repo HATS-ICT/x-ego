@@ -66,7 +66,9 @@ class AdaptiveNormalizer(nn.Module):
             gamma = torch.cat([torch.zeros_like(gamma[:, :1]), gamma], dim=1)
             beta = torch.cat([torch.zeros_like(beta[:, :1]), beta], dim=1)
 
-        assert gamma.shape[1] == x.shape[1], f"gamma shape: {gamma.shape} != x shape: {x.shape}"
-        assert beta.shape[1] == x.shape[1], f"beta shape: {beta.shape} != x shape: {x.shape}"
+        if gamma.shape[1] != x.shape[1]:
+            raise ValueError(f"gamma shape: {gamma.shape} != x shape: {x.shape}")
+        if beta.shape[1] != x.shape[1]:
+            raise ValueError(f"beta shape: {beta.shape} != x shape: {x.shape}")
         x = x * (1 + gamma) + beta # [B, T, P, E]
         return x

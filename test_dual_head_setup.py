@@ -13,8 +13,8 @@ if sys.platform == 'win32':
 
 MODELS = ["siglip2", "dinov2", "vjepa2", "clip"]
 SETTINGS = [
-    (False, True, "nomask-recon"),
-    (True, True, "mask-recon"),
+    (False, "nomask"),
+    (True, "mask"),
 ]
 
 def run_command(cmd: list[str], name: str) -> bool:
@@ -29,8 +29,8 @@ def run_command(cmd: list[str], name: str) -> bool:
 def main():
     results = []
     for model in MODELS:
-        for random_mask, recon, setting_name in SETTINGS:
-            name = f"dual_head-{model}-{setting_name}"
+        for random_mask, setting_name in SETTINGS:
+            name = f"contrastive-{model}-{setting_name}"
             cmd = [
                 sys.executable, "main.py",
                 "--mode", "dev",
@@ -38,7 +38,6 @@ def main():
                 f"model.encoder.model_type={model}",
                 "data.ui_mask=all",
                 f"data.random_mask.enable={str(random_mask).lower()}",
-                f"model.reconstruction.enable={str(recon).lower()}",
             ]
             success = run_command(cmd, name)
             results.append((name, success))

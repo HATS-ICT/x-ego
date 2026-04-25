@@ -66,7 +66,8 @@ class TemporalAttention(nn.Module):
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         self.head_dim = embed_dim // num_heads
-        assert self.head_dim * num_heads == embed_dim
+        if self.head_dim * num_heads != embed_dim:
+            raise ValueError("num_heads must divide embed_dim")
         
         self.q_proj = nn.Linear(embed_dim, embed_dim)
         self.k_proj = nn.Linear(embed_dim, embed_dim)

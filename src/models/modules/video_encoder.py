@@ -350,9 +350,9 @@ class VideoEncoderDinov3(nn.Module):
 
         configure_finetuning(
             self.vision_model,
-            self.vision_model.encoder.layer,  # DINOv3 uses .layer like DINOv2
+            self.vision_model.layer,
             cfg.finetune_last_k_layers,
-            self.vision_model.layernorm
+            self.vision_model.norm
         )
 
         # Temporal transformer runs on hidden_size (not *2) — same reasoning as DINOv2.

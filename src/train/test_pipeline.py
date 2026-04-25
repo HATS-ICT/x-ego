@@ -27,10 +27,7 @@ def run_test_only_pipeline(cfg, model_class, datamodule_class, task_name, checkp
     
     # Create datamodule for testing
     print("Creating datamodule for testing...")
-    if task_name == "contrastive":
-        datamodule = datamodule_class(config=cfg)
-    else:
-        datamodule = datamodule_class(cfg)
+    datamodule = datamodule_class(cfg)
     datamodule.prepare_data()
     datamodule.setup("test")
     
@@ -73,15 +70,8 @@ def run_test_only_pipeline(cfg, model_class, datamodule_class, task_name, checkp
         # Store the checkpoint name for the model to use
         test_model.checkpoint_name = checkpoint_name
         
-        try:
-            trainer.test(test_model, datamodule, ckpt_path=ckpt_path, weights_only=False)
-            print(f"Test evaluation completed for {checkpoint_name} checkpoint")
-        except Exception as e:
-            print(f"Error testing {checkpoint_name} checkpoint: {e}")
-            import traceback
-            print("Full traceback:")
-            traceback.print_exc()
-            continue
+        trainer.test(test_model, datamodule, ckpt_path=ckpt_path, weights_only=False)
+        print(f"Test evaluation completed for {checkpoint_name} checkpoint")
     
     # Finish wandb run
     if logger is not None:
@@ -123,29 +113,10 @@ def find_saved_checkpoints(checkpoint_dir):
         checkpoints.append(("last", str(last_ckpt)))
         print(f"Found last checkpoint: {last_ckpt}")
     
-    # Find best checkpoint by looking for lowest validation loss
-    ckpt_files = list(checkpoint_path.glob("*.ckpt"))
-    ckpt_files = [f for f in ckpt_files if f.name != "last.ckpt"]
-    
-    if ckpt_files:
-        best_ckpt = None
-        best_loss = float('inf')
-        
-        for ckpt_file in ckpt_files:
-            try:
-                # Extract loss from filename (format: *-l{loss}.ckpt)
-                if '-l' in ckpt_file.stem:
-                    loss_part = ckpt_file.stem.split('-l')[-1]
-                    loss_value = float(loss_part)
-                    if loss_value < best_loss:
-                        best_loss = loss_value
-                        best_ckpt = ckpt_file
-            except (ValueError, IndexError):
-                continue
-        
-        if best_ckpt:
-            checkpoints.append(("best", str(best_ckpt)))
-            print(f"Found best checkpoint: {best_ckpt} (val_loss: {best_loss})")
+    best_ckpt = checkpoint_path / "best.ckpt"
+    if best_ckpt.exists():
+        checkpoints.append(("best", str(best_ckpt)))
+        print(f"Found best checkpoint: {best_ckpt}")
     
     if not checkpoints:
         raise ValueError(f"No checkpoints found in {checkpoint_dir}")

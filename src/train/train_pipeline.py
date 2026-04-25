@@ -1,7 +1,6 @@
 import lightning as L
 import wandb
 import torch
-from pathlib import Path
 from lightning.pytorch.callbacks import ModelCheckpoint
 import sys
 
@@ -159,16 +158,8 @@ def run_testing(cfg, datamodule, model_class, trainer, callbacks, task_name):
         if hasattr(test_model, 'test_targets'):
             test_model.test_targets = []
         
-        try:
-            trainer.test(test_model, datamodule, ckpt_path=checkpoint_path, weights_only=False)
-            print(f"Test evaluation completed for {checkpoint_name} checkpoint")
-        except Exception as e:
-            print(f"Error testing {checkpoint_name} checkpoint: {e}")
-            if hasattr(e, '__traceback__'):
-                import traceback
-                print("Full traceback:")
-                traceback.print_exc()
-            continue
+        trainer.test(test_model, datamodule, ckpt_path=checkpoint_path, weights_only=False)
+        print(f"Test evaluation completed for {checkpoint_name} checkpoint")
 
 
 def find_checkpoints_to_test(callbacks):
@@ -192,41 +183,6 @@ def find_checkpoints_to_test(callbacks):
                     print(f"Added best checkpoint: {callback.best_model_path}")
                     best_checkpoint_found = True
                     break
-                # For save_top_k == -1 (save all), we can manually find the best by looking at saved checkpoints
-                elif callback.save_top_k == -1 and callback.dirpath:
-                    print(f"save_top_k=-1 detected, will try to find best checkpoint manually in {callback.dirpath}")
-                    try:
-                        checkpoint_dir = Path(callback.dirpath)
-                        if checkpoint_dir.exists():
-                            # Find all checkpoint files and select the one with best validation loss
-                            checkpoint_files = list(checkpoint_dir.glob("*.ckpt"))
-                            checkpoint_files = [f for f in checkpoint_files if f.name != "last.ckpt"]  # Exclude last.ckpt
-                            
-                            if checkpoint_files:
-                                # Sort by validation loss (assuming filename contains val loss)
-                                best_ckpt = None
-                                best_loss = float('inf')
-                                
-                                for ckpt_file in checkpoint_files:
-                                    try:
-                                        # Extract loss from filename (format: *-l{loss}.ckpt)
-                                        if '-l' in ckpt_file.stem:
-                                            loss_part = ckpt_file.stem.split('-l')[-1]
-                                            loss_value = float(loss_part)
-                                            if loss_value < best_loss:
-                                                best_loss = loss_value
-                                                best_ckpt = ckpt_file
-                                    except (ValueError, IndexError):
-                                        continue
-                                
-                                if best_ckpt:
-                                    checkpoint_paths.append(("best", str(best_ckpt)))
-                                    print(f"Found best checkpoint manually: {best_ckpt} (loss: {best_loss})")
-                                    best_checkpoint_found = True
-                                    break
-                    except Exception as e:
-                        print(f"Error finding best checkpoint manually: {e}")
-                        
     if not best_checkpoint_found:
         print("No best checkpoint found - will only test on last checkpoint")
     

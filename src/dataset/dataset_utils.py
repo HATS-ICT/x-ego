@@ -5,7 +5,6 @@ import torch
 import numpy as np
 from typing import Tuple, Any, Dict
 from decord import VideoReader, cpu
-from rich import print as rprint
 
 
 def get_random_segment(full_duration, fixed_segment_duration):
@@ -109,9 +108,9 @@ def apply_all_ui_mask(video_clip: torch.Tensor) -> torch.Tensor:
 
 def apply_random_tube_mask(
     video_clip: torch.Tensor,
-    num_tubes: int = 2,
-    min_size_ratio: float = 0.1,
-    max_size_ratio: float = 0.3,
+    num_tubes: int,
+    min_size_ratio: float,
+    max_size_ratio: float,
 ) -> torch.Tensor:
     """
     Apply random tube masks to the video clip.
@@ -159,9 +158,10 @@ def init_video_processor(cfg: Dict) -> Tuple[Any, str]:
                        'video' uses videos= param and returns pixel_values_videos
     """
     from transformers import AutoImageProcessor, VivitImageProcessor, VideoMAEImageProcessor, VJEPA2VideoProcessor
-    from ..models.modules.video_encoder import MODEL_TYPE_TO_PRETRAINED
+    from ..models.modules.video_encoder import MODEL_TYPE_TO_PRETRAINED, normalize_model_type
     
-    model_type = cfg.model.encoder.model_type
+    model_type = normalize_model_type(cfg.model.encoder.model_type)
+    cfg.model.encoder.model_type = model_type
     pretrained_model = MODEL_TYPE_TO_PRETRAINED[model_type]
     
     # Different models need different processors and have different output formats
@@ -211,66 +211,59 @@ def load_video_clip(cfg: Dict, video_full_path: str, start_seconds: float, end_s
     Returns:
         Dictionary containing:
             - 'video': Video tensor of shape (num_frames, channels, height, width)
-            - 'video_unmasked': Unmasked video (only UI mask applied) for reconstruction target,
-                               only present if random_mask is enabled
     """
     expected_frames = int(cfg.data.fixed_duration_seconds * cfg.data.target_fps)
-    
-    try:
-        decoder = VideoReader(video_full_path, ctx=cpu(0))
-        video_fps = decoder.get_avg_fps()
-        
-        # Sample frames at target_fps
-        timestamps = np.linspace(start_seconds, start_seconds + cfg.data.fixed_duration_seconds, 
-                                 expected_frames, endpoint=False)
-        
-        # Apply time jitter if configured
-        if cfg.data.time_jitter_max_seconds > 0:
-            jitter = np.random.uniform(-cfg.data.time_jitter_max_seconds, 
-                                       cfg.data.time_jitter_max_seconds, size=len(timestamps))
-            timestamps = timestamps + jitter
-            total_duration = len(decoder) / video_fps
-            timestamps = np.clip(timestamps, 0, total_duration)
-        
-        frame_indices = (timestamps * video_fps).astype(int)
-        max_frame_index = len(decoder) - 1
-        frame_indices = np.clip(frame_indices, 0, max_frame_index)
-        
-        video_clip = decoder.get_batch(frame_indices.tolist())
-        video_clip = torch.from_numpy(video_clip.asnumpy()).permute(0, 3, 1, 2).half()
-        
-        # Apply UI masking based on configuration (this is a "hard" mask - as if original video has no UI)
-        ui_mask = cfg.data.ui_mask
-        
-        if ui_mask == 'minimap_only':
-            video_clip = apply_minimap_mask(video_clip)
-        elif ui_mask == 'all':
-            video_clip = apply_all_ui_mask(video_clip)
-        
-        result = {'video': video_clip}
-        
-        # Apply random tube mask if configured
-        # Random mask is for augmentation - reconstruction target should be unmasked
-        if cfg.data.random_mask.enable:
-            # Keep a copy of the unmasked video (with UI mask only) for reconstruction target
-            result['video_unmasked'] = video_clip.clone()
-            
-            # Apply random tube mask to the main video
-            result['video'] = apply_random_tube_mask(
-                video_clip,
-                num_tubes=cfg.data.random_mask.num_tubes,
-                min_size_ratio=cfg.data.random_mask.min_size_ratio,
-                max_size_ratio=cfg.data.random_mask.max_size_ratio,
-            )
-        
-        return result
-    except Exception as e:
-        rprint(f"[yellow]WARN[/yellow] Failed to load video [bold]{video_full_path}[/bold]: [dim]{e}[/dim], using placeholder")
-        placeholder = torch.zeros(expected_frames, 3, 306, 544, dtype=torch.float16)
-        result = {'video': placeholder}
-        if cfg.data.random_mask.enable:
-            result['video_unmasked'] = placeholder.clone()
-        return result
+
+    if not Path(video_full_path).exists():
+        raise FileNotFoundError(f"Video file not found: {video_full_path}")
+
+    decoder = VideoReader(video_full_path, ctx=cpu(0))
+    video_fps = decoder.get_avg_fps()
+
+    # Sample frames at target_fps.
+    timestamps = np.linspace(
+        start_seconds,
+        start_seconds + cfg.data.fixed_duration_seconds,
+        expected_frames,
+        endpoint=False,
+    )
+
+    if cfg.data.time_jitter_max_seconds > 0:
+        jitter = np.random.uniform(
+            -cfg.data.time_jitter_max_seconds,
+            cfg.data.time_jitter_max_seconds,
+            size=len(timestamps),
+        )
+        timestamps = timestamps + jitter
+        total_duration = len(decoder) / video_fps
+        timestamps = np.clip(timestamps, 0, total_duration)
+
+    frame_indices = (timestamps * video_fps).astype(int)
+    max_frame_index = len(decoder) - 1
+    frame_indices = np.clip(frame_indices, 0, max_frame_index)
+
+    video_clip = decoder.get_batch(frame_indices.tolist())
+    video_clip = torch.from_numpy(video_clip.asnumpy()).permute(0, 3, 1, 2).half()
+
+    ui_mask = cfg.data.ui_mask
+    if ui_mask == "minimap_only":
+        video_clip = apply_minimap_mask(video_clip)
+    elif ui_mask == "all":
+        video_clip = apply_all_ui_mask(video_clip)
+    elif ui_mask != "none":
+        raise ValueError(f"Unsupported data.ui_mask: {ui_mask}")
+
+    result = {"video": video_clip}
+
+    if cfg.data.random_mask.enable:
+        result["video"] = apply_random_tube_mask(
+            video_clip,
+            num_tubes=cfg.data.random_mask.num_tubes,
+            min_size_ratio=cfg.data.random_mask.min_size_ratio,
+            max_size_ratio=cfg.data.random_mask.max_size_ratio,
+        )
+
+    return result
 
 
 def transform_video(video_processor: Any, processor_type: str, video_clip: torch.Tensor) -> torch.Tensor:
@@ -298,10 +291,12 @@ def transform_video(video_processor: Any, processor_type: str, video_clip: torch
         # Returns [1, T, C, H, W], need to squeeze
         if video_features.dim() == 5:
             video_features = video_features.squeeze(0)  # [T, C, H, W]
-    else:
+    elif processor_type == 'image':
         # Image-based processors (siglip, clip, dinov2): use images= parameter
         processed = video_processor(images=video_clip, return_tensors="pt")
         video_features = processed.pixel_values
         # Returns [T, C, H, W]
+    else:
+        raise ValueError(f"Unknown processor_type: {processor_type}")
     
     return video_features

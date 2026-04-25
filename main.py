@@ -1,19 +1,3 @@
-import platform
-import pathlib
-
-# Fix for loading checkpoints saved on Linux when running on Windows
-# PosixPath objects in pickled checkpoints can't be instantiated on Windows
-# This must be done BEFORE any torch.load calls
-if platform.system() == "Windows":
-    pathlib.PosixPath = pathlib.WindowsPath
-    # Python 3.13+ moved PosixPath to pathlib._local
-    try:
-        import pathlib._local as pathlib_local
-        pathlib_local.PosixPath = pathlib.WindowsPath
-    except (ImportError, AttributeError):
-        pass
-
-import torch
 from pathlib import Path
 import warnings
 import argparse
@@ -21,7 +5,12 @@ import argparse
 from omegaconf import OmegaConf
 
 # Local imports
-from src.utils.config_utils import load_cfg, apply_cfg_overrides, apply_task_config
+from src.utils.config_utils import (
+    apply_cfg_overrides,
+    apply_task_config,
+    load_cfg,
+    validate_contrastive_cfg,
+)
 from src.utils.experiment_utils import create_experiment_dir, save_hyperparameters, setup_resume_cfg, load_experiment_cfg
 from src.train.run_tasks import (
     train_contrastive,
@@ -31,11 +20,6 @@ from src.train.run_tasks import (
 )
 from src.utils.env_utils import get_src_base_path, get_data_base_path, get_output_base_path
 
-
-# TODO: To be removed
-# Debug so that tensor automatically show shape
-normal_repr = torch.Tensor.__repr__
-torch.Tensor.__repr__ = lambda self: f"{self.shape}_{normal_repr(self)}"
 
 # Suppress various noisy warnings
 warnings.filterwarnings("ignore", message="FutureWarning: functools.partial will be a method descriptor")
@@ -185,6 +169,8 @@ def main():
         # Ensure paths are set correctly
         cfg = setup_base_pathing(cfg)
         cfg.meta.resume_exp = resume_exp_from_overrides
+        if args.task == 'contrastive':
+            validate_contrastive_cfg(cfg)
         
     # Train/dev mode: load config files as usual
     else:
@@ -212,6 +198,8 @@ def main():
         # Auto-configure task settings for downstream tasks
         if args.task == 'downstream':
             cfg = apply_task_config(cfg, Path(cfg.path.data))
+        elif args.task == 'contrastive':
+            validate_contrastive_cfg(cfg)
     
     # TODO: Validation need to be adjusted per training mode at the end
     # validate_cfg(cfg)

@@ -8,11 +8,146 @@ import pandas as pd
 from omegaconf import OmegaConf
 
 
+_MISSING = object()
+
+
+CONTRASTIVE_REQUIRED_CONFIG_KEYS = (
+    "meta.seed",
+    "meta.run_name",
+    "meta.resume_exp",
+    "data.partition",
+    "data.labels_folder",
+    "data.video_folder",
+    "data.map",
+    "data.persistent_workers",
+    "data.pin_mem",
+    "data.batch_size",
+    "data.num_workers",
+    "data.prefetch_factor",
+    "data.data_path_csv_filename",
+    "data.fixed_duration_seconds",
+    "data.target_fps",
+    "data.video_column_name",
+    "data.ui_mask",
+    "data.random_mask.enable",
+    "data.random_mask.num_tubes",
+    "data.random_mask.min_size_ratio",
+    "data.random_mask.max_size_ratio",
+    "data.time_jitter_max_seconds",
+    "data.labels_filename",
+    "model.activation",
+    "model.encoder.finetune_last_k_layers",
+    "model.encoder.model_type",
+    "model.encoder.temporal_heads",
+    "model.encoder.temporal_depth",
+    "model.projector.proj_dim",
+    "model.projector.num_hidden_layers",
+    "model.contrastive.enable",
+    "model.contrastive.logit_scale_init",
+    "model.contrastive.logit_bias_init",
+    "model.contrastive.turn_off_bias",
+    "model.contrastive.loss_weight",
+    "training.max_epochs",
+    "training.max_steps",
+    "training.accelerator",
+    "training.devices",
+    "training.strategy",
+    "training.precision",
+    "training.gradient_clip_val",
+    "training.accumulate_grad_batches",
+    "training.val_check_interval",
+    "training.check_val_every_n_epoch",
+    "training.log_every_n_steps",
+    "training.enable_checkpointing",
+    "training.enable_progress_bar",
+    "training.enable_model_summary",
+    "training.torch_compile",
+    "training.deterministic",
+    "training.num_sanity_val_steps",
+    "training.limit_train_batches",
+    "training.limit_val_batches",
+    "training.limit_test_batches",
+    "optimization.lr",
+    "optimization.weight_decay",
+    "optimization.fused_optimizer",
+    "optimization.scheduler.type",
+    "optimization.scheduler.warmup_steps",
+    "optimization.scheduler.min_lr_ratio",
+    "wandb.enabled",
+    "wandb.project",
+    "wandb.name",
+    "wandb.group",
+    "wandb.tags",
+    "wandb.notes",
+    "wandb.save_dir",
+    "checkpoint.epoch.filename",
+    "checkpoint.epoch.monitor",
+    "checkpoint.epoch.mode",
+    "checkpoint.epoch.save_top_k",
+    "checkpoint.epoch.save_last",
+    "checkpoint.epoch.auto_insert_metric_name",
+    "checkpoint.epoch.save_on_train_epoch_end",
+    "checkpoint.epoch.every_n_epochs",
+    "checkpoint.step.filename",
+    "checkpoint.step.monitor",
+    "checkpoint.step.mode",
+    "checkpoint.step.save_top_k",
+    "checkpoint.step.save_last",
+    "checkpoint.step.auto_insert_metric_name",
+    "checkpoint.step.save_on_train_epoch_end",
+    "checkpoint.step.every_n_train_steps",
+)
+
+
 def load_cfg(cfg_path):
     """Load configuration from YAML file using OmegaConf"""
     cfg = OmegaConf.load(cfg_path)
     return cfg
 
+
+def validate_required_config_keys(cfg, required_keys, config_name: str) -> None:
+    """Fail fast when a required config setting is absent."""
+    missing = [
+        key for key in required_keys
+        if OmegaConf.select(cfg, key, default=_MISSING) is _MISSING
+    ]
+    if missing:
+        formatted = "\n".join(f"  - {key}" for key in missing)
+        raise ValueError(f"{config_name} is missing required config setting(s):\n{formatted}")
+
+
+def validate_contrastive_cfg(cfg) -> None:
+    """Validate that the contrastive pipeline is fully configured explicitly."""
+    validate_required_config_keys(
+        cfg,
+        CONTRASTIVE_REQUIRED_CONFIG_KEYS,
+        "contrastive config",
+    )
+
+    if not cfg.model.contrastive.enable:
+        raise ValueError("model.contrastive.enable must be true for contrastive training")
+
+    if cfg.data.ui_mask not in ("none", "minimap_only", "all"):
+        raise ValueError(f"Unsupported data.ui_mask: {cfg.data.ui_mask}")
+
+    if cfg.data.batch_size <= 0:
+        raise ValueError("data.batch_size must be positive")
+    if cfg.data.num_workers < 0:
+        raise ValueError("data.num_workers must be non-negative")
+    if cfg.data.target_fps <= 0 or cfg.data.fixed_duration_seconds <= 0:
+        raise ValueError("data.target_fps and data.fixed_duration_seconds must be positive")
+    if cfg.data.random_mask.num_tubes < 0:
+        raise ValueError("data.random_mask.num_tubes must be non-negative")
+    if not (0 < cfg.data.random_mask.min_size_ratio <= cfg.data.random_mask.max_size_ratio <= 1):
+        raise ValueError(
+            "random mask size ratios must satisfy "
+            "0 < min_size_ratio <= max_size_ratio <= 1"
+        )
+
+    if cfg.model.contrastive.logit_scale_init <= 0:
+        raise ValueError("model.contrastive.logit_scale_init must be positive")
+    if cfg.model.contrastive.loss_weight < 0:
+        raise ValueError("model.contrastive.loss_weight must be non-negative")
 
 def _task_id_to_labels_filename(task_id: str) -> str:
     """
@@ -195,7 +330,12 @@ def apply_cfg_overrides(cfg, overrides):
             
             # Show what's being changed
             key_path = override_str.split('=')[0]
-            old_value = OmegaConf.select(cfg, key_path, default='<not set>')
+            old_value = OmegaConf.select(cfg, key_path, default=_MISSING)
+            if old_value is _MISSING:
+                raise KeyError(
+                    f"Override targets missing config key '{key_path}'. "
+                    "Add the setting to YAML before overriding it."
+                )
             new_value = override_str.split('=')[1]
             print(f"  {key_path}: {old_value} -> {new_value}")
             
@@ -203,7 +343,6 @@ def apply_cfg_overrides(cfg, overrides):
             cfg = OmegaConf.merge(cfg, override_cfg)
             
         except Exception as e:
-            print(f"Warning: Failed to apply override '{override_str}': {e}")
-            continue
+            raise ValueError(f"Failed to apply override '{override_str}': {e}") from e
     
     return cfg

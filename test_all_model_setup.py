@@ -2,7 +2,7 @@
 """
 Test script to verify the full pipeline works for all model setups.
 
-Tests three settings with task self_location_0s:
+Tests three settings for each model with task self_location_0s:
 1. Contrastive only (Stage 1)
 2. Baseline downstream (off-the-shelf model)
 3. Downstream with saved contrastive checkpoint (Stage 2)
@@ -30,9 +30,7 @@ from typing import Optional
 
 
 # Available model types from cheatsheet
-# MODEL_TYPES = ["siglip2", "dinov2", "dinov3", "clip", "vivit", "videomae", "vjepa2"]
-MODEL_TYPES = ["siglip2", "dinov2", "vjepa2"]
-# MODEL_TYPES = ["dinov2"]
+MODEL_TYPES = ["siglip2", "dinov3", "clip", "vjepa2", "resnet50"]
 TASK_ID = "self_location_0s"
 
 
@@ -76,7 +74,7 @@ def run_command(cmd: list[str], description: str) -> tuple[bool, str, str]:
 
 
 def find_checkpoint(stdout: str, stderr: str, model_type: str) -> Optional[str]:
-    """Extract checkpoint path from training output, filtering by model type."""
+    """Extract the checkpoint path from the experiment created by this run."""
     combined = (stdout or "") + (stderr or "")
     
     # First, try to find the experiment directory from the output
@@ -109,58 +107,15 @@ def find_checkpoint(stdout: str, stderr: str, model_type: str) -> Optional[str]:
                             experiment_dir = potential_path
                             break
     
-    # Look for checkpoint path patterns in output
-    for line in combined.split('\n'):
-        if '.ckpt' in line and ('Saving' in line or 'checkpoint' in line.lower()):
-            # Try to extract the path
-            parts = line.split()
-            for part in parts:
-                if '.ckpt' in part:
-                    # Clean up the path
-                    path = part.strip("'\"")
-                    if Path(path).exists():
-                        return path
-    
     # If we found the experiment directory, look for checkpoints there
     if experiment_dir:
+        if f"contrastive-{model_type}" not in experiment_dir.name:
+            return None
         checkpoint_dir = experiment_dir / "checkpoint"
         if checkpoint_dir.exists():
-            ckpt_files = list(checkpoint_dir.glob("*.ckpt"))
-            if ckpt_files:
-                # Return the most recently modified checkpoint from this experiment
-                return str(max(ckpt_files, key=lambda p: p.stat().st_mtime))
-    
-    # Alternative: look in output directory for checkpoints matching the model type
-    output_dir = Path(__file__).parent / "output"
-    if output_dir.exists():
-        # Look for experiment directories that match the model type
-        # Experiment names are like: contrastive-{model_type}-{timestamp}-{hash}
-        matching_dirs = []
-        for exp_dir in output_dir.iterdir():
-            if exp_dir.is_dir() and f'contrastive-{model_type}' in exp_dir.name:
-                matching_dirs.append(exp_dir)
-        
-        # If we found matching directories, look for checkpoints in the most recent one
-        if matching_dirs:
-            # Sort by modification time, most recent first
-            matching_dirs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-            most_recent_exp = matching_dirs[0]
-            checkpoint_dir = most_recent_exp / "checkpoint"
-            if checkpoint_dir.exists():
-                ckpt_files = list(checkpoint_dir.glob("*.ckpt"))
-                if ckpt_files:
-                    # Return the most recently modified checkpoint
-                    return str(max(ckpt_files, key=lambda p: p.stat().st_mtime))
-        
-        # Fallback: look for any checkpoint, but prefer ones matching model type
-        ckpt_files = list(output_dir.rglob("*.ckpt"))
-        if ckpt_files:
-            # Filter by model type in parent directory name
-            matching_ckpts = [c for c in ckpt_files if f'contrastive-{model_type}' in str(c)]
-            if matching_ckpts:
-                return str(max(matching_ckpts, key=lambda p: p.stat().st_mtime))
-            # If no matching checkpoints, return the most recent (but warn)
-            return str(max(ckpt_files, key=lambda p: p.stat().st_mtime))
+            last_ckpt = checkpoint_dir / "last.ckpt"
+            if last_ckpt.exists():
+                return str(last_ckpt)
     
     return None
 

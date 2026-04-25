@@ -7,8 +7,11 @@ from torch import Tensor
 from typing import Dict, Any, Tuple
 import math
 
+from src.models.modules.architecture_utils import TemporalTransformer
 
-# Mapping from model_type to HuggingFace pretrained model identifier
+
+# Mapping from short alias to HuggingFace pretrained model identifier
+# 'resnet50' is torchvision-only and uses no pretrained weights (trained from scratch)
 MODEL_TYPE_TO_PRETRAINED = {
     "clip": "openai/clip-vit-base-patch32",
     "siglip2": "google/siglip2-base-patch16-224",
@@ -17,7 +20,29 @@ MODEL_TYPE_TO_PRETRAINED = {
     "vivit": "google/vivit-b-16x2-kinetics400",
     "videomae": "MCG-NJU/videomae-base",
     "vjepa2": "facebook/vjepa2-vitl-fpc16-256-ssv2",
+    "resnet50": "torchvision/resnet50",  # no pretrained weights — trains from scratch
 }
+
+# Reverse mapping: full HF name → short alias
+# Allows configs to specify either "siglip2" or "google/siglip2-base-patch16-224"
+PRETRAINED_TO_MODEL_TYPE = {v: k for k, v in MODEL_TYPE_TO_PRETRAINED.items()}
+
+
+def normalize_model_type(model_type: str) -> str:
+    """
+    Accept either a short alias ('siglip2') or a full HF name
+    ('google/siglip2-base-patch16-224') and return the canonical short alias.
+    """
+    if model_type in MODEL_TYPE_TO_PRETRAINED:
+        return model_type  # already a short alias
+    if model_type in PRETRAINED_TO_MODEL_TYPE:
+        return PRETRAINED_TO_MODEL_TYPE[model_type]
+    raise ValueError(
+        f"Unknown model_type: '{model_type}'. "
+        f"Supported aliases: {list(MODEL_TYPE_TO_PRETRAINED.keys())} "
+        f"or full HF names: {list(PRETRAINED_TO_MODEL_TYPE.keys())}"
+    )
+
 
 
 def temporal_sampling(frames: torch.Tensor, target_frames: int) -> torch.Tensor:
@@ -115,34 +140,52 @@ class VideoEncoderClip(nn.Module):
             cfg.finetune_last_k_layers,
             getattr(self.vision_model, 'post_layernorm', None)
         )
+
+        # Optional temporal transformer (bidirectional across frames, applied before spatial pooling)
+        temporal_heads = getattr(cfg, 'temporal_heads', None)
+        temporal_depth = getattr(cfg, 'temporal_depth', 1)
+        self.temporal = TemporalTransformer(
+            embed_dim=self.embed_dim,
+            num_heads=temporal_heads,
+            depth=temporal_depth,
+            causal=False,
+        ) if temporal_heads is not None else None
     
     def forward(self, pixel_values: torch.Tensor, return_temporal_features: bool = False) -> Tensor:
         """
         Forward pass through the CLIP video encoder.
-        
+
         Args:
             pixel_values: Video tensor of shape [batch_size, num_frames, channels, height, width]
             return_temporal_features: If True, return per-frame features [batch_size, num_frames, hidden_size]
                                      If False, return pooled video features [batch_size, hidden_size]
-            
+
         Returns:
             Video features - either pooled [batch_size, hidden_size] or temporal [batch_size, num_frames, hidden_size]
         """
         batch_size, num_frames, channels, height, width = pixel_values.shape
         frames = pixel_values.view(-1, channels, height, width)
-        
-        vision_outputs = self.vision_model(pixel_values=frames)
-        sequence_output = vision_outputs.last_hidden_state  # [batch_size * num_frames, seq_len, hidden_size]
 
-        # following https://github.com/huggingface/transformers/blob/main/src/transformers/models/clip/modeling_clip.py#L1170-L1251
-        frame_features = torch.mean(sequence_output[:, 1:, :], dim=1)  # [batch_size * num_frames, hidden_size]
-        frame_features = frame_features.view(batch_size, num_frames, -1)  # [batch_size, num_frames, hidden_size]
-        
+        vision_outputs = self.vision_model(pixel_values=frames)
+        # [B*T, seq_len, E]  (seq_len = 1 CLS + n_patches)
+        sequence_output = vision_outputs.last_hidden_state
+
+        # Reshape to [B, T, seq_len, E] so temporal transformer can attend across T
+        seq_len = sequence_output.shape[1]
+        tokens = sequence_output.view(batch_size, num_frames, seq_len, -1)  # [B, T, seq_len, E]
+
+        # Apply bidirectional temporal transformer (no-op when self.temporal is None)
+        if self.temporal is not None:
+            tokens = self.temporal(tokens)  # [B, T, seq_len, E]
+
+        # following CLIP: mean over patch tokens, skip CLS at index 0
+        # https://github.com/huggingface/transformers/blob/main/src/transformers/models/clip/modeling_clip.py#L1170-L1251
+        frame_features = tokens[:, :, 1:, :].mean(dim=2)  # [B, T, E]
+
         if return_temporal_features:
-            return frame_features  # [batch_size, num_frames, hidden_size]
-        
-        video_features = torch.mean(frame_features, dim=1)  # [batch_size, hidden_size]
-        return video_features
+            return frame_features  # [B, T, E]
+
+        return frame_features.mean(dim=1)  # [B, E]
 
 
 class VideoEncoderSigLIP2(nn.Module):
@@ -154,49 +197,64 @@ class VideoEncoderSigLIP2(nn.Module):
     
     def __init__(self, cfg: Dict[str, Any]):
         super().__init__()
-        
-        
+
         self.model_type = cfg.model_type
         self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
-        
+
         self.vision_model = AutoModel.from_pretrained(self.from_pretrained).vision_model
         self.embed_dim = self.vision_model.config.hidden_size
-        
+
         configure_finetuning(
             self.vision_model,
             self.vision_model.encoder.layers,
             cfg.finetune_last_k_layers,
             getattr(self.vision_model, 'post_layernorm', None)
         )
+
+        # Optional temporal transformer (bidirectional across frames, applied before spatial pooling)
+        temporal_heads = getattr(cfg, 'temporal_heads', None)
+        temporal_depth = getattr(cfg, 'temporal_depth', 1)
+        self.temporal = TemporalTransformer(
+            embed_dim=self.embed_dim,
+            num_heads=temporal_heads,
+            depth=temporal_depth,
+            causal=False,
+        ) if temporal_heads is not None else None
     
     def forward(self, pixel_values: torch.Tensor, return_temporal_features: bool = False) -> Tensor:
         """
         Forward pass through the SigLIP2 video encoder.
-        
+
         Args:
             pixel_values: Video tensor of shape [batch_size, num_frames, channels, height, width]
             return_temporal_features: If True, return per-frame features [batch_size, num_frames, hidden_size]
                                      If False, return pooled video features [batch_size, hidden_size]
-            
+
         Returns:
             Video features - either pooled [batch_size, hidden_size] or temporal [batch_size, num_frames, hidden_size]
         """
         batch_size, num_frames, channels, height, width = pixel_values.shape
-        
         frames = pixel_values.view(-1, channels, height, width)
-        
+
         vision_outputs = self.vision_model(pixel_values=frames)
-        sequence_output = vision_outputs.last_hidden_state  # [batch_size * num_frames, num_patches, hidden_size]
-        
-        # Mean pooling over patches (same as SigLIP)
-        frame_features = torch.mean(sequence_output, dim=1)  # [batch_size * num_frames, hidden_size]
-        frame_features = frame_features.view(batch_size, num_frames, -1)  # [batch_size, num_frames, hidden_size]
-        
+        # [B*T, num_patches, E]  (SigLIP2 has no CLS token)
+        sequence_output = vision_outputs.last_hidden_state
+
+        # Reshape to [B, T, num_patches, E] for temporal processing
+        num_patches = sequence_output.shape[1]
+        tokens = sequence_output.view(batch_size, num_frames, num_patches, -1)  # [B, T, P, E]
+
+        # Apply bidirectional temporal transformer (no-op when self.temporal is None)
+        if self.temporal is not None:
+            tokens = self.temporal(tokens)  # [B, T, P, E]
+
+        # Mean pooling over all patches (SigLIP2 has no special CLS token)
+        frame_features = tokens.mean(dim=2)  # [B, T, E]
+
         if return_temporal_features:
-            return frame_features  # [batch_size, num_frames, hidden_size]
-        
-        video_features = torch.mean(frame_features, dim=1)  # [batch_size, hidden_size]
-        return video_features
+            return frame_features  # [B, T, E]
+
+        return frame_features.mean(dim=1)  # [B, E]
 
 
 class VideoEncoderDinov2(nn.Module):
@@ -208,53 +266,69 @@ class VideoEncoderDinov2(nn.Module):
     
     def __init__(self, cfg: Dict[str, Any]):
         super().__init__()
-        
-        
+
         self.model_type = cfg.model_type
         self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
-        
+
         self.vision_model = AutoModel.from_pretrained(self.from_pretrained)
-        self.embed_dim = self.vision_model.config.hidden_size * 2
-        
+        self._hidden_size = self.vision_model.config.hidden_size
+        self.embed_dim = self._hidden_size * 2  # CLS + mean patches concatenated
+
         configure_finetuning(
             self.vision_model,
             self.vision_model.encoder.layer,  # DINOv2 uses .layer not .layers
             cfg.finetune_last_k_layers,
             getattr(self.vision_model, 'layernorm', None)
         )
+
+        # Temporal transformer runs on hidden_size (not *2) since it operates on
+        # raw patch tokens before the CLS-concat output projection.
+        temporal_heads = getattr(cfg, 'temporal_heads', None)
+        temporal_depth = getattr(cfg, 'temporal_depth', 1)
+        self.temporal = TemporalTransformer(
+            embed_dim=self._hidden_size,
+            num_heads=temporal_heads,
+            depth=temporal_depth,
+            causal=False,
+        ) if temporal_heads is not None else None
     
     def forward(self, pixel_values: torch.Tensor, return_temporal_features: bool = False) -> Tensor:
         """
         Forward pass through the DINOv2 video encoder.
-        
+
         Args:
             pixel_values: Video tensor of shape [batch_size, num_frames, channels, height, width]
             return_temporal_features: If True, return per-frame features [batch_size, num_frames, hidden_size * 2]
                                      If False, return pooled video features [batch_size, hidden_size * 2]
-            
+
         Returns:
             Video features - either pooled [batch_size, hidden_size * 2] or temporal [batch_size, num_frames, hidden_size * 2]
         """
         batch_size, num_frames, channels, height, width = pixel_values.shape
         frames = pixel_values.view(-1, channels, height, width)
         outputs = self.vision_model(pixel_values=frames)
-        
+
         # following https://github.com/huggingface/transformers/blob/main/src/transformers/models/dinov2/modeling_dinov2.py#L555-L603
-        # get frame features
-        sequence_output = outputs.last_hidden_state  # [batch_size * num_frames, seq_len, hidden_size]
-        cls_tokens = sequence_output[:, 0]  # [batch_size * num_frames, hidden_size]
-        patch_tokens = sequence_output[:, 1:]  # [batch_size * num_frames, num_patches, hidden_size]
-        patch_features = torch.mean(patch_tokens, dim=1)  # [batch_size * num_frames, hidden_size]
-        frame_features = torch.cat([cls_tokens, patch_features], dim=1)  # [batch_size * num_frames, hidden_size * 2]
-        
-        # reshape to [batch_size, num_frames, hidden_size * 2]
-        frame_features = frame_features.view(batch_size, num_frames, -1)
-        
+        # [B*T, seq_len, E]  (index 0 = CLS, 1: = patches)
+        sequence_output = outputs.last_hidden_state
+
+        # Reshape to [B, T, seq_len, E] so temporal transformer attends across T
+        # for both CLS and patch tokens jointly (Option A).
+        seq_len = sequence_output.shape[1]
+        tokens = sequence_output.view(batch_size, num_frames, seq_len, -1)  # [B, T, seq_len, E]
+
+        if self.temporal is not None:
+            tokens = self.temporal(tokens)  # [B, T, seq_len, E]
+
+        # DINOv2 output: concat CLS and mean of patch tokens per frame
+        cls_tokens = tokens[:, :, 0, :]            # [B, T, E]
+        patch_features = tokens[:, :, 1:, :].mean(dim=2)  # [B, T, E]
+        frame_features = torch.cat([cls_tokens, patch_features], dim=-1)  # [B, T, 2E]
+
         if return_temporal_features:
-            return frame_features  # [batch_size, num_frames, hidden_size * 2]
-        
-        video_features = torch.mean(frame_features, dim=1)  # [batch_size, hidden_size * 2]
-        return video_features
+            return frame_features  # [B, T, 2E]
+
+        return frame_features.mean(dim=1)  # [B, 2E]
 
 
 class VideoEncoderDinov3(nn.Module):
@@ -266,52 +340,145 @@ class VideoEncoderDinov3(nn.Module):
     
     def __init__(self, cfg: Dict[str, Any]):
         super().__init__()
-        
-        
+
         self.model_type = cfg.model_type
         self.from_pretrained = MODEL_TYPE_TO_PRETRAINED[self.model_type]
-        
+
         self.vision_model = AutoModel.from_pretrained(self.from_pretrained)
-        self.embed_dim = self.vision_model.config.hidden_size * 2
-        
+        self._hidden_size = self.vision_model.config.hidden_size
+        self.embed_dim = self._hidden_size * 2  # CLS + mean patches concatenated
+
         configure_finetuning(
             self.vision_model,
             self.vision_model.encoder.layer,  # DINOv3 uses .layer like DINOv2
             cfg.finetune_last_k_layers,
             getattr(self.vision_model, 'layernorm', None)
         )
+
+        # Temporal transformer runs on hidden_size (not *2) — same reasoning as DINOv2.
+        temporal_heads = getattr(cfg, 'temporal_heads', None)
+        temporal_depth = getattr(cfg, 'temporal_depth', 1)
+        self.temporal = TemporalTransformer(
+            embed_dim=self._hidden_size,
+            num_heads=temporal_heads,
+            depth=temporal_depth,
+            causal=False,
+        ) if temporal_heads is not None else None
     
     def forward(self, pixel_values: torch.Tensor, return_temporal_features: bool = False) -> Tensor:
         """
         Forward pass through the DINOv3 video encoder.
-        
+
         Args:
             pixel_values: Video tensor of shape [batch_size, num_frames, channels, height, width]
             return_temporal_features: If True, return per-frame features [batch_size, num_frames, hidden_size * 2]
                                      If False, return pooled video features [batch_size, hidden_size * 2]
-            
+
         Returns:
             Video features - either pooled [batch_size, hidden_size * 2] or temporal [batch_size, num_frames, hidden_size * 2]
         """
         batch_size, num_frames, channels, height, width = pixel_values.shape
         frames = pixel_values.view(-1, channels, height, width)
         outputs = self.vision_model(pixel_values=frames)
-        
-        # Following DINOv2 pattern - concatenate CLS and mean patch features
-        sequence_output = outputs.last_hidden_state  # [batch_size * num_frames, seq_len, hidden_size]
-        cls_tokens = sequence_output[:, 0]  # [batch_size * num_frames, hidden_size]
-        patch_tokens = sequence_output[:, 1:]  # [batch_size * num_frames, num_patches, hidden_size]
-        patch_features = torch.mean(patch_tokens, dim=1)  # [batch_size * num_frames, hidden_size]
-        frame_features = torch.cat([cls_tokens, patch_features], dim=1)  # [batch_size * num_frames, hidden_size * 2]
-        
-        # reshape to [batch_size, num_frames, hidden_size * 2]
-        frame_features = frame_features.view(batch_size, num_frames, -1)
-        
+
+        # Following DINOv2 pattern: [B*T, seq_len, E]  (index 0 = CLS, 1: = patches)
+        sequence_output = outputs.last_hidden_state
+
+        seq_len = sequence_output.shape[1]
+        tokens = sequence_output.view(batch_size, num_frames, seq_len, -1)  # [B, T, seq_len, E]
+
+        if self.temporal is not None:
+            tokens = self.temporal(tokens)  # [B, T, seq_len, E]
+
+        # DINOv3 output: concat CLS and mean of patch tokens per frame
+        cls_tokens = tokens[:, :, 0, :]            # [B, T, E]
+        patch_features = tokens[:, :, 1:, :].mean(dim=2)  # [B, T, E]
+        frame_features = torch.cat([cls_tokens, patch_features], dim=-1)  # [B, T, 2E]
+
         if return_temporal_features:
-            return frame_features  # [batch_size, num_frames, hidden_size * 2]
-        
-        video_features = torch.mean(frame_features, dim=1)  # [batch_size, hidden_size * 2]
-        return video_features
+            return frame_features  # [B, T, 2E]
+
+        return frame_features.mean(dim=1)  # [B, 2E]
+
+
+class VideoEncoderResNet50(nn.Module):
+    """
+    ResNet-50 video encoder trained from scratch (no pretrained weights).
+
+    Processes each frame independently through ResNet-50 then pools across time.
+    Feature maps from layer4 (7x7 spatial grid = 49 "patches" of dim 2048) are
+    exposed for temporal attention when temporal_heads is configured.
+
+    finetune_last_k_layers is ignored — all parameters are trainable since the
+    model starts from random initialisation.
+    """
+
+    embed_dim: int = 2048  # ResNet-50 channel width after layer4
+
+    def __init__(self, cfg: Dict[str, Any]):
+        super().__init__()
+        from torchvision.models import resnet50
+
+        self.model_type = cfg.model_type
+
+        # Load ResNet-50 with NO pretrained weights
+        _resnet = resnet50(weights=None)
+
+        # Backbone up to (and including) layer4, excluding avgpool and fc
+        # layer4 output: [B, 2048, H/32, W/32]  e.g. 7x7 for 224x224 input
+        self.backbone = nn.Sequential(
+            _resnet.conv1, _resnet.bn1, _resnet.relu, _resnet.maxpool,
+            _resnet.layer1, _resnet.layer2, _resnet.layer3, _resnet.layer4,
+        )
+        self.avgpool = _resnet.avgpool  # AdaptiveAvgPool2d(1,1)
+        self.embed_dim = 2048
+
+        # Optional temporal transformer (bidirectional, applied on spatial patches before pooling)
+        temporal_heads = getattr(cfg, 'temporal_heads', None)
+        temporal_depth = getattr(cfg, 'temporal_depth', 1)
+        self.temporal = TemporalTransformer(
+            embed_dim=self.embed_dim,
+            num_heads=temporal_heads,
+            depth=temporal_depth,
+            causal=False,
+        ) if temporal_heads is not None else None
+
+    def forward(self, pixel_values: torch.Tensor, return_temporal_features: bool = False) -> Tensor:
+        """
+        Forward pass through the ResNet-50 video encoder.
+
+        Args:
+            pixel_values: Video tensor of shape [batch_size, num_frames, channels, height, width]
+            return_temporal_features: If True, return per-frame features [batch_size, num_frames, 2048]
+                                     If False, return pooled video features [batch_size, 2048]
+
+        Returns:
+            Video features - either pooled [batch_size, 2048] or temporal [batch_size, num_frames, 2048]
+        """
+        batch_size, num_frames, channels, height, width = pixel_values.shape
+        frames = pixel_values.view(-1, channels, height, width)  # [B*T, C, H, W]
+
+        # Extract spatial feature maps from layer4: [B*T, 2048, h, w]  (h=w=7 for 224px)
+        feature_maps = self.backbone(frames)  # [B*T, 2048, h, w]
+        _, C, h, w = feature_maps.shape
+
+        if self.temporal is not None:
+            # Flatten spatial dims to patches: [B*T, h*w, 2048] -> [B, T, h*w, 2048]
+            patches = feature_maps.flatten(2).transpose(1, 2)  # [B*T, h*w, C]
+            tokens = patches.view(batch_size, num_frames, h * w, C)  # [B, T, P, E]
+
+            tokens = self.temporal(tokens)  # [B, T, P, E]
+
+            frame_features = tokens.mean(dim=2)  # [B, T, E]  — mean over spatial patches
+        else:
+            # Plain global average pooling, no temporal interaction
+            pooled = self.avgpool(feature_maps).squeeze(-1).squeeze(-1)  # [B*T, 2048]
+            frame_features = pooled.view(batch_size, num_frames, -1)     # [B, T, 2048]
+
+        if return_temporal_features:
+            return frame_features  # [B, T, 2048]
+
+        return frame_features.mean(dim=1)  # [B, 2048]
 
 
 class VideoEncoderVivit(nn.Module):
@@ -566,21 +733,17 @@ def get_embed_dim_for_model_type(model_type: str) -> int:
     """
     Get the embedding dimension for a given model type without initializing the full model.
     This is useful when using precomputed embeddings to save memory.
-    
+
     Args:
-        model_type: The model type (clip, siglip2, dinov2, vivit, videomae, vjepa2)
-        
+        model_type: Short alias ('clip', 'siglip2', ...) or full HF name
+                    ('google/siglip2-base-patch16-224', ...)
+
     Returns:
         The embedding dimension for the specified model type
     """
-    if model_type not in MODEL_TYPE_TO_PRETRAINED:
-        raise ValueError(
-            f"Unknown model_type: '{model_type}'. "
-            f"Supported types: {list(MODEL_TYPE_TO_PRETRAINED.keys())}"
-        )
-    
+    model_type = normalize_model_type(model_type)  # accept full HF names
     pretrained_name = MODEL_TYPE_TO_PRETRAINED[model_type]
-    
+
     # Get config without loading weights
     if model_type == 'clip':
         from transformers import CLIPConfig
@@ -610,6 +773,8 @@ def get_embed_dim_for_model_type(model_type: str) -> int:
         from transformers import VJEPA2Config
         config = VJEPA2Config.from_pretrained(pretrained_name)
         return config.hidden_size
+    elif model_type == 'resnet50':
+        return 2048  # fixed — ResNet-50 layer4 output channels
     else:
         raise ValueError(f"Unsupported model_type: {model_type}")
 
@@ -631,10 +796,11 @@ class VideoEncoder(nn.Module):
     
     def __init__(self, cfg: Dict[str, Any]):
         super().__init__()
-        
-        
-        model_type = cfg.model_type
-        
+
+        # Normalise so both 'siglip2' and 'google/siglip2-base-patch16-224' work
+        model_type = normalize_model_type(cfg.model_type)
+        cfg.model_type = model_type  # write back so individual encoders see the alias
+
         if model_type == 'clip':
             self.video_encoder = VideoEncoderClip(cfg)
         elif model_type == 'siglip2':
@@ -649,12 +815,14 @@ class VideoEncoder(nn.Module):
             self.video_encoder = VideoEncoderVideoMAE(cfg)
         elif model_type == 'vjepa2':
             self.video_encoder = VideoEncoderVJEPA2(cfg)
+        elif model_type == 'resnet50':
+            self.video_encoder = VideoEncoderResNet50(cfg)
         else:
             raise ValueError(
                 f"Unknown model_type: '{model_type}'. "
                 f"Supported types: {list(MODEL_TYPE_TO_PRETRAINED.keys())}"
             )
-        
+
         self.embed_dim = self.video_encoder.embed_dim
     
     def forward(self, pixel_values: torch.Tensor, return_temporal_features: bool = False) -> Tensor:

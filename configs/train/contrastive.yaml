@@ -32,7 +32,20 @@ model:
   activation: gelu
   encoder:
     finetune_last_k_layers: 3  # -1: finetune all, 0: freeze all, k: finetune last k layers
-    model_type: siglip2 # options: siglip2, dinov2, clip, vivit, videomae, vjepa2
+    model_type: google/siglip2-base-patch16-224
+    # options (full HF name or short alias):
+    #   google/siglip2-base-patch16-224  (siglip2)
+    #   openai/clip-vit-base-patch32     (clip)
+    #   facebook/dinov2-base             (dinov2)
+    #   facebook/dinov3-vitb16-pretrain-lvd1689m  (dinov3)
+    #   google/vivit-b-16x2-kinetics400  (vivit)
+    #   MCG-NJU/videomae-base            (videomae)
+    #   facebook/vjepa2-vitl-fpc16-256-ssv2  (vjepa2)
+    #   torchvision/resnet50             (resnet50) -- trains from scratch, no pretrained weights
+    # Temporal attention (image-based encoders only: clip, siglip2, dinov2, dinov3)
+    # Set temporal_heads to enable; omit or set to null to use plain mean pooling
+    temporal_heads: 8   # must evenly divide hidden_size (e.g. 768 -> 8 or 12)
+    temporal_depth: 1   # number of TemporalTransformerBlock layers
   projector:
     proj_dim: 768
     num_hidden_layers: 1

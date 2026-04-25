@@ -82,34 +82,6 @@ class ContrastiveModel(L.LightningModule):
             requires_grad=True
         )
         
-        # Reconstruction decoder (optional)
-        self.use_reconstruction = getattr(cfg.model, 'reconstruction', None) is not None \
-                                  and cfg.model.reconstruction.enable
-        if self.use_reconstruction:
-            recon_cfg = cfg.model.reconstruction
-            self.recon_loss_weight = recon_cfg.loss_weight
-            self.recon_target_size = recon_cfg.target_frame_size
-            self.recon_num_frames = recon_cfg.num_reconstruct_frames
-            
-            self.video_decoder = VideoDecoder(
-                input_dim=proj_dim,
-                d_model=getattr(recon_cfg, 'd_model', 512),
-                n_heads=getattr(recon_cfg, 'n_heads', 8),
-                depth=getattr(recon_cfg, 'depth', 4),
-                n_latents=getattr(recon_cfg, 'n_latents', 1),
-                target_frame_size=recon_cfg.target_frame_size,
-                num_frames=recon_cfg.num_reconstruct_frames,
-                patch_size=getattr(recon_cfg, 'patch_size', 8),
-                dropout=getattr(recon_cfg, 'dropout', 0.0),
-                mlp_ratio=getattr(recon_cfg, 'mlp_ratio', 4.0),
-                time_every=getattr(recon_cfg, 'time_every', 2),
-            )
-            print(f"[Model Init] Reconstruction enabled: lambda={self.recon_loss_weight}, "
-                  f"target_size={self.recon_target_size}, num_frames={self.recon_num_frames}, "
-                  f"d_model={getattr(recon_cfg, 'd_model', 512)}")
-        else:
-            self.video_decoder = None
-        
         # Store dimensions
         self.video_embed_dim = video_embed_dim
         self.proj_dim = proj_dim

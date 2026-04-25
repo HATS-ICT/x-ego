@@ -11,11 +11,14 @@ task:
   ml_form: multi_cls
   num_classes: 23
   output_dim: 23
-  label_column: place
+  label_column: label  # all task CSVs use a generic 'label' column
+
 
 data:
   partition: all
-  labels_folder: labels
+  labels_folder: labels/all_tasks  # task CSVs live under data/<map>/labels/all_tasks/
+  labels_filename: ${task.task_id}.csv  # resolved automatically from task.task_id
+
   video_folder: video_306x306_4fps
   map: inferno
   persistent_workers: true
@@ -42,7 +45,20 @@ model:
   stage1_checkpoint: null
   encoder:
     finetune_last_k_layers: 0  # -1: finetune all, 0: freeze all, k: finetune last k layers
-    model_type: siglip2
+    model_type: google/siglip2-base-patch16-224
+    # options (full HF name or short alias):
+    #   google/siglip2-base-patch16-224  (siglip2)
+    #   openai/clip-vit-base-patch32     (clip)
+    #   facebook/dinov2-base             (dinov2)
+    #   facebook/dinov3-vitb16-pretrain-lvd1689m  (dinov3)
+    #   google/vivit-b-16x2-kinetics400  (vivit)
+    #   MCG-NJU/videomae-base            (videomae)
+    #   facebook/vjepa2-vitl-fpc16-256-ssv2  (vjepa2)
+    #   torchvision/resnet50             (resnet50) -- trains from scratch, no pretrained weights
+    # Temporal attention (image-based encoders only: clip, siglip2, dinov2, dinov3)
+    # Must match Stage 1 config if loading a stage1_checkpoint
+    temporal_heads: 8   # must evenly divide hidden_size (e.g. 768 -> 8 or 12)
+    temporal_depth: 1   # number of TemporalTransformerBlock layers
 
 training:
   max_epochs: 20

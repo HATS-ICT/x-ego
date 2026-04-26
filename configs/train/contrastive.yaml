@@ -13,6 +13,8 @@ data:
   map: inferno
   persistent_workers: true
   pin_mem: true
+  # For contrastive training, this is the total number of videos per forward microbatch.
+  # Team rows are flattened into this video budget; the final team in a batch may be truncated.
   batch_size: 16
   num_workers: 10
   prefetch_factor: 2

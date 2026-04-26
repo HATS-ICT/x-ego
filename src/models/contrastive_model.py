@@ -362,7 +362,7 @@ class ContrastiveModel(L.LightningModule):
         if scheduler is not None:
             scheduler.step()
 
-        batch_size = int(agent_counts.numel())
+        batch_size = int(cached_projected.shape[0])
         self._log_training_outputs(loss.detach(), contrastive_loss.detach(), metrics, batch_size)
         self._embedding_cache.clear()
         return loss.detach()
@@ -387,8 +387,8 @@ class ContrastiveModel(L.LightningModule):
     
     def training_step(self, batch, batch_idx):
         """Training step.
-        batch.video.shape: [total_agents, T, C, H, W] e.g. [5, 20, 3, 224, 224]
-        batch.agent_counts.shape: [B] e.g. [3, 2] (3+2=5 total agents)
+        batch.video.shape: [total_agents, T, C, H, W] e.g. [16, 20, 3, 224, 224]
+        batch.agent_counts.shape: [B] e.g. [5, 2, 4, 3, 2] (sum is total_agents)
         batch.pov_team_side_encoded.shape: [B] e.g. [2]
         """
         if self.contrastive_accumulate_batches > 1:
@@ -406,8 +406,7 @@ class ContrastiveModel(L.LightningModule):
         contrastive_loss = outputs['contrastive_loss']
         metrics = outputs['metrics']
         
-        agent_counts = batch['agent_counts']
-        batch_size = len(agent_counts)
+        batch_size = int(batch['video'].shape[0])
         self._log_training_outputs(loss, contrastive_loss, metrics, batch_size)
         
         return loss
@@ -419,7 +418,7 @@ class ContrastiveModel(L.LightningModule):
         contrastive_loss = outputs['contrastive_loss']
         metrics = outputs['metrics']
         
-        batch_size = len(batch['agent_counts'])
+        batch_size = int(batch['video'].shape[0])
         
         # Log total loss
         self.log('val/loss', loss, batch_size=batch_size,
@@ -443,7 +442,7 @@ class ContrastiveModel(L.LightningModule):
         contrastive_loss = outputs['contrastive_loss']
         metrics = outputs['metrics']
         
-        batch_size = len(batch['agent_counts'])
+        batch_size = int(batch['video'].shape[0])
         checkpoint_name = self.checkpoint_name
         prefix = f'test/{checkpoint_name}'
         

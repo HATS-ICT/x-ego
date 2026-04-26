@@ -7,6 +7,10 @@ projector, sigmoid pair loss, embedding-cache replay, optimizer step, and
 scheduler-free training path. It first probes physical data.batch_size with
 training.contrastive_accumulate_batches=1, then uses the largest passing
 physical batch size to probe contrastive_accumulate_batches.
+
+For contrastive data loading, data.batch_size means videos per physical
+microbatch. Dummy agent_counts are only used to preserve team boundaries for the
+alignment matrix, and always sum to data.batch_size.
 """
 
 from __future__ import annotations
@@ -50,15 +54,14 @@ class ProbeResult:
     max_accumulate_batches: int
     first_oom_at: int | None
     agents_per_sample: int
-    total_agents_per_microbatch: int
-    max_virtual_samples: int
-    max_virtual_agents: int
+    videos_per_microbatch: int
+    max_virtual_videos: int
     physical_peak_memory_gb: float | None
     peak_memory_gb: float | None
     error: str | None = None
 
     def to_dict(self) -> dict:
-        matrix_size = self.max_virtual_agents
+        matrix_size = self.max_virtual_videos
         return {
             "model_type": self.model_type,
             "optimal": {
@@ -67,28 +70,26 @@ class ProbeResult:
                 "training.contrastive_accumulate_batches": self.max_accumulate_batches,
             },
             "physical_batch": {
-                "max_samples": self.max_physical_batch_size,
+                "max_videos": self.max_physical_batch_size,
                 "first_fail_at": self.first_physical_batch_fail_at,
-                "agents_per_sample": self.agents_per_sample,
-                "videos_per_microbatch": self.total_agents_per_microbatch,
+                "max_agents_per_team": self.agents_per_sample,
+                "videos_per_microbatch": self.videos_per_microbatch,
                 "peak_memory_gb": self.physical_peak_memory_gb,
             },
             "virtual_batch": {
                 "max_accumulate_batches": self.max_accumulate_batches,
                 "first_fail_at": self.first_oom_at,
-                "max_samples": self.max_virtual_samples,
-                "max_agents": self.max_virtual_agents,
-                "videos_per_microbatch": self.total_agents_per_microbatch,
+                "max_videos": self.max_virtual_videos,
+                "videos_per_microbatch": self.videos_per_microbatch,
                 "peak_memory_gb": self.peak_memory_gb,
             },
             "matrix": {
-                "agents_per_sample": self.agents_per_sample,
-                "total_agents": matrix_size,
+                "max_agents_per_team": self.agents_per_sample,
+                "total_videos": matrix_size,
                 "shape": [matrix_size, matrix_size],
                 "num_entries": matrix_size * matrix_size,
                 "formula": (
-                    "data.batch_size * training.contrastive_accumulate_batches "
-                    "* agents_per_sample"
+                    "data.batch_size * training.contrastive_accumulate_batches"
                 ),
             },
             "status": "ok" if self.error is None else "error",
@@ -115,19 +116,19 @@ def parse_args() -> argparse.Namespace:
         "--batch-size",
         type=int,
         default=None,
-        help="Starting physical dataloader batch size. Defaults to config data.batch_size.",
+        help="Starting physical video batch size. Defaults to config data.batch_size.",
     )
     parser.add_argument(
         "--max-batch-size",
         type=int,
         default=128,
-        help="Hard cap for the physical dataloader batch-size search.",
+        help="Hard cap for the physical video batch-size search.",
     )
     parser.add_argument(
         "--agents-per-sample",
         type=int,
         default=5,
-        help="Dummy alive agents per contrastive sample.",
+        help="Maximum dummy agents per contrastive team when forming agent_counts.",
     )
     parser.add_argument(
         "--start",
@@ -265,9 +266,13 @@ def make_dummy_batch(
     device: torch.device,
     dtype: torch.dtype,
 ) -> dict:
-    total_agents = batch_size * agents_per_sample
+    agent_counts = make_dummy_agent_counts(
+        total_videos=batch_size,
+        max_agents_per_team=agents_per_sample,
+        device=device,
+    )
     video = torch.randn(
-        total_agents,
+        batch_size,
         frames,
         3,
         image_size,
@@ -277,13 +282,29 @@ def make_dummy_batch(
     )
     return {
         "video": video,
-        "agent_counts": torch.full(
-            (batch_size,),
-            agents_per_sample,
-            dtype=torch.long,
-            device=device,
-        ),
+        "agent_counts": agent_counts,
     }
+
+
+def make_dummy_agent_counts(
+    *,
+    total_videos: int,
+    max_agents_per_team: int,
+    device: torch.device,
+) -> torch.Tensor:
+    """Create team chunks whose total videos match the physical batch size."""
+    if total_videos <= 0:
+        raise ValueError(f"total_videos must be positive, got {total_videos}")
+    if max_agents_per_team <= 0:
+        raise ValueError(f"max_agents_per_team must be positive, got {max_agents_per_team}")
+
+    counts = []
+    remaining = int(total_videos)
+    while remaining > 0:
+        take = min(int(max_agents_per_team), remaining)
+        counts.append(take)
+        remaining -= take
+    return torch.tensor(counts, dtype=torch.long, device=device)
 
 
 def move_batch_to_device(batch: dict, device: torch.device) -> dict:
@@ -585,14 +606,14 @@ def find_max_for_model(args: argparse.Namespace, model_type: str) -> ProbeResult
     model_type = canonical_model_type(model_type)
     print(f"\n=== Probing {model_type} ===", flush=True)
     print(
-        "start_physical_batch_size="
-        f"{start_batch_size}, max_physical_batch_size={args.max_batch_size}, "
-        f"agents_per_sample={args.agents_per_sample}",
+        "start_physical_video_batch_size="
+        f"{start_batch_size}, max_physical_video_batch_size={args.max_batch_size}, "
+        f"max_agents_per_team={args.agents_per_sample}",
         flush=True,
     )
 
     physical_low, physical_high, physical_peak, physical_error = search_largest_passing_value(
-        label=f"[{model_type}] physical_batch_size",
+        label=f"[{model_type}] physical_video_batch_size",
         start=start_batch_size,
         max_value=args.max_batch_size,
         try_value=lambda value: run_setting_with_timeout(
@@ -611,16 +632,15 @@ def find_max_for_model(args: argparse.Namespace, model_type: str) -> ProbeResult
             max_accumulate_batches=0,
             first_oom_at=None,
             agents_per_sample=args.agents_per_sample,
-            total_agents_per_microbatch=physical_low * args.agents_per_sample,
-            max_virtual_samples=0,
-            max_virtual_agents=0,
+            videos_per_microbatch=physical_low,
+            max_virtual_videos=0,
             physical_peak_memory_gb=physical_peak,
             peak_memory_gb=None,
             error=physical_error,
         )
 
     print(
-        f"[{model_type}] using physical_batch_size={physical_low} "
+        f"[{model_type}] using physical_video_batch_size={physical_low} "
         "for contrastive_accumulate_batches search",
         flush=True,
     )
@@ -644,9 +664,8 @@ def find_max_for_model(args: argparse.Namespace, model_type: str) -> ProbeResult
         max_accumulate_batches=accum_low,
         first_oom_at=accum_high,
         agents_per_sample=args.agents_per_sample,
-        total_agents_per_microbatch=physical_low * args.agents_per_sample,
-        max_virtual_samples=physical_low * accum_low,
-        max_virtual_agents=physical_low * accum_low * args.agents_per_sample,
+        videos_per_microbatch=physical_low,
+        max_virtual_videos=physical_low * accum_low,
         physical_peak_memory_gb=physical_peak,
         peak_memory_gb=accum_peak,
         error=accum_error,
@@ -670,13 +689,12 @@ def print_summary(results: Iterable[ProbeResult]) -> None:
         first_oom = "not reached" if result.first_oom_at is None else str(result.first_oom_at)
         status = "OK" if result.error is None else f"ERROR: {result.error}"
         print(
-            f"{result.model_type}: max_physical_batch_size="
+            f"{result.model_type}: max_physical_video_batch_size="
             f"{result.max_physical_batch_size}, first_physical_fail_at={physical_fail}, "
             f"physical_peak={physical_peak}, max_contrastive_accumulate_batches="
             f"{result.max_accumulate_batches}, first_accumulate_fail_at={first_oom}, "
-            f"videos_per_microbatch={result.total_agents_per_microbatch}, "
-            f"max_virtual_samples={result.max_virtual_samples}, "
-            f"max_virtual_agents={result.max_virtual_agents}, peak_at_max={peak}, {status}",
+            f"videos_per_microbatch={result.videos_per_microbatch}, "
+            f"max_virtual_videos={result.max_virtual_videos}, peak_at_max={peak}, {status}",
             flush=True,
         )
 

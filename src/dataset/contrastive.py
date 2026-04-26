@@ -136,7 +136,7 @@ class ContrastiveDataset(Dataset):
     def __len__(self) -> int:
         return len(self.df)
     
-    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+    def __getitem__(self, idx: int | tuple[int, int]) -> Dict[str, torch.Tensor]:
         """
         Get a sample for contrastive learning.
         
@@ -149,6 +149,10 @@ class ContrastiveDataset(Dataset):
                 - 'agent_ids': List of agent IDs
                 - 'original_csv_idx': Original CSV index for reference
         """
+        max_agents = None
+        if isinstance(idx, tuple):
+            idx, max_agents = idx
+
         row = self.df.row(idx, named=True)
         
         # Extract metadata
@@ -159,6 +163,8 @@ class ContrastiveDataset(Dataset):
         pov_team_side = str(row['pov_team_side']).upper()
         original_csv_idx = row['idx']
         agent_ids = self._get_alive_agent_ids(row)
+        if max_agents is not None:
+            agent_ids = agent_ids[:max_agents]
         
         agent_videos = []
         for agent_id in agent_ids:

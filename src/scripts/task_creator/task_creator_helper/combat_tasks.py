@@ -86,22 +86,24 @@ class ImminentKillCreator(TaskCreatorBase):
                 forecast_start = end_tick
                 forecast_end = end_tick + horizon_ticks
                 
-                has_kill = False
+                first_kill_tick = None
                 if not kills_df.empty:
-                    has_kill = self._check_event_in_window(kills_df, forecast_start, forecast_end)
-                
+                    window_kills = self._get_events_in_window(kills_df, forecast_start, forecast_end)
+                    if not window_kills.empty:
+                        first_kill_tick = int(window_kills['tick'].min())
+
                 segment_info = {
                     'start_tick': current_tick,
                     'end_tick': end_tick,
-                    'prediction_tick': middle_tick,
+                    'prediction_tick': first_kill_tick,
                     'start_tick_norm': current_tick - global_min_tick,
                     'end_tick_norm': end_tick - global_min_tick,
-                    'prediction_tick_norm': middle_tick - global_min_tick,
+                    'prediction_tick_norm': first_kill_tick - global_min_tick if first_kill_tick is not None else None,
                     'horizon_sec': horizon_sec,
                     'duration_seconds': segment_length_sec,
                     'pov_steamid': pov_steamid,
                     'pov_side': pov_side,
-                    'has_kill': int(has_kill)
+                    'has_kill': int(first_kill_tick is not None)
                 }
                 segments.append(segment_info)
                 
@@ -213,24 +215,26 @@ class ImminentDeathSelfCreator(TaskCreatorBase):
                 forecast_start = end_tick
                 forecast_end = end_tick + horizon_ticks
                 
-                pov_dies = False
+                event_death_tick = None
                 if not kills_df.empty:
                     window_kills = self._get_events_in_window(kills_df, forecast_start, forecast_end)
                     if not window_kills.empty:
-                        pov_dies = (window_kills['victim_steamid'].astype(str) == str(pov_steamid)).any()
+                        pov_deaths = window_kills[window_kills['victim_steamid'].astype(str) == str(pov_steamid)]
+                        if not pov_deaths.empty:
+                            event_death_tick = int(pov_deaths['tick'].min())
                 
                 segment_info = {
                     'start_tick': current_tick,
                     'end_tick': end_tick,
-                    'prediction_tick': middle_tick,
+                    'prediction_tick': event_death_tick,
                     'start_tick_norm': current_tick - global_min_tick,
                     'end_tick_norm': end_tick - global_min_tick,
-                    'prediction_tick_norm': middle_tick - global_min_tick,
+                    'prediction_tick_norm': event_death_tick - global_min_tick if event_death_tick is not None else None,
                     'horizon_sec': horizon_sec,
                     'duration_seconds': segment_length_sec,
                     'pov_steamid': pov_steamid,
                     'pov_side': pov_side,
-                    'pov_dies': int(pov_dies)
+                    'pov_dies': int(event_death_tick is not None)
                 }
                 segments.append(segment_info)
                 
@@ -500,25 +504,27 @@ class ImminentKillSelfCreator(TaskCreatorBase):
                 forecast_start = end_tick
                 forecast_end = end_tick + horizon_ticks
                 
-                pov_kills = False
+                kill_tick = None
                 if not kills_df.empty:
                     window_kills = self._get_events_in_window(kills_df, forecast_start, forecast_end)
                     if not window_kills.empty:
-                        pov_kills = (window_kills['attacker_steamid'].astype(str) == str(pov_steamid)).any()
+                        pov_kills = window_kills[window_kills['attacker_steamid'].astype(str) == str(pov_steamid)]
+                        if not pov_kills.empty:
+                            kill_tick = int(pov_kills['tick'].min())
                 
                 segment_info = {
                     'start_tick': current_tick,
                     'end_tick': end_tick,
-                    'prediction_tick': middle_tick,
+                    'prediction_tick': kill_tick,
                     'start_tick_norm': current_tick - global_min_tick,
                     'end_tick_norm': end_tick - global_min_tick,
-                    'prediction_tick_norm': middle_tick - global_min_tick,
+                    'prediction_tick_norm': kill_tick - global_min_tick if kill_tick is not None else None,
                     'horizon_sec': horizon_sec,
                     'duration_seconds': segment_length_sec,
                     'map_name': map_name,
                     'pov_steamid': pov_steamid,
                     'pov_side': pov_side,
-                    'pov_kills': int(pov_kills)
+                    'pov_kills': int(kill_tick is not None)
                 }
                 segments.append(segment_info)
                 

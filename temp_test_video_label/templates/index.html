@@ -283,11 +283,28 @@
                 return;
             }
 
+            function addPredictionMarker(record, idx) {
+                if (!record.has_prediction_tick) return;
+
+                const predictionPct = (record.video_prediction / videoDuration) * 100;
+                if (!Number.isFinite(predictionPct) || predictionPct < 0 || predictionPct > 100) return;
+
+                const predictionMarker = document.createElement('div');
+                predictionMarker.style.position = 'absolute';
+                predictionMarker.style.left = predictionPct + '%';
+                predictionMarker.style.width = '3px';
+                predictionMarker.style.height = '100%';
+                predictionMarker.style.backgroundColor = '#FFC107';
+                predictionMarker.style.pointerEvents = 'none';
+                predictionMarker.style.zIndex = '2';
+                predictionMarker.title = `Prediction ${idx+1}: ${record.video_prediction.toFixed(2)}s`;
+                markersContainer.appendChild(predictionMarker);
+            }
+
             currentRecords.forEach((r, idx) => {
                 if (r.is_snapshot) {
                     const startPct = (r.video_start / videoDuration) * 100;
                     const widthPct = ((r.video_end - r.video_start) / videoDuration) * 100;
-                    const predictionPct = (r.video_prediction / videoDuration) * 100;
 
                     const windowMarker = document.createElement('div');
                     windowMarker.style.position = 'absolute';
@@ -300,16 +317,6 @@
                     windowMarker.style.pointerEvents = 'none';
                     windowMarker.title = `Segment ${idx+1}: ${r.video_start.toFixed(2)}s - ${r.video_end.toFixed(2)}s`;
                     markersContainer.appendChild(windowMarker);
-
-                    const predictionMarker = document.createElement('div');
-                    predictionMarker.style.position = 'absolute';
-                    predictionMarker.style.left = predictionPct + '%';
-                    predictionMarker.style.width = '3px';
-                    predictionMarker.style.height = '100%';
-                    predictionMarker.style.backgroundColor = '#FFC107';
-                    predictionMarker.style.pointerEvents = 'none';
-                    predictionMarker.title = `Snapshot ${idx+1}: ${r.video_prediction.toFixed(2)}s`;
-                    markersContainer.appendChild(predictionMarker);
                 } else {
                     const marker = document.createElement('div');
                     marker.style.position = 'absolute';
@@ -325,6 +332,7 @@
                     marker.title = `Segment ${idx+1}: ${r.video_start.toFixed(2)}s - ${r.video_end.toFixed(2)}s`;
                     markersContainer.appendChild(marker);
                 }
+                addPredictionMarker(r, idx);
 
                 // Segment list item
                 const item = document.createElement('div');

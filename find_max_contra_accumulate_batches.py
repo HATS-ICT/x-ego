@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-Find the largest contrastive virtual-batch accumulation setting per encoder.
+Find the largest physical and virtual contrastive batch settings per encoder.
 
 This script uses dummy video tensors but runs the real ContrastiveModel encoder,
 projector, sigmoid pair loss, embedding-cache replay, optimizer step, and
-scheduler-free training path. It increases training.contrastive_accumulate_batches
-until CUDA runs out of memory, then prints the largest passing value.
+scheduler-free training path. It first probes physical data.batch_size with
+training.contrastive_accumulate_batches=1, then uses the largest passing
+physical batch size to probe contrastive_accumulate_batches.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ import argparse
 import gc
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -43,13 +45,55 @@ ATTEMPT_RESULT_PREFIX = "X_EGO_ATTEMPT_RESULT="
 @dataclass(frozen=True)
 class ProbeResult:
     model_type: str
+    max_physical_batch_size: int
+    first_physical_batch_fail_at: int | None
     max_accumulate_batches: int
     first_oom_at: int | None
-    batch_size: int
     agents_per_sample: int
     total_agents_per_microbatch: int
+    max_virtual_samples: int
+    max_virtual_agents: int
+    physical_peak_memory_gb: float | None
     peak_memory_gb: float | None
     error: str | None = None
+
+    def to_dict(self) -> dict:
+        matrix_size = self.max_virtual_agents
+        return {
+            "model_type": self.model_type,
+            "optimal": {
+                "data.batch_size": self.max_physical_batch_size,
+                "training.accumulate_grad_batches": 1,
+                "training.contrastive_accumulate_batches": self.max_accumulate_batches,
+            },
+            "physical_batch": {
+                "max_samples": self.max_physical_batch_size,
+                "first_fail_at": self.first_physical_batch_fail_at,
+                "agents_per_sample": self.agents_per_sample,
+                "videos_per_microbatch": self.total_agents_per_microbatch,
+                "peak_memory_gb": self.physical_peak_memory_gb,
+            },
+            "virtual_batch": {
+                "max_accumulate_batches": self.max_accumulate_batches,
+                "first_fail_at": self.first_oom_at,
+                "max_samples": self.max_virtual_samples,
+                "max_agents": self.max_virtual_agents,
+                "videos_per_microbatch": self.total_agents_per_microbatch,
+                "peak_memory_gb": self.peak_memory_gb,
+            },
+            "matrix": {
+                "agents_per_sample": self.agents_per_sample,
+                "total_agents": matrix_size,
+                "shape": [matrix_size, matrix_size],
+                "num_entries": matrix_size * matrix_size,
+                "formula": (
+                    "data.batch_size * training.contrastive_accumulate_batches "
+                    "* agents_per_sample"
+                ),
+            },
+            "status": "ok" if self.error is None else "error",
+            "error": self.error,
+        }
 
 
 def parse_args() -> argparse.Namespace:
@@ -70,8 +114,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=4,
-        help="Physical dataloader batch size. Defaults to config data.batch_size.",
+        default=None,
+        help="Starting physical dataloader batch size. Defaults to config data.batch_size.",
+    )
+    parser.add_argument(
+        "--max-batch-size",
+        type=int,
+        default=128,
+        help="Hard cap for the physical dataloader batch-size search.",
     )
     parser.add_argument(
         "--agents-per-sample",
@@ -124,6 +174,16 @@ def parse_args() -> argparse.Namespace:
         default=180.0,
         help="Extra seconds allowed for Python startup, imports, model loading, and GPU placement.",
     )
+    parser.add_argument(
+        "--gpu-name",
+        default=None,
+        help="GPU name for the output JSON filename, e.g. 4090, a40, a100.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default="artifact",
+        help="Directory for the final JSON result file.",
+    )
     parser.add_argument("--_attempt-model", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--_attempt-accumulate", type=int, default=None, help=argparse.SUPPRESS)
     return parser.parse_args()
@@ -131,6 +191,20 @@ def parse_args() -> argparse.Namespace:
 
 def canonical_model_type(model_type: str) -> str:
     return MODEL_ALIASES.get(model_type, model_type)
+
+
+def slugify(value: str) -> str:
+    value = value.strip().lower()
+    value = re.sub(r"[^a-z0-9]+", "-", value)
+    return value.strip("-") or "unknown-gpu"
+
+
+def prompt_gpu_name(args: argparse.Namespace) -> str:
+    if args._attempt_model is not None:
+        return args.gpu_name or "attempt"
+    if args.gpu_name:
+        return args.gpu_name
+    return input("GPU name for this run (e.g. 4090, a40, a100): ").strip()
 
 
 def cuda_memory_gb() -> float | None:
@@ -294,10 +368,12 @@ def run_one_virtual_step(
 def can_run_setting(
     args: argparse.Namespace,
     model_type: str,
+    batch_size: int,
     accumulate_batches: int,
 ) -> tuple[bool, float | None, str | None]:
     clear_memory()
     cfg = build_cfg(args, model_type, accumulate_batches)
+    cfg.data.batch_size = batch_size
     frames = args.frames or int(cfg.data.fixed_duration_seconds * cfg.data.target_fps)
     use_bf16 = not args.no_bf16
     model = None
@@ -359,6 +435,7 @@ def attempt_failure_is_boundary(error: str | None) -> bool:
 def child_attempt_command(
     args: argparse.Namespace,
     model_type: str,
+    batch_size: int,
     accumulate_batches: int,
 ) -> list[str]:
     command = [
@@ -367,7 +444,7 @@ def child_attempt_command(
         "--config",
         args.config,
         "--batch-size",
-        str(args.batch_size if args.batch_size is not None else load_cfg(args.config).data.batch_size),
+        str(batch_size),
         "--agents-per-sample",
         str(args.agents_per_sample),
         "--start",
@@ -392,9 +469,10 @@ def child_attempt_command(
 def run_setting_with_timeout(
     args: argparse.Namespace,
     model_type: str,
+    batch_size: int,
     accumulate_batches: int,
 ) -> tuple[bool, float | None, str | None]:
-    command = child_attempt_command(args, model_type, accumulate_batches)
+    command = child_attempt_command(args, model_type, batch_size, accumulate_batches)
     try:
         completed = subprocess.run(
             command,
@@ -434,98 +512,133 @@ def next_probe_value(current: int, start: int) -> int:
     return max(current * 2, start + 1)
 
 
-def find_max_for_model(args: argparse.Namespace, model_type: str) -> ProbeResult:
-    batch_size = args.batch_size
-    if batch_size is None:
-        batch_size = int(load_cfg(args.config).data.batch_size)
-
-    model_type = canonical_model_type(model_type)
-    print(f"\n=== Probing {model_type} ===", flush=True)
-    print(
-        "physical_batch_size="
-        f"{batch_size}, agents_per_sample={args.agents_per_sample}, "
-        f"videos_per_microbatch={batch_size * args.agents_per_sample}",
-        flush=True,
-    )
-
+def search_largest_passing_value(
+    *,
+    label: str,
+    start: int,
+    max_value: int,
+    try_value,
+) -> tuple[int, int | None, float | None, str | None]:
     low = 0
     low_peak = None
-    probe = max(args.start, 1)
     high = None
     first_error = None
+    probe = max(start, 1)
 
-    while probe <= args.max:
-        print(f"[{model_type}] trying contrastive_accumulate_batches={probe}", flush=True)
-        ok, peak, error = run_setting_with_timeout(args, model_type, probe)
+    while probe <= max_value:
+        print(f"{label} trying {probe}", flush=True)
+        ok, peak, error = try_value(probe)
         peak_text = "n/a" if peak is None else f"{peak:.2f} GB"
         if ok:
-            print(f"[{model_type}] OK at {probe} peak={peak_text}", flush=True)
+            print(f"{label} OK at {probe} peak={peak_text}", flush=True)
             low = probe
             low_peak = peak
-            probe = next_probe_value(probe, args.start)
+            probe = next_probe_value(probe, start)
         else:
-            print(f"[{model_type}] FAIL at {probe} peak={peak_text} error={error}", flush=True)
+            print(f"{label} FAIL at {probe} peak={peak_text} error={error}", flush=True)
             if not attempt_failure_is_boundary(error):
-                return ProbeResult(
-                    model_type=model_type,
-                    max_accumulate_batches=low,
-                    first_oom_at=None,
-                    batch_size=batch_size,
-                    agents_per_sample=args.agents_per_sample,
-                    total_agents_per_microbatch=batch_size * args.agents_per_sample,
-                    peak_memory_gb=low_peak,
-                    error=error,
-                )
+                return low, high, low_peak, error
             high = probe
             first_error = error
             break
 
     if high is None:
-        return ProbeResult(
-            model_type=model_type,
-            max_accumulate_batches=low,
-            first_oom_at=None,
-            batch_size=batch_size,
-            agents_per_sample=args.agents_per_sample,
-            total_agents_per_microbatch=batch_size * args.agents_per_sample,
-            peak_memory_gb=low_peak,
-            error=None if low > 0 else first_error,
-        )
+        if low >= max_value:
+            return low, None, low_peak, None
+        return low, None, low_peak, None if low > 0 else first_error
 
     while high - low > 1:
         mid = (low + high) // 2
-        print(f"[{model_type}] binary trying {mid}", flush=True)
-        ok, peak, error = run_setting_with_timeout(args, model_type, mid)
+        print(f"{label} binary trying {mid}", flush=True)
+        ok, peak, error = try_value(mid)
         peak_text = "n/a" if peak is None else f"{peak:.2f} GB"
         if ok:
-            print(f"[{model_type}] OK at {mid} peak={peak_text}", flush=True)
+            print(f"{label} OK at {mid} peak={peak_text}", flush=True)
             low = mid
             low_peak = peak
         else:
-            print(f"[{model_type}] FAIL at {mid} peak={peak_text} error={error}", flush=True)
+            print(f"{label} FAIL at {mid} peak={peak_text} error={error}", flush=True)
             if not attempt_failure_is_boundary(error):
-                return ProbeResult(
-                    model_type=model_type,
-                    max_accumulate_batches=low,
-                    first_oom_at=high,
-                    batch_size=batch_size,
-                    agents_per_sample=args.agents_per_sample,
-                    total_agents_per_microbatch=batch_size * args.agents_per_sample,
-                    peak_memory_gb=low_peak,
-                    error=error,
-                )
+                return low, high, low_peak, error
             high = mid
             first_error = error
 
+    return low, high, low_peak, None if low > 0 else first_error
+
+
+def find_max_for_model(args: argparse.Namespace, model_type: str) -> ProbeResult:
+    start_batch_size = args.batch_size
+    if start_batch_size is None:
+        start_batch_size = int(load_cfg(args.config).data.batch_size)
+
+    model_type = canonical_model_type(model_type)
+    print(f"\n=== Probing {model_type} ===", flush=True)
+    print(
+        "start_physical_batch_size="
+        f"{start_batch_size}, max_physical_batch_size={args.max_batch_size}, "
+        f"agents_per_sample={args.agents_per_sample}",
+        flush=True,
+    )
+
+    physical_low, physical_high, physical_peak, physical_error = search_largest_passing_value(
+        label=f"[{model_type}] physical_batch_size",
+        start=start_batch_size,
+        max_value=args.max_batch_size,
+        try_value=lambda value: run_setting_with_timeout(
+            args,
+            model_type,
+            batch_size=value,
+            accumulate_batches=1,
+        ),
+    )
+
+    if physical_low <= 0 or physical_error is not None:
+        return ProbeResult(
+            model_type=model_type,
+            max_physical_batch_size=physical_low,
+            first_physical_batch_fail_at=physical_high,
+            max_accumulate_batches=0,
+            first_oom_at=None,
+            agents_per_sample=args.agents_per_sample,
+            total_agents_per_microbatch=physical_low * args.agents_per_sample,
+            max_virtual_samples=0,
+            max_virtual_agents=0,
+            physical_peak_memory_gb=physical_peak,
+            peak_memory_gb=None,
+            error=physical_error,
+        )
+
+    print(
+        f"[{model_type}] using physical_batch_size={physical_low} "
+        "for contrastive_accumulate_batches search",
+        flush=True,
+    )
+
+    accum_low, accum_high, accum_peak, accum_error = search_largest_passing_value(
+        label=f"[{model_type}] contrastive_accumulate_batches",
+        start=args.start,
+        max_value=args.max,
+        try_value=lambda value: run_setting_with_timeout(
+            args,
+            model_type,
+            batch_size=physical_low,
+            accumulate_batches=value,
+        ),
+    )
+
     return ProbeResult(
         model_type=model_type,
-        max_accumulate_batches=low,
-        first_oom_at=high,
-        batch_size=batch_size,
+        max_physical_batch_size=physical_low,
+        first_physical_batch_fail_at=physical_high,
+        max_accumulate_batches=accum_low,
+        first_oom_at=accum_high,
         agents_per_sample=args.agents_per_sample,
-        total_agents_per_microbatch=batch_size * args.agents_per_sample,
-        peak_memory_gb=low_peak,
-        error=None if low > 0 else first_error,
+        total_agents_per_microbatch=physical_low * args.agents_per_sample,
+        max_virtual_samples=physical_low * accum_low,
+        max_virtual_agents=physical_low * accum_low * args.agents_per_sample,
+        physical_peak_memory_gb=physical_peak,
+        peak_memory_gb=accum_peak,
+        error=accum_error,
     )
 
 
@@ -533,15 +646,68 @@ def print_summary(results: Iterable[ProbeResult]) -> None:
     print("\n=== Summary ===", flush=True)
     for result in results:
         peak = "n/a" if result.peak_memory_gb is None else f"{result.peak_memory_gb:.2f} GB"
+        physical_peak = (
+            "n/a"
+            if result.physical_peak_memory_gb is None
+            else f"{result.physical_peak_memory_gb:.2f} GB"
+        )
+        physical_fail = (
+            "not reached"
+            if result.first_physical_batch_fail_at is None
+            else str(result.first_physical_batch_fail_at)
+        )
         first_oom = "not reached" if result.first_oom_at is None else str(result.first_oom_at)
         status = "OK" if result.error is None else f"ERROR: {result.error}"
         print(
-            f"{result.model_type}: max_contrastive_accumulate_batches="
-            f"{result.max_accumulate_batches}, first_oom_at={first_oom}, "
+            f"{result.model_type}: max_physical_batch_size="
+            f"{result.max_physical_batch_size}, first_physical_fail_at={physical_fail}, "
+            f"physical_peak={physical_peak}, max_contrastive_accumulate_batches="
+            f"{result.max_accumulate_batches}, first_accumulate_fail_at={first_oom}, "
             f"videos_per_microbatch={result.total_agents_per_microbatch}, "
-            f"peak_at_max={peak}, {status}",
+            f"max_virtual_samples={result.max_virtual_samples}, "
+            f"max_virtual_agents={result.max_virtual_agents}, peak_at_max={peak}, {status}",
             flush=True,
         )
+
+
+def write_results_json(
+    *,
+    args: argparse.Namespace,
+    gpu_name: str,
+    results: list[ProbeResult],
+    elapsed_seconds: float,
+) -> Path:
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = time.strftime("%Y%m%d-%H%M%S")
+    gpu_slug = slugify(gpu_name)
+    output_path = output_dir / f"contra_accumulate_probe_{gpu_slug}_{timestamp}.json"
+
+    payload = {
+        "gpu_name": gpu_name,
+        "gpu_slug": gpu_slug,
+        "created_at": timestamp,
+        "elapsed_seconds": elapsed_seconds,
+        "config": {
+            "config_path": args.config,
+            "models": [canonical_model_type(model) for model in args.models],
+            "start_batch_size": args.batch_size if args.batch_size is not None else int(load_cfg(args.config).data.batch_size),
+            "max_batch_size": args.max_batch_size,
+            "agents_per_sample": args.agents_per_sample,
+            "start_accumulate_batches": args.start,
+            "max_accumulate_batches": args.max,
+            "frames": args.frames,
+            "finetune_last_k_layers": args.finetune_last_k_layers,
+            "bf16": not args.no_bf16,
+            "timeout_seconds_per_microbatch": args.timeout_seconds,
+            "startup_timeout_seconds": args.startup_timeout_seconds,
+        },
+        "results": [result.to_dict() for result in results],
+    }
+
+    output_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    return output_path
 
 
 def main() -> None:
@@ -550,6 +716,7 @@ def main() -> None:
         ok, peak, error = can_run_setting(
             args,
             canonical_model_type(args._attempt_model),
+            int(args.batch_size),
             int(args._attempt_accumulate),
         )
         print(
@@ -561,6 +728,17 @@ def main() -> None:
         )
         raise SystemExit(0 if ok else 1)
 
+    gpu_name = prompt_gpu_name(args)
+
+    start_batch_size = args.batch_size
+    if start_batch_size is None:
+        start_batch_size = int(load_cfg(args.config).data.batch_size)
+    if args.max_batch_size < start_batch_size:
+        raise ValueError(
+            "--max-batch-size must be greater than or equal to the starting "
+            f"batch size ({start_batch_size})"
+        )
+
     if not torch.cuda.is_available():
         print("WARNING: CUDA is not available; this will not find GPU OOM limits.", flush=True)
 
@@ -568,9 +746,17 @@ def main() -> None:
     results = []
     for model_type in args.models:
         results.append(find_max_for_model(args, model_type))
+    elapsed_seconds = time.time() - start_time
 
     print_summary(results)
-    print(f"\nTotal probe time: {(time.time() - start_time) / 60:.1f} min", flush=True)
+    output_path = write_results_json(
+        args=args,
+        gpu_name=gpu_name,
+        results=results,
+        elapsed_seconds=elapsed_seconds,
+    )
+    print(f"\nWrote JSON results: {output_path}", flush=True)
+    print(f"Total probe time: {elapsed_seconds / 60:.1f} min", flush=True)
 
 
 if __name__ == "__main__":

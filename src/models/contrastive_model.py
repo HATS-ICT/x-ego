@@ -301,11 +301,21 @@ class ContrastiveModel(L.LightningModule):
             projected = self._compute_projected_embeddings(batch).detach()
 
         self._embedding_cache.append({
-            'batch': batch,
+            'batch': self._move_batch_to_device(batch, torch.device('cpu')),
             'projected': projected,
             'agent_counts': batch['agent_counts'].detach().clone(),
             'rng_state': rng_state,
         })
+
+    @staticmethod
+    def _move_batch_to_device(batch, device: torch.device):
+        moved = {}
+        for key, value in batch.items():
+            if isinstance(value, torch.Tensor):
+                moved[key] = value.detach().to(device, non_blocking=True)
+            else:
+                moved[key] = value
+        return moved
 
     def _flush_embedding_cache(self):
         """Compute one large contrastive loss, then replay microbatches for encoder grads."""
@@ -335,7 +345,8 @@ class ContrastiveModel(L.LightningModule):
             start = end
 
             self._restore_rng_state(entry['rng_state'])
-            projected = self._compute_projected_embeddings(entry['batch'])
+            replay_batch = self._move_batch_to_device(entry['batch'], cached_projected.device)
+            projected = self._compute_projected_embeddings(replay_batch)
             self.manual_backward(torch.sum(projected * grad_chunk))
 
         clip_val = self._manual_gradient_clip_val()

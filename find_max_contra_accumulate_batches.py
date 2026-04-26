@@ -286,6 +286,16 @@ def make_dummy_batch(
     }
 
 
+def move_batch_to_device(batch: dict, device: torch.device) -> dict:
+    moved = {}
+    for key, value in batch.items():
+        if isinstance(value, torch.Tensor):
+            moved[key] = value.detach().to(device, non_blocking=True)
+        else:
+            moved[key] = value
+    return moved
+
+
 def run_one_virtual_step(
     *,
     model: ContrastiveModel,
@@ -324,7 +334,7 @@ def run_one_virtual_step(
                 projected = model._compute_projected_embeddings(batch).detach()
         cache.append(
             {
-                "batch": batch,
+                "batch": move_batch_to_device(batch, torch.device("cpu")),
                 "projected": projected,
                 "agent_counts": batch["agent_counts"].detach().clone(),
             }
@@ -350,7 +360,8 @@ def run_one_virtual_step(
         start = end
 
         with autocast_context():
-            projected = model._compute_projected_embeddings(entry["batch"])
+            replay_batch = move_batch_to_device(entry["batch"], device)
+            projected = model._compute_projected_embeddings(replay_batch)
             replay_loss = torch.sum(projected * grad_chunk)
         replay_loss.backward()
 

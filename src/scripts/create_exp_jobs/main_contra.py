@@ -20,7 +20,7 @@ MAIL_TYPE = "all"
 LOGS_SUBDIR = "logs"
 
 # Experiment configuration
-EXP_PREFIX = "main_ui_cover"
+EXP_PREFIX = "main_contra"
 
 # Models to sweep over (5 options)
 MODELS = [

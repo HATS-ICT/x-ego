@@ -11,6 +11,9 @@ physical batch size to probe contrastive_accumulate_batches.
 For contrastive data loading, data.batch_size means videos per physical
 microbatch. Dummy agent_counts are only used to preserve team boundaries for the
 alignment matrix, and always sum to data.batch_size.
+
+Known manual physical video batch sizes skip the physical-batch probe and are
+used directly for the contrastive_accumulate_batches search.
 """
 
 from __future__ import annotations
@@ -42,6 +45,11 @@ MODEL_ALIASES = {
 
 # DEFAULT_MODELS = ("clip", "vjepa2", "siglip2", "dinov3", "resnet50")
 DEFAULT_MODELS = ("vjepa2", "dinov3", "resnet50")
+MANUAL_PHYSICAL_VIDEO_BATCH_SIZES = {
+    "dinov3": 32,
+    "vjepa2": 32,
+    "resnet50": 32,
+}
 VJEPA2_IMAGE_SIZE = 256
 DEFAULT_IMAGE_SIZE = 224
 DEFAULT_PEAK_MEMORY_LIMIT_GB = 40.0
@@ -119,7 +127,10 @@ def parse_args() -> argparse.Namespace:
         "--batch-size",
         type=int,
         default=None,
-        help="Starting physical video batch size. Defaults to config data.batch_size.",
+        help=(
+            "Fixed physical video batch size. When omitted, known manual "
+            "per-model values are used before falling back to physical search."
+        ),
     )
     parser.add_argument(
         "--max-batch-size",
@@ -221,6 +232,12 @@ def prompt_gpu_name(args: argparse.Namespace) -> str:
     if args.gpu_name:
         return args.gpu_name
     return input("GPU name for this run (e.g. 4090, a40, a100): ").strip()
+
+
+def manual_physical_video_batch_size(args: argparse.Namespace, model_type: str) -> int | None:
+    if args.batch_size is not None:
+        return int(args.batch_size)
+    return MANUAL_PHYSICAL_VIDEO_BATCH_SIZES.get(model_type)
 
 
 def cuda_memory_gb() -> float | None:
@@ -626,11 +643,12 @@ def search_largest_passing_value(
 
 
 def find_max_for_model(args: argparse.Namespace, model_type: str) -> ProbeResult:
-    start_batch_size = args.batch_size
+    model_type = canonical_model_type(model_type)
+    manual_batch_size = manual_physical_video_batch_size(args, model_type)
+    start_batch_size = manual_batch_size
     if start_batch_size is None:
         start_batch_size = int(load_cfg(args.config).data.batch_size)
 
-    model_type = canonical_model_type(model_type)
     print(f"\n=== Probing {model_type} ===", flush=True)
     print(
         "start_physical_video_batch_size="
@@ -639,19 +657,30 @@ def find_max_for_model(args: argparse.Namespace, model_type: str) -> ProbeResult
         flush=True,
     )
 
-    physical_max = min(args.max_batch_size, args.max_virtual_video_batch_size)
-    physical_low, physical_high, physical_peak, physical_error = search_largest_passing_value(
-        label=f"[{model_type}] physical_video_batch_size",
-        start=start_batch_size,
-        max_value=physical_max,
-        try_value=lambda value: run_setting_with_timeout(
-            args,
-            model_type,
-            batch_size=value,
-            accumulate_batches=1,
-        ),
-        peak_memory_limit_gb=args.peak_memory_limit_gb,
-    )
+    if manual_batch_size is not None:
+        physical_low = manual_batch_size
+        physical_high = None
+        physical_peak = None
+        physical_error = None
+        print(
+            f"[{model_type}] using manual physical_video_batch_size={physical_low}; "
+            "skipping physical batch probe",
+            flush=True,
+        )
+    else:
+        physical_max = min(args.max_batch_size, args.max_virtual_video_batch_size)
+        physical_low, physical_high, physical_peak, physical_error = search_largest_passing_value(
+            label=f"[{model_type}] physical_video_batch_size",
+            start=start_batch_size,
+            max_value=physical_max,
+            try_value=lambda value: run_setting_with_timeout(
+                args,
+                model_type,
+                batch_size=value,
+                accumulate_batches=1,
+            ),
+            peak_memory_limit_gb=args.peak_memory_limit_gb,
+        )
 
     if physical_low <= 0 or physical_error is not None:
         return ProbeResult(
@@ -772,6 +801,7 @@ def write_results_json(
             "config_path": args.config,
             "models": [canonical_model_type(model) for model in args.models],
             "start_batch_size": args.batch_size if args.batch_size is not None else int(load_cfg(args.config).data.batch_size),
+            "manual_physical_video_batch_sizes": MANUAL_PHYSICAL_VIDEO_BATCH_SIZES,
             "max_batch_size": args.max_batch_size,
             "max_virtual_video_batch_size": args.max_virtual_video_batch_size,
             "peak_memory_limit_gb": args.peak_memory_limit_gb,

@@ -79,6 +79,10 @@ class ContrastiveModel(L.LightningModule):
 
         if not self.use_contrastive:
             raise ValueError("model.contrastive.enable must be true for contrastive training")
+
+        self.contrastive_accumulate_batches = int(cfg.training.contrastive_accumulate_batches)
+        self.automatic_optimization = self.contrastive_accumulate_batches == 1
+        self._embedding_cache = []
         
         # Output directory
         self.output_dir = cfg.path.exp
@@ -118,6 +122,16 @@ class ContrastiveModel(L.LightningModule):
         
         return labels
     
+    def _compute_projected_embeddings(self, batch):
+        """Encode and project one physical microbatch."""
+        video = batch['video']  # [total_agents, T, C, H, W]
+
+        if len(video.shape) != 5:
+            raise ValueError(f"Expected video shape [total_agents, T, C, H, W], got {video.shape}")
+
+        embeddings = self.video_encoder(video)  # [total_agents, embed_dim]
+        return self.video_projector(embeddings)  # [total_agents, proj_dim]
+
     def forward(self, batch):
         """
         Forward pass for contrastive learning.
@@ -133,23 +147,11 @@ class ContrastiveModel(L.LightningModule):
                 - loss: Contrastive loss
                 - metrics: Dictionary of metrics
         """
-        video = batch['video']  # [total_agents, T, C, H, W]
         agent_counts = batch['agent_counts']  # [B]
-        
-        device = video.device
-        
-        # Process videos: [total_agents, T, C, H, W]
-        if len(video.shape) != 5:
-            raise ValueError(f"Expected video shape [total_agents, T, C, H, W], got {video.shape}")
-        
-        # Encode videos
-        embeddings = self.video_encoder(video)  # [total_agents, embed_dim]
-        
-        # Project embeddings
-        projected = self.video_projector(embeddings)  # [total_agents, proj_dim]
+        projected = self._compute_projected_embeddings(batch)
         
         # Create alignment labels
-        labels = self.create_alignment_matrix(agent_counts, device)
+        labels = self.create_alignment_matrix(agent_counts, projected.device)
         
         metrics = {}
         contrastive_loss = projected.new_zeros(())
@@ -275,6 +277,102 @@ class ContrastiveModel(L.LightningModule):
             metrics[f'top{k}_acc'] = has_positive.mean()
         
         return metrics
+
+    @staticmethod
+    def _capture_rng_state() -> dict:
+        state = {'cpu': torch.get_rng_state()}
+        if torch.cuda.is_available():
+            state['cuda'] = torch.cuda.get_rng_state_all()
+        return state
+
+    @staticmethod
+    def _restore_rng_state(state: dict) -> None:
+        torch.set_rng_state(state['cpu'])
+        if 'cuda' in state and torch.cuda.is_available():
+            torch.cuda.set_rng_state_all(state['cuda'])
+
+    def _is_last_training_batch(self, batch_idx: int) -> bool:
+        num_batches = self.trainer.num_training_batches
+        return isinstance(num_batches, int) and batch_idx + 1 >= num_batches
+
+    def _cache_training_microbatch(self, batch) -> None:
+        rng_state = self._capture_rng_state()
+        with torch.no_grad():
+            projected = self._compute_projected_embeddings(batch).detach()
+
+        self._embedding_cache.append({
+            'batch': batch,
+            'projected': projected,
+            'agent_counts': batch['agent_counts'].detach().clone(),
+            'rng_state': rng_state,
+        })
+
+    def _flush_embedding_cache(self):
+        """Compute one large contrastive loss, then replay microbatches for encoder grads."""
+        if not self._embedding_cache:
+            return None
+
+        optimizer = self.optimizers()
+        optimizer.zero_grad()
+
+        projected_chunks = [entry['projected'] for entry in self._embedding_cache]
+        cached_projected = torch.cat(projected_chunks, dim=0).detach().requires_grad_(True)
+        agent_counts = torch.cat(
+            [entry['agent_counts'].to(cached_projected.device) for entry in self._embedding_cache],
+            dim=0,
+        )
+        labels = self.create_alignment_matrix(agent_counts, cached_projected.device)
+
+        contrastive_loss, metrics = self.compute_contrastive_loss(cached_projected, labels)
+        loss = self.contrastive_loss_weight * contrastive_loss
+        self.manual_backward(loss)
+
+        projected_grads = cached_projected.grad.detach()
+        start = 0
+        for entry in self._embedding_cache:
+            end = start + entry['projected'].shape[0]
+            grad_chunk = projected_grads[start:end]
+            start = end
+
+            self._restore_rng_state(entry['rng_state'])
+            projected = self._compute_projected_embeddings(entry['batch'])
+            self.manual_backward(torch.sum(projected * grad_chunk))
+
+        clip_val = self._manual_gradient_clip_val()
+        if clip_val is not None and clip_val > 0:
+            self.clip_gradients(
+                optimizer,
+                gradient_clip_val=clip_val,
+                gradient_clip_algorithm="norm",
+            )
+
+        optimizer.step()
+        scheduler = self.lr_schedulers()
+        if scheduler is not None:
+            scheduler.step()
+
+        batch_size = int(agent_counts.numel())
+        self._log_training_outputs(loss.detach(), contrastive_loss.detach(), metrics, batch_size)
+        self._embedding_cache.clear()
+        return loss.detach()
+
+    def _manual_gradient_clip_val(self):
+        optimizer_name = getattr(self.cfg.optimization, "optimizer", "adamw")
+        fused_adamw = optimizer_name == "adamw" and self.cfg.optimization.fused_optimizer
+        if fused_adamw:
+            return None
+        return self.cfg.training.gradient_clip_val
+
+    def _log_training_outputs(self, loss, contrastive_loss, metrics, batch_size: int) -> None:
+        self.log('train/loss', loss, batch_size=batch_size,
+                     on_step=True, on_epoch=True, prog_bar=True)
+
+        self.log('train/contrastive_loss', contrastive_loss, batch_size=batch_size,
+                     on_step=True, on_epoch=True, prog_bar=True)
+
+        for name, value in metrics.items():
+            self.log(f'train/contrastive_{name}', value, batch_size=batch_size,
+                         on_step=True, on_epoch=True, prog_bar=False)
     
     def training_step(self, batch, batch_idx):
         """Training step.
@@ -282,6 +380,16 @@ class ContrastiveModel(L.LightningModule):
         batch.agent_counts.shape: [B] e.g. [3, 2] (3+2=5 total agents)
         batch.pov_team_side_encoded.shape: [B] e.g. [2]
         """
+        if self.contrastive_accumulate_batches > 1:
+            self._cache_training_microbatch(batch)
+            should_flush = (
+                len(self._embedding_cache) >= self.contrastive_accumulate_batches
+                or self._is_last_training_batch(batch_idx)
+            )
+            if should_flush:
+                return self._flush_embedding_cache()
+            return None
+
         outputs = self.forward(batch)
         loss = outputs['loss']
         contrastive_loss = outputs['contrastive_loss']
@@ -289,19 +397,7 @@ class ContrastiveModel(L.LightningModule):
         
         agent_counts = batch['agent_counts']
         batch_size = len(agent_counts)
-        
-        # Log total loss
-        self.log('train/loss', loss, batch_size=batch_size,
-                     on_step=True, on_epoch=True, prog_bar=True)
-        
-        # Log contrastive loss
-        self.log('train/contrastive_loss', contrastive_loss, batch_size=batch_size,
-                     on_step=True, on_epoch=True, prog_bar=True)
-        
-        # Log contrastive metrics
-        for name, value in metrics.items():
-            self.log(f'train/contrastive_{name}', value, batch_size=batch_size,
-                         on_step=True, on_epoch=True, prog_bar=False)
+        self._log_training_outputs(loss, contrastive_loss, metrics, batch_size)
         
         return loss
     
@@ -377,6 +473,8 @@ class ContrastiveModel(L.LightningModule):
             # Total steps from trainer (set by Lightning)
             # Use max_steps if specified, otherwise estimate from max_epochs
             total_steps = self.trainer.estimated_stepping_batches
+            if self.contrastive_accumulate_batches > 1:
+                total_steps = math.ceil(total_steps / self.contrastive_accumulate_batches)
             cosine_steps = max(total_steps - warmup_steps, 1)
 
             def lr_lambda(step: int) -> float:

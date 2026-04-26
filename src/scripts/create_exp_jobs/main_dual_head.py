@@ -67,7 +67,8 @@ uv run python main.py --mode train --task contrastive \\
   data.batch_size={batch_size} \\
   data.num_workers={num_workers} \\
   training.max_epochs={max_epochs} \\
-  training.accumulate_grad_batches={accumulate_grad_batches} \\
+  training.accumulate_grad_batches=1 \\
+  training.contrastive_accumulate_batches={contrastive_accumulate_batches} \\
   meta.run_name={run_name}
 """
 
@@ -124,13 +125,13 @@ def main():
         # Model-specific training settings
         if model in ["siglip2", "clip"]:
             batch_size = 10
-            accumulate_grad_batches = 4
+            contrastive_accumulate_batches = 4
         elif model in ["dinov2", "vjepa2"]:
             batch_size = 4  # 4 * 10 = 40 total batch size
-            accumulate_grad_batches = 10
+            contrastive_accumulate_batches = 10
         else:
             batch_size = 10
-            accumulate_grad_batches = 4
+            contrastive_accumulate_batches = 4
         
         for random_mask_enable, setting_name in SETTINGS:
             run_name = f"{EXP_PREFIX}-{model}-{setting_name}"
@@ -154,7 +155,7 @@ def main():
                 batch_size=batch_size,
                 num_workers=8,
                 max_epochs=40,
-                accumulate_grad_batches=accumulate_grad_batches,
+                contrastive_accumulate_batches=contrastive_accumulate_batches,
                 run_name=run_name,
             ).rstrip()
 
@@ -172,7 +173,8 @@ def main():
   data.batch_size={batch_size} \\
   data.num_workers=8 \\
   training.max_epochs=40 \\
-  training.accumulate_grad_batches={accumulate_grad_batches} \\
+  training.accumulate_grad_batches=1 \\
+  training.contrastive_accumulate_batches={contrastive_accumulate_batches} \\
   meta.run_name={run_name}"""
             all_commands.append((run_name, command))
 

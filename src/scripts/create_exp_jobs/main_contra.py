@@ -68,7 +68,8 @@ uv run python main.py --mode train --task contrastive \\
   data.batch_size={batch_size} \\
   data.num_workers={num_workers} \\
   training.max_epochs={max_epochs} \\
-  training.accumulate_grad_batches={accumulate_grad_batches} \\
+  training.accumulate_grad_batches=1 \\
+  training.contrastive_accumulate_batches={contrastive_accumulate_batches} \\
   meta.exp_name={exp_name} \\
   meta.run_name={run_name}
 """
@@ -132,7 +133,7 @@ def main():
     # Generate one job for each model/map with the all-UI mask.
     for model in MODELS:
         for map_name in MAPS:
-            batch_size, accumulate_grad_batches = get_training_settings(model)
+            batch_size, contrastive_accumulate_batches = get_training_settings(model)
             run_name = f"{EXP_PREFIX}-{model}-{map_name}-ui-all"
 
             header = SCRIPT_HEADER.format(
@@ -151,7 +152,7 @@ def main():
                 batch_size=batch_size,
                 num_workers=8,
                 max_epochs=40,
-                accumulate_grad_batches=accumulate_grad_batches,
+                contrastive_accumulate_batches=contrastive_accumulate_batches,
                 exp_name=EXP_PREFIX,
                 run_name=run_name,
             ).rstrip()
@@ -170,7 +171,8 @@ def main():
   data.batch_size={batch_size} \\
   data.num_workers=8 \\
   training.max_epochs=40 \\
-  training.accumulate_grad_batches={accumulate_grad_batches} \\
+  training.accumulate_grad_batches=1 \\
+  training.contrastive_accumulate_batches={contrastive_accumulate_batches} \\
   meta.exp_name={EXP_PREFIX} \\
   meta.run_name={run_name}"""
             all_commands.append((run_name, command))

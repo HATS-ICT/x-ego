@@ -57,6 +57,7 @@ CONTRASTIVE_REQUIRED_CONFIG_KEYS = (
     "training.precision",
     "training.gradient_clip_val",
     "training.accumulate_grad_batches",
+    "training.contrastive_accumulate_batches",
     "training.val_check_interval",
     "training.check_val_every_n_epoch",
     "training.log_every_n_steps",
@@ -138,6 +139,13 @@ def validate_contrastive_cfg(cfg) -> None:
 
     if cfg.data.batch_size <= 0:
         raise ValueError("data.batch_size must be positive")
+    if cfg.training.accumulate_grad_batches != 1:
+        raise ValueError(
+            "contrastive training uses embedding-cache accumulation; "
+            "set training.accumulate_grad_batches to 1"
+        )
+    if cfg.training.contrastive_accumulate_batches <= 0:
+        raise ValueError("training.contrastive_accumulate_batches must be positive")
     if cfg.data.num_workers < 0:
         raise ValueError("data.num_workers must be non-negative")
     if cfg.data.target_fps <= 0 or cfg.data.fixed_duration_seconds <= 0:

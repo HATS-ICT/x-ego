@@ -328,6 +328,7 @@ def print_task_info(cfg, datamodule, task_name):
         print(f"Video encoder: {cfg.model.encoder.model_type}")
         print(f"Contrastive temperature init: {cfg.model.contrastive.logit_scale_init}")
         print(f"Contrastive bias init: {cfg.model.contrastive.logit_bias_init}")
+        print(f"Contrastive virtual batches: {cfg.training.contrastive_accumulate_batches}")
         print(f"UI mask: {cfg.data.ui_mask}")
     # Linear probing task
     elif task_name == 'downstream':

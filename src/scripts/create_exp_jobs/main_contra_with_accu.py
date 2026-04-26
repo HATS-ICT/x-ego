@@ -110,10 +110,10 @@ def build_mail_block(mail_user: str, mail_type: str) -> str:
 
 TRAINING_SETTINGS = {
     "clip": (128, 8),
-    "siglip2": (64, 32),
-    "dinov3": (32, 64),
-    "vjepa2": (32, 64),
-    "resnet50": (32, 64),
+    "siglip2": (64, 16),
+    "dinov3": (32, 32),
+    "vjepa2": (32, 32),
+    "resnet50": (32, 32),
 }
 
 

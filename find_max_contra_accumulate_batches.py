@@ -40,9 +40,12 @@ MODEL_ALIASES = {
     "resnet": "resnet50",
 }
 
-DEFAULT_MODELS = ("clip", "vjepa2", "siglip2", "dinov3", "resnet50")
+# DEFAULT_MODELS = ("clip", "vjepa2", "siglip2", "dinov3", "resnet50")
+DEFAULT_MODELS = ("vjepa2", "dinov3", "resnet50")
 VJEPA2_IMAGE_SIZE = 256
 DEFAULT_IMAGE_SIZE = 224
+DEFAULT_PEAK_MEMORY_LIMIT_GB = 40.0
+DEFAULT_MAX_VIRTUAL_VIDEO_BATCH_SIZE = 4096
 ATTEMPT_RESULT_PREFIX = "X_EGO_ATTEMPT_RESULT="
 
 
@@ -141,6 +144,18 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=128,
         help="Hard cap for contrastive_accumulate_batches search.",
+    )
+    parser.add_argument(
+        "--max-virtual-video-batch-size",
+        type=int,
+        default=DEFAULT_MAX_VIRTUAL_VIDEO_BATCH_SIZE,
+        help="Hard cap for data.batch_size * contrastive_accumulate_batches.",
+    )
+    parser.add_argument(
+        "--peak-memory-limit-gb",
+        type=float,
+        default=DEFAULT_PEAK_MEMORY_LIMIT_GB,
+        help="Treat settings above this CUDA peak memory as failed.",
     )
     parser.add_argument(
         "--frames",
@@ -461,7 +476,7 @@ def can_run_setting(
 
 
 def attempt_failure_is_boundary(error: str | None) -> bool:
-    return error in {"OOM", "TIMEOUT"}
+    return error in {"OOM", "TIMEOUT", "PEAK_MEMORY_LIMIT"}
 
 
 def child_attempt_command(
@@ -495,6 +510,8 @@ def child_attempt_command(
     if args.no_bf16:
         command.append("--no-bf16")
     command.extend(["--timeout-seconds", str(args.timeout_seconds)])
+    command.extend(["--max-virtual-video-batch-size", str(args.max_virtual_video_batch_size)])
+    command.extend(["--peak-memory-limit-gb", str(args.peak_memory_limit_gb)])
     return command
 
 
@@ -551,6 +568,7 @@ def search_largest_passing_value(
     max_value: int,
     try_value,
     value_suffix=None,
+    peak_memory_limit_gb: float | None = None,
 ) -> tuple[int, int | None, float | None, str | None]:
     low = 0
     low_peak = None
@@ -562,6 +580,9 @@ def search_largest_passing_value(
         suffix = "" if value_suffix is None else value_suffix(probe)
         print(f"{label} trying {probe}{suffix}", flush=True)
         ok, peak, error = try_value(probe)
+        if ok and peak_memory_limit_gb is not None and peak is not None and peak > peak_memory_limit_gb:
+            ok = False
+            error = "PEAK_MEMORY_LIMIT"
         peak_text = "n/a" if peak is None else f"{peak:.2f} GB"
         if ok:
             print(f"{label} OK at {probe}{suffix} peak={peak_text}", flush=True)
@@ -586,6 +607,9 @@ def search_largest_passing_value(
         suffix = "" if value_suffix is None else value_suffix(mid)
         print(f"{label} binary trying {mid}{suffix}", flush=True)
         ok, peak, error = try_value(mid)
+        if ok and peak_memory_limit_gb is not None and peak is not None and peak > peak_memory_limit_gb:
+            ok = False
+            error = "PEAK_MEMORY_LIMIT"
         peak_text = "n/a" if peak is None else f"{peak:.2f} GB"
         if ok:
             print(f"{label} OK at {mid}{suffix} peak={peak_text}", flush=True)
@@ -615,16 +639,18 @@ def find_max_for_model(args: argparse.Namespace, model_type: str) -> ProbeResult
         flush=True,
     )
 
+    physical_max = min(args.max_batch_size, args.max_virtual_video_batch_size)
     physical_low, physical_high, physical_peak, physical_error = search_largest_passing_value(
         label=f"[{model_type}] physical_video_batch_size",
         start=start_batch_size,
-        max_value=args.max_batch_size,
+        max_value=physical_max,
         try_value=lambda value: run_setting_with_timeout(
             args,
             model_type,
             batch_size=value,
             accumulate_batches=1,
         ),
+        peak_memory_limit_gb=args.peak_memory_limit_gb,
     )
 
     if physical_low <= 0 or physical_error is not None:
@@ -648,10 +674,27 @@ def find_max_for_model(args: argparse.Namespace, model_type: str) -> ProbeResult
         flush=True,
     )
 
+    max_accumulate_by_virtual_videos = args.max_virtual_video_batch_size // physical_low
+    accum_max = min(args.max, max_accumulate_by_virtual_videos)
+    if accum_max < args.start:
+        return ProbeResult(
+            model_type=model_type,
+            max_physical_batch_size=physical_low,
+            first_physical_batch_fail_at=physical_high,
+            max_accumulate_batches=0,
+            first_oom_at=None,
+            agents_per_sample=args.agents_per_sample,
+            videos_per_microbatch=physical_low,
+            max_virtual_videos=0,
+            physical_peak_memory_gb=physical_peak,
+            peak_memory_gb=None,
+            error="VIRTUAL_VIDEO_BATCH_LIMIT",
+        )
+
     accum_low, accum_high, accum_peak, accum_error = search_largest_passing_value(
         label=f"[{model_type}] contrastive_accumulate_batches",
         start=args.start,
-        max_value=args.max,
+        max_value=accum_max,
         try_value=lambda value: run_setting_with_timeout(
             args,
             model_type,
@@ -661,6 +704,7 @@ def find_max_for_model(args: argparse.Namespace, model_type: str) -> ProbeResult
         value_suffix=lambda value: (
             f" virtual_video_batch_size={physical_low * value}"
         ),
+        peak_memory_limit_gb=args.peak_memory_limit_gb,
     )
 
     return ProbeResult(
@@ -729,6 +773,8 @@ def write_results_json(
             "models": [canonical_model_type(model) for model in args.models],
             "start_batch_size": args.batch_size if args.batch_size is not None else int(load_cfg(args.config).data.batch_size),
             "max_batch_size": args.max_batch_size,
+            "max_virtual_video_batch_size": args.max_virtual_video_batch_size,
+            "peak_memory_limit_gb": args.peak_memory_limit_gb,
             "agents_per_sample": args.agents_per_sample,
             "start_accumulate_batches": args.start,
             "max_accumulate_batches": args.max,
@@ -772,6 +818,11 @@ def main() -> None:
         raise ValueError(
             "--max-batch-size must be greater than or equal to the starting "
             f"batch size ({start_batch_size})"
+        )
+    if args.max_virtual_video_batch_size < start_batch_size:
+        raise ValueError(
+            "--max-virtual-video-batch-size must be greater than or equal to "
+            f"the starting batch size ({start_batch_size})"
         )
 
     if not torch.cuda.is_available():

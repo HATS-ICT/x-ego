@@ -31,7 +31,7 @@ MODEL_TYPES = ["siglip2", "dinov3", "clip", "vjepa2", "resnet50"]
 MAPS = ["dust2", "inferno", "mirage"]
 UI_MASK = "all"
 NUM_WORKERS = 8
-CHECK_TORCH_COMPILE = sys.platform.startswith("linux")
+CHECK_TORCH_COMPILE = False
 
 TRAINING_SETTINGS = {
     "clip": (128, 8),

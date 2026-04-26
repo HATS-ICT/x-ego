@@ -114,10 +114,13 @@ def create_trainer(cfg, callbacks, logger):
     """Create Lightning trainer with common configuration"""
     training_cfg = cfg.training
     
-    # Configure gradient clipping - disable only for fused AdamW.
+    # Configure gradient clipping.
+    # Lightning does not support Trainer-level clipping with manual optimization.
+    contrastive_accumulate_batches = getattr(training_cfg, "contrastive_accumulate_batches", 1)
+    manual_optimization = contrastive_accumulate_batches > 1
     optimizer_name = getattr(cfg.optimization, "optimizer", "adamw")
     fused_adamw = optimizer_name == "adamw" and cfg.optimization.fused_optimizer
-    gradient_clip_val = None if fused_adamw else training_cfg.gradient_clip_val
+    gradient_clip_val = None if manual_optimization or fused_adamw else training_cfg.gradient_clip_val
     
     trainer = L.Trainer(
         max_epochs=training_cfg.max_epochs,

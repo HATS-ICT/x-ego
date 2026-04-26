@@ -47,7 +47,6 @@ MODEL_ALIASES = {
 DEFAULT_MODELS = ("vjepa2", "dinov3", "resnet50")
 MANUAL_PHYSICAL_VIDEO_BATCH_SIZES = {
     "dinov3": 32,
-    "vjepa2": 32,
     "resnet50": 32,
 }
 VJEPA2_IMAGE_SIZE = 256
@@ -153,7 +152,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--max",
         type=int,
-        default=128,
+        default=64,
         help="Hard cap for contrastive_accumulate_batches search.",
     )
     parser.add_argument(

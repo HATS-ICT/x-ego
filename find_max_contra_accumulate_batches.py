@@ -550,6 +550,7 @@ def search_largest_passing_value(
     start: int,
     max_value: int,
     try_value,
+    value_suffix=None,
 ) -> tuple[int, int | None, float | None, str | None]:
     low = 0
     low_peak = None
@@ -558,16 +559,17 @@ def search_largest_passing_value(
     probe = max(start, 1)
 
     while probe <= max_value:
-        print(f"{label} trying {probe}", flush=True)
+        suffix = "" if value_suffix is None else value_suffix(probe)
+        print(f"{label} trying {probe}{suffix}", flush=True)
         ok, peak, error = try_value(probe)
         peak_text = "n/a" if peak is None else f"{peak:.2f} GB"
         if ok:
-            print(f"{label} OK at {probe} peak={peak_text}", flush=True)
+            print(f"{label} OK at {probe}{suffix} peak={peak_text}", flush=True)
             low = probe
             low_peak = peak
             probe = next_probe_value(probe, start)
         else:
-            print(f"{label} FAIL at {probe} peak={peak_text} error={error}", flush=True)
+            print(f"{label} FAIL at {probe}{suffix} peak={peak_text} error={error}", flush=True)
             if not attempt_failure_is_boundary(error):
                 return low, high, low_peak, error
             high = probe
@@ -581,15 +583,16 @@ def search_largest_passing_value(
 
     while high - low > 1:
         mid = (low + high) // 2
-        print(f"{label} binary trying {mid}", flush=True)
+        suffix = "" if value_suffix is None else value_suffix(mid)
+        print(f"{label} binary trying {mid}{suffix}", flush=True)
         ok, peak, error = try_value(mid)
         peak_text = "n/a" if peak is None else f"{peak:.2f} GB"
         if ok:
-            print(f"{label} OK at {mid} peak={peak_text}", flush=True)
+            print(f"{label} OK at {mid}{suffix} peak={peak_text}", flush=True)
             low = mid
             low_peak = peak
         else:
-            print(f"{label} FAIL at {mid} peak={peak_text} error={error}", flush=True)
+            print(f"{label} FAIL at {mid}{suffix} peak={peak_text} error={error}", flush=True)
             if not attempt_failure_is_boundary(error):
                 return low, high, low_peak, error
             high = mid
@@ -654,6 +657,9 @@ def find_max_for_model(args: argparse.Namespace, model_type: str) -> ProbeResult
             model_type,
             batch_size=physical_low,
             accumulate_batches=value,
+        ),
+        value_suffix=lambda value: (
+            f" virtual_video_batch_size={physical_low * value}"
         ),
     )
 

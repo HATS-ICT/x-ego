@@ -70,6 +70,7 @@ uv run python main.py --mode train --task contrastive \\
   training.max_epochs={max_epochs} \\
   training.accumulate_grad_batches=1 \\
   training.contrastive_accumulate_batches={contrastive_accumulate_batches} \\
+  training.torch_compile=false \\
   meta.exp_name={exp_name} \\
   meta.run_name={run_name}
 """
@@ -181,6 +182,7 @@ def main():
   training.max_epochs=40 \\
   training.accumulate_grad_batches=1 \\
   training.contrastive_accumulate_batches={contrastive_accumulate_batches} \\
+  training.torch_compile=false \\
   meta.exp_name={EXP_PREFIX} \\
   meta.run_name={run_name}"""
             all_commands.append((run_name, command))

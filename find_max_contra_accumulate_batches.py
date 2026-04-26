@@ -44,7 +44,7 @@ MODEL_ALIASES = {
 }
 
 # DEFAULT_MODELS = ("clip", "vjepa2", "siglip2", "dinov3", "resnet50")
-DEFAULT_MODELS = ("vjepa2", "dinov3", "resnet50")
+DEFAULT_MODELS = ("dinov3", "resnet50")
 MANUAL_PHYSICAL_VIDEO_BATCH_SIZES = {
     "dinov3": 32,
     "resnet50": 32,

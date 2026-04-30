@@ -24,7 +24,10 @@ GPU_CONSTRAINT = "a40|a100"
 GPU_COUNT = 1
 CPUS = 26
 MEM = "80G"
-TIME = "48:00:00"
+SLURM_TIME = {
+    "vjepa": "48:00:00",
+    "other": "24:00:00",
+}
 MAIL_USER = "yunzhewa@usc.edu"
 MAIL_TYPE = "all"
 LOGS_SUBDIR = "logs"
@@ -132,6 +135,13 @@ def get_model_overrides(model: str) -> list[str]:
     return ["model.encoder.trainable=false"]
 
 
+def slurm_time_for_model(model: str) -> str:
+    """V-JEPA runs get a longer wall time; all other baselines use the default."""
+    if model.startswith("vjepa"):
+        return SLURM_TIME["vjepa"]
+    return SLURM_TIME["other"]
+
+
 # ===== Main =====
 def main():
     project_src = Path(PROJECT_SRC).resolve()
@@ -164,7 +174,7 @@ def main():
                     gpu_constraint=GPU_CONSTRAINT,
                     gpu_count=GPU_COUNT,
                     mem=MEM,
-                    time=TIME,
+                    time=slurm_time_for_model(model),
                     job_name=run_name,
                     log_dir=str(log_root),
                     mail_block=mail_block,
@@ -196,6 +206,9 @@ def main():
         print(f"  - {map_name}: {', '.join(models)}")
     print(f"  - ui_mask: {UI_MASK}")
     print(f"  - seeds: {SEEDS} (all map/model jobs per seed before next seed)")
+    print(
+        f"  - SLURM time: {SLURM_TIME['vjepa']} (vjepa*), {SLURM_TIME['other']} (other models)"
+    )
     print("  - resnet50: train encoder from scratch")
     print("  - other models: frozen encoder linear probe")
     print(f"  - Total: {len(all_jobs)} jobs")

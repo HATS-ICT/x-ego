@@ -25,10 +25,21 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional
 
-
 MODEL_TYPE = "siglip2"
 MAP_NAME = "dust2"
-TASK_DEFINITIONS_PATH = Path(__file__).parent / "data" / MAP_NAME / "labels" / "task_definitions.csv"
+
+import sys
+
+def get_task_definitions_path():
+    # On Linux, use /project2 path for data
+    if sys.platform.startswith("linux"):
+        base_data = Path("/project2/ustun_1726/x-ego/data")
+    else:
+        # Default to local 'data' folder
+        base_data = Path(__file__).parent / "data"
+    return base_data / MAP_NAME / "labels" / "task_definitions.csv"
+
+TASK_DEFINITIONS_PATH = get_task_definitions_path()
 
 
 @dataclass

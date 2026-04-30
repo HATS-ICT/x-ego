@@ -25,11 +25,12 @@
     <h2>X-EGO Alignment Verifier</h2>
     
     <div class="controls">
+        <select id="map-select"><option value="">-- Select Map --</option></select>
         <select id="video-select" style="max-width: 400px;"><option value="">-- Select Video --</option></select>
         <select id="task-select" disabled><option value="">-- Select Task --</option></select>
-        <button id="load-btn">Load Data</button>
-        <button id="next-video-btn" style="background: #2196F3;">Next Video & Load</button>
-        <button id="random-video-btn" style="background: #FF9800;">Next Random Video & Load</button>
+        <button type="button" id="load-btn">Load Data</button>
+        <button type="button" id="next-video-btn" style="background: #2196F3;">Next Video & Load</button>
+        <button type="button" id="random-video-btn" style="background: #FF9800;">Next Random Video & Load</button>
     </div>
     
     <video id="video-player" preload="auto" style="display: block; width: 1000px;"></video>
@@ -41,9 +42,9 @@
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <div style="display: flex; gap: 10px;">
-                <button id="play-pause" style="width: 60px;">Play</button>
-                <button id="prev-frame">-1 Frame</button>
-                <button id="next-frame">+1 Frame</button>
+                <button type="button" id="play-pause" style="width: 60px;">Play</button>
+                <button type="button" id="prev-frame">-1 Frame</button>
+                <button type="button" id="next-frame">+1 Frame</button>
             </div>
             <div style="font-family: monospace; font-size: 1.1em;">
                 <span id="time-display">0.000 / 0.000</span>
@@ -81,6 +82,7 @@
     </div>
 
     <script>
+        const mapSelect = document.getElementById('map-select');
         const videoSelect = document.getElementById('video-select');
         const taskSelect = document.getElementById('task-select');
         const loadBtn = document.getElementById('load-btn');
@@ -110,9 +112,47 @@
         let currentMap = "";
         let videoDuration = 0;
         let currentTaskIsSnapshot = false;
+        let outOfBoundsRecordsDropped = 0;
 
         function isRecordActiveAtTime(record, timeSec) {
+            if (record.has_prediction_tick) {
+                const eventToleranceSec = 0.25;
+                if (Math.abs(timeSec - record.video_prediction) <= eventToleranceSec) {
+                    return true;
+                }
+            }
             return timeSec >= record.video_start && timeSec <= record.video_end;
+        }
+
+        function isRecordWithinVideoBounds(record) {
+            if (!Number.isFinite(videoDuration) || videoDuration <= 0) return true;
+
+            const toleranceSec = 0.05;
+            const segmentInBounds = record.video_start >= -toleranceSec
+                && record.video_end <= videoDuration + toleranceSec;
+            const predictionInBounds = !record.has_prediction_tick
+                || (record.video_prediction >= -toleranceSec
+                    && record.video_prediction <= videoDuration + toleranceSec);
+
+            return segmentInBounds && predictionInBounds;
+        }
+
+        function filterRecordsToVideoBounds() {
+            if (!Number.isFinite(videoDuration) || videoDuration <= 0 || currentRecords.length === 0) {
+                return;
+            }
+
+            const before = currentRecords.length;
+            currentRecords = currentRecords.filter(isRecordWithinVideoBounds);
+            outOfBoundsRecordsDropped += before - currentRecords.length;
+        }
+
+        function updateLoadedStatus() {
+            let message = `Loaded ${currentRecords.length} label records successfully.`;
+            if (outOfBoundsRecordsDropped > 0) {
+                message += ` Hidden ${outOfBoundsRecordsDropped} out-of-bounds records.`;
+            }
+            statusMsg.textContent = message;
         }
 
         function selectVideoAndAutoLoad(nextIndex) {
@@ -125,24 +165,123 @@
             return true;
         }
 
-        // Fetch videos
-        fetch('/api/videos').then(r => r.json()).then(videos => {
-            videos.forEach(v => {
-                const opt = document.createElement('option');
-                opt.value = v;
-                opt.textContent = v;
-                videoSelect.appendChild(opt);
+        function resetLoadedState(message) {
+            currentRecords = [];
+            currentOffset = 0.0;
+            currentMap = "";
+            currentTaskIsSnapshot = false;
+            outOfBoundsRecordsDropped = 0;
+            video.pause();
+            video.removeAttribute('src');
+            videoDuration = 0;
+            vMap.textContent = "-";
+            vOffset.textContent = "0.000";
+            vTime.textContent = "0.000";
+            gTime.textContent = "0.000";
+            vTick.textContent = "0";
+            timeDisplay.textContent = "0.000 / 0.000";
+            labelDisplay.textContent = "No label data loaded.";
+            renderMarkers();
+            statusMsg.textContent = message;
+        }
+
+        function populateTasks(mapName) {
+            const previousTask = taskSelect.value;
+            taskSelect.disabled = true;
+            taskSelect.innerHTML = '<option value="">-- Select Task --</option>';
+            if (!mapName) return Promise.resolve([]);
+
+            return fetch(`/api/tasks?map=${encodeURIComponent(mapName)}`)
+                .then(r => r.json())
+                .then(tasks => {
+                    tasks.forEach(t => {
+                        const opt = document.createElement('option');
+                        opt.value = t;
+                        opt.textContent = t;
+                        taskSelect.appendChild(opt);
+                    });
+                    if (tasks.includes(previousTask)) {
+                        taskSelect.value = previousTask;
+                    } else if (tasks.length > 0) {
+                        taskSelect.selectedIndex = 1;
+                    }
+                    taskSelect.disabled = false;
+                    return tasks;
+                });
+        }
+
+        function populateVideos(mapName) {
+            videoSelect.innerHTML = '<option value="">-- Select Video --</option>';
+            if (!mapName) {
+                resetLoadedState("Select a map.");
+                return Promise.resolve([]);
+            }
+
+            statusMsg.textContent = `Fetching ${mapName} videos...`;
+            return fetch(`/api/videos?map=${encodeURIComponent(mapName)}`).then(r => r.json()).then(videos => {
+                videos.forEach(v => {
+                    const opt = document.createElement('option');
+                    opt.value = v;
+                    opt.textContent = v;
+                    videoSelect.appendChild(opt);
+                });
+                if (videos.length === 0) {
+                    statusMsg.textContent = `No videos found for ${mapName} in temp_test_video_label/data`;
+                } else {
+                    statusMsg.textContent = `Ready. Found ${videos.length} videos for ${mapName}.`;
+                }
+                return videos;
             });
-            if(videos.length === 0) {
-                statusMsg.textContent = "No videos found in temp_test_video_label/data";
+        }
+
+        // Fetch maps
+        fetch('/api/maps').then(r => r.json()).then(maps => {
+            maps.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m;
+                opt.textContent = m;
+                mapSelect.appendChild(opt);
+            });
+
+            if (maps.length === 0) {
+                statusMsg.textContent = "No maps found in temp_test_video_label/data";
+            } else {
+                mapSelect.selectedIndex = 1;
+                mapSelect.dispatchEvent(new Event('change'));
             }
         });
 
-        // When video changes, fetch tasks for its map
+        mapSelect.addEventListener('change', () => {
+            const mapName = mapSelect.value;
+            resetLoadedState(mapName ? `Loading ${mapName}...` : "Select a map.");
+            currentMap = mapName;
+            vMap.textContent = mapName || "-";
+
+            Promise.all([populateVideos(mapName), populateTasks(mapName)]).then(([videos, tasks]) => {
+                if (!mapName) return;
+                statusMsg.textContent = `Ready. Found ${videos.length} videos and ${tasks.length} tasks for ${mapName}.`;
+            });
+        });
+
+        // When video changes, verify its map and keep tasks synced.
         videoSelect.addEventListener('change', () => {
             const vid = videoSelect.value;
+            currentRecords = [];
+            currentOffset = 0.0;
+            currentTaskIsSnapshot = false;
+            outOfBoundsRecordsDropped = 0;
+            video.pause();
+            video.removeAttribute('src');
+            videoDuration = 0;
+            vOffset.textContent = "0.000";
+            vTime.textContent = "0.000";
+            gTime.textContent = "0.000";
+            vTick.textContent = "0";
+            timeDisplay.textContent = "0.000 / 0.000";
+            labelDisplay.textContent = "No label data loaded.";
+            renderMarkers();
             if (!vid) {
-                taskSelect.disabled = true;
+                statusMsg.textContent = "Select a video.";
                 return;
             }
             
@@ -153,35 +292,17 @@
                     if (info.map) {
                         currentMap = info.map;
                         vMap.textContent = currentMap;
-                        statusMsg.textContent = `Map is ${currentMap}. Fetching tasks...`;
-                        
-                        // Fetch tasks
-                        fetch(`/api/tasks?map=${currentMap}`)
-                            .then(r => r.json())
-                            .then(tasks => {
-                                const prevTask = taskSelect.value;
-                                taskSelect.innerHTML = '<option value="">-- Select Task --</option>';
-                                tasks.forEach(t => {
-                                    const opt = document.createElement('option');
-                                    opt.value = t;
-                                    opt.textContent = t;
-                                    taskSelect.appendChild(opt);
-                                });
-                                if (tasks.includes(prevTask)) {
-                                    taskSelect.value = prevTask;
-                                } else if (tasks.length > 0) {
-                                    taskSelect.selectedIndex = 1;
-                                }
-                                taskSelect.disabled = false;
-                                statusMsg.textContent = `Ready. Found ${tasks.length} tasks.`;
-                                
-                                if (window._autoLoadPending) {
-                                    window._autoLoadPending = false;
-                                    if (taskSelect.value) {
-                                        loadBtn.click();
-                                    }
-                                }
-                            });
+                        if (mapSelect.value !== currentMap) {
+                            mapSelect.value = currentMap;
+                        }
+
+                        statusMsg.textContent = `Ready. Video map is ${currentMap}.`;
+                        if (window._autoLoadPending) {
+                            window._autoLoadPending = false;
+                            if (taskSelect.value) {
+                                loadBtn.click();
+                            }
+                        }
                     } else {
                         statusMsg.textContent = "Error: Could not determine map for video.";
                     }
@@ -237,8 +358,10 @@
                     currentRecords = data.records;
                     currentOffset = data.offset_sec;
                     currentTaskIsSnapshot = currentRecords.some(r => r.is_snapshot);
+                    outOfBoundsRecordsDropped = 0;
+                    filterRecordsToVideoBounds();
                     vOffset.textContent = currentOffset.toFixed(3);
-                    statusMsg.textContent = `Loaded ${currentRecords.length} label records successfully.`;
+                    updateLoadedStatus();
                     renderMarkers();
                     updateUI();
                 });
@@ -246,7 +369,12 @@
 
         video.addEventListener('loadedmetadata', () => {
             videoDuration = video.duration;
+            filterRecordsToVideoBounds();
+            if (currentRecords.length > 0 || outOfBoundsRecordsDropped > 0) {
+                updateLoadedStatus();
+            }
             renderMarkers();
+            updateUI();
         });
 
         video.addEventListener('play', () => playBtn.textContent = 'Pause');
@@ -371,7 +499,7 @@
                     </div>
                 `;
                 item.addEventListener('click', () => {
-                    video.currentTime = r.is_snapshot ? r.video_prediction : r.video_start;
+                    video.currentTime = r.has_prediction_tick ? r.video_prediction : r.video_start;
                     if (video.paused) video.play();
                 });
                 segmentList.appendChild(item);

@@ -32,7 +32,20 @@ VIDEO_DIR = Path(r"E:\files\data\cs101\recording\video")
 os.makedirs(TEST_DATA_DIR, exist_ok=True)
 
 DATA_ROOT = BASE_DIR / "data"
-MAPS = ["dust2", "inferno", "mirage"]
+
+
+def discover_maps():
+    maps = set()
+    if TEST_DATA_DIR.exists():
+        maps.update(path.name for path in TEST_DATA_DIR.iterdir() if path.is_dir())
+    if DATA_ROOT.exists():
+        for path in DATA_ROOT.iterdir():
+            if path.is_dir() and ((path / "time_offset.json").exists() or (path / "labels" / "all_tasks").exists()):
+                maps.add(path.name)
+    return sorted(maps)
+
+
+MAPS = discover_maps()
 
 
 def is_snapshot_task(task_name: str) -> bool:
@@ -45,6 +58,7 @@ time_offsets = {}
 map_by_match = {}
 metadata_cache = {}
 kill_events_cache = {}
+logged_root_post = False
 
 for m in MAPS:
     offset_file = DATA_ROOT / m / "time_offset.json"
@@ -129,21 +143,46 @@ def get_first_kill_event_tick(
     norm_tick = first_kill.get("tick_norm", first_kill[tick_col])
     return float(raw_tick), float(norm_tick)
 
-@app.route("/")
+@app.route("/", methods=["GET", "POST"])
 def index():
+    global logged_root_post
+    if request.method == "POST":
+        if not logged_root_post:
+            logged_root_post = True
+            print(
+                "Ignored POST / from "
+                f"origin={request.headers.get('Origin')} "
+                f"referer={request.headers.get('Referer')} "
+                f"user_agent={request.headers.get('User-Agent')} "
+                f"content_type={request.headers.get('Content-Type')} "
+                f"content_length={request.content_length}"
+            )
+        return "", 204
     return render_template("index.html")
+
+@app.route("/api/maps")
+def list_maps():
+    return jsonify(discover_maps())
 
 @app.route("/api/videos")
 def list_videos():
+    map_name = request.args.get("map")
+    if map_name and map_name not in discover_maps():
+        return jsonify([])
+
     # Scan TEST_DATA_DIR for mp4 files
     videos = []
-    for root, dirs, files in os.walk(TEST_DATA_DIR):
+    search_dir = TEST_DATA_DIR / map_name if map_name else TEST_DATA_DIR
+    if not search_dir.exists():
+        return jsonify([])
+
+    for root, dirs, files in os.walk(search_dir):
         for file in files:
             if file.endswith(".mp4"):
                 path = Path(root) / file
                 rel_path = path.relative_to(TEST_DATA_DIR)
                 videos.append(str(rel_path).replace("\\", "/"))
-    return jsonify(videos)
+    return jsonify(sorted(videos))
 
 @app.route("/api/video_info")
 def get_video_info():
@@ -152,6 +191,10 @@ def get_video_info():
         return jsonify({"error": "Missing video"}), 400
     
     parts = rel_path.replace("\\", "/").split("/")
+    discovered_maps = discover_maps()
+    if parts and parts[0] in discovered_maps:
+        return jsonify({"map": parts[0]})
+
     if len(parts) >= 3:
         match_id = parts[-3]
         map_name = map_by_match.get(match_id)
@@ -169,7 +212,7 @@ def get_video_info():
 @app.route("/api/tasks")
 def list_tasks():
     map_name = request.args.get("map")
-    if not map_name or map_name not in MAPS:
+    if not map_name or map_name not in discover_maps():
         return jsonify([])
     task_dir = DATA_ROOT / map_name / "labels" / "all_tasks"
     tasks = []
@@ -205,7 +248,8 @@ def get_label_data():
     else:
         return jsonify({"error": "Invalid video path structure. Must be match_id/player_id/round_X.mp4"}), 400
         
-    map_name = map_by_match.get(match_id)
+    discovered_maps = discover_maps()
+    map_name = parts[0] if parts[0] in discovered_maps else map_by_match.get(match_id)
     if not map_name:
         # Fallback search
         for m, matches in time_offsets.items():
@@ -252,25 +296,28 @@ def get_label_data():
             horizon_sec = row.get("horizon_sec")
             label_value = row.get("label")
             first_kill_event_ticks = None
+            event_window_start = row.get("end_tick_norm") if pd.notnull(row.get("end_tick_norm")) else row.get("end_tick")
+            event_window_end = (
+                row.get("end_tick_norm") if pd.notnull(row.get("end_tick_norm")) else row.get("end_tick")
+            ) + (horizon_sec * 64 if pd.notnull(horizon_sec) else 0)
+            if pd.notnull(horizon_sec) and float(horizon_sec) == 0.0:
+                event_window_start = row.get("start_tick_norm") if pd.notnull(row.get("start_tick_norm")) else row.get("start_tick")
+                event_window_end = row.get("end_tick_norm") if pd.notnull(row.get("end_tick_norm")) else row.get("end_tick")
             if task.lower().startswith("global_anykill") and label_value == 1:
                 first_kill_event_ticks = get_first_kill_event_tick(
                     map_name,
                     match_id,
                     round_num,
-                    row.get("end_tick_norm") if pd.notnull(row.get("end_tick_norm")) else row.get("end_tick"),
-                    (
-                        row.get("end_tick_norm") if pd.notnull(row.get("end_tick_norm")) else row.get("end_tick")
-                    ) + (horizon_sec * 64 if pd.notnull(horizon_sec) else 0),
+                    event_window_start,
+                    event_window_end,
                 )
-            elif task.lower().startswith("self_kill") and row.get("label_pov_kills") == 1:
+            elif task.lower().startswith("self_kill") and label_value == 1:
                 first_kill_event_ticks = get_first_kill_event_tick(
                     map_name,
                     match_id,
                     round_num,
-                    row.get("end_tick_norm") if pd.notnull(row.get("end_tick_norm")) else row.get("end_tick"),
-                    (
-                        row.get("end_tick_norm") if pd.notnull(row.get("end_tick_norm")) else row.get("end_tick")
-                    ) + (horizon_sec * 64 if pd.notnull(horizon_sec) else 0),
+                    event_window_start,
+                    event_window_end,
                     "attacker_steamid",
                     player_id,
                 )
@@ -279,10 +326,8 @@ def get_label_data():
                     map_name,
                     match_id,
                     round_num,
-                    row.get("end_tick_norm") if pd.notnull(row.get("end_tick_norm")) else row.get("end_tick"),
-                    (
-                        row.get("end_tick_norm") if pd.notnull(row.get("end_tick_norm")) else row.get("end_tick")
-                    ) + (horizon_sec * 64 if pd.notnull(horizon_sec) else 0),
+                    event_window_start,
+                    event_window_end,
                     "victim_steamid",
                     player_id,
                 )
@@ -293,7 +338,7 @@ def get_label_data():
 
             has_prediction_tick = pd.notnull(prediction_tick) and not (
                 (task.lower().startswith("global_anykill") and label_value == 0)
-                or (task.lower().startswith("self_kill") and row.get("label_pov_kills") == 0)
+                or (task.lower().startswith("self_kill") and label_value == 0)
                 or (task.lower().startswith("self_death") and label_value == 0)
             )
             if pd.notnull(prediction_tick_value):
@@ -308,6 +353,9 @@ def get_label_data():
             video_prediction = game_prediction + offset_sec
             
             raw_labels = {k: v for k, v in row.items() if k not in std_cols}
+            if has_prediction_tick:
+                raw_labels["prediction_tick"] = prediction_tick
+                raw_labels["prediction_tick_norm"] = prediction_tick_norm
             interpreted_labels = {}
             task_lower = task.lower()
             
@@ -326,8 +374,23 @@ def get_label_data():
                         interpreted_labels["Location"] = place_names[idx] if 0 <= idx < len(place_names) else f"Unknown ({idx})"
                     elif task_lower.startswith("self_death"):
                         interpreted_labels["POV Dies"] = "Yes" if v == 1 else "No"
+                    elif task_lower.startswith("self_kill"):
+                        interpreted_labels["POV Kills"] = "Yes" if v == 1 else "No"
                     elif task_lower.startswith("global_anykill"):
                         interpreted_labels["Any Kill"] = "Yes" if v == 1 else "No"
+                    elif "bombplanted" in task_lower:
+                        interpreted_labels["Planted"] = "Yes" if v == 1 else "No"
+                    elif "bombsite" in task_lower:
+                        interpreted_labels["Site"] = "B" if v == 1 else "A"
+                    elif "willplant" in task_lower:
+                        interpreted_labels["Will Plant"] = "Yes" if v == 1 else "No"
+                    elif "postplantoutcome" in task_lower:
+                        interpreted_labels["Outcome"] = "T Win" if v == 1 else "CT Win"
+                    elif "roundwinner" in task_lower:
+                        interpreted_labels["Winner"] = "T" if v == 1 else "CT"
+                    elif "roundoutcome" in task_lower:
+                        idx = int(v)
+                        interpreted_labels["Reason"] = ROUND_OUTCOMES[idx] if 0 <= idx < len(ROUND_OUTCOMES) else f"Unknown ({idx})"
                     elif "movementdir" in task_lower or "movement_dir" in task_lower:
                         idx = int(v)
                         interpreted_labels["Direction"] = MOVEMENT_DIRECTIONS[idx] if 0 <= idx < len(MOVEMENT_DIRECTIONS) else f"Unknown ({idx})"
@@ -335,19 +398,6 @@ def get_label_data():
                         interpreted_labels["Alive Count"] = int(v)
                     else:
                         interpreted_labels[k] = v
-                elif k == "label_pov_kills":
-                    interpreted_labels["POV Kills"] = "Yes" if v == 1 else "No"
-                elif k == "label_outcome":
-                    interpreted_labels["Outcome"] = "Exploded" if v == 1 else "Defused"
-                elif k == "label_round_winner":
-                    interpreted_labels["Winner"] = "T" if v == 1 else "CT"
-                elif k == "label_outcome_reason":
-                    idx = int(v)
-                    interpreted_labels["Reason"] = ROUND_OUTCOMES[idx] if 0 <= idx < len(ROUND_OUTCOMES) else f"Unknown ({idx})"
-                elif k == "label_bomb_site":
-                    interpreted_labels["Site"] = "B" if v == 1 else "A"
-                elif k == "label_bomb_planted":
-                    interpreted_labels["Planted"] = "Yes" if v == 1 else "No"
                 elif not k.startswith("label_"):
                     interpreted_labels[k] = v
             

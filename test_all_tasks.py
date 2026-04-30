@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Test script to verify baseline downstream training works for all tasks.
+Test script to verify baseline downstream training works for benchmark tasks.
 
 Runs baseline downstream (siglip, off-the-shelf) on all tasks defined in
-data/labels/task_definitions.csv in dev mode.
+data/labels/task_definitions.csv with use_in_benchmark=yes in dev mode.
 """
 
 import subprocess
@@ -36,7 +36,7 @@ class TaskDefinition:
     task_name: str
     category: str
     ml_form: str
-    implemented: str
+    use_in_benchmark: str
 
 
 @dataclass
@@ -60,7 +60,7 @@ def load_task_definitions() -> list[TaskDefinition]:
                 task_name=row['task_name'],
                 category=row['category'],
                 ml_form=row['ml_form'],
-                implemented=row['implemented']
+                use_in_benchmark=row.get('use_in_benchmark', row.get('implemented', 'yes'))
             ))
     
     return tasks
@@ -178,18 +178,18 @@ def main():
     # Load tasks
     tasks = load_task_definitions()
     
-    # Filter to implemented tasks only
-    implemented_tasks = [t for t in tasks if t.implemented.lower() == 'yes']
+    # Filter to benchmark tasks only
+    benchmark_tasks = [t for t in tasks if t.use_in_benchmark.lower() == 'yes']
     
-    print(f"\nFound {len(implemented_tasks)} implemented tasks to test")
-    for t in implemented_tasks:
+    print(f"\nFound {len(benchmark_tasks)} benchmark tasks to test")
+    for t in benchmark_tasks:
         print(f"  - {t.task_id} ({t.category})")
     
     results: list[TestResult] = []
     
-    for i, task in enumerate(implemented_tasks, 1):
+    for i, task in enumerate(benchmark_tasks, 1):
         print(f"\n{'#'*80}")
-        print(f"# Task {i}/{len(implemented_tasks)}: {task.task_id}")
+        print(f"# Task {i}/{len(benchmark_tasks)}: {task.task_id}")
         print(f"# Category: {task.category} | ML Form: {task.ml_form}")
         print('#'*80)
         

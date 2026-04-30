@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Train downstream tasks on all implemented tasks.
+Train downstream tasks on all benchmark tasks.
 
 Runs downstream training (stage 2) on all tasks defined in
-data/labels/task_definitions.csv in train mode.
+data/labels/task_definitions.csv with use_in_benchmark=yes in train mode.
 """
 
 import argparse
@@ -34,7 +34,7 @@ load_dotenv()
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        description="Train downstream tasks on all implemented tasks."
+        description="Train downstream tasks on all benchmark tasks."
     )
     parser.add_argument(
         "--model-type",
@@ -96,7 +96,7 @@ class TaskDefinition:
     task_name: str
     category: str
     ml_form: str
-    implemented: str
+    use_in_benchmark: str
 
 
 @dataclass
@@ -120,7 +120,7 @@ def load_task_definitions() -> list[TaskDefinition]:
                 task_name=row['task_name'],
                 category=row['category'],
                 ml_form=row['ml_form'],
-                implemented=row['implemented']
+                use_in_benchmark=row.get('use_in_benchmark', row.get('implemented', 'yes'))
             ))
     
     return tasks
@@ -264,11 +264,11 @@ def main():
     # Load tasks
     tasks = load_task_definitions()
     
-    # Filter to implemented tasks only
-    implemented_tasks = [t for t in tasks if t.implemented.lower() == 'yes']
+    # Filter to benchmark tasks only
+    benchmark_tasks = [t for t in tasks if t.use_in_benchmark.lower() == 'yes']
     
-    print(f"\nFound {len(implemented_tasks)} implemented tasks to train")
-    for t in implemented_tasks:
+    print(f"\nFound {len(benchmark_tasks)} benchmark tasks to train")
+    for t in benchmark_tasks:
         print(f"  - {t.task_id} ({t.category})")
     
     results: list[TrainResult] = []
@@ -276,17 +276,17 @@ def main():
     # Find starting index if resuming
     start_idx = 0
     if args.start_from_task is not None:
-        for idx, t in enumerate(implemented_tasks):
+        for idx, t in enumerate(benchmark_tasks):
             if t.task_id == args.start_from_task:
                 start_idx = idx
-                print(f"\nResuming from task: {args.start_from_task} (index {start_idx + 1}/{len(implemented_tasks)})")
+                print(f"\nResuming from task: {args.start_from_task} (index {start_idx + 1}/{len(benchmark_tasks)})")
                 break
         else:
             print(f"\nWARNING: Task '{args.start_from_task}' not found, starting from beginning")
     
-    for i, task in enumerate(implemented_tasks[start_idx:], start_idx + 1):
+    for i, task in enumerate(benchmark_tasks[start_idx:], start_idx + 1):
         print(f"\n{'#'*80}")
-        print(f"# Task {i}/{len(implemented_tasks)}: {task.task_id}")
+        print(f"# Task {i}/{len(benchmark_tasks)}: {task.task_id}")
         print(f"# Category: {task.category} | ML Form: {task.ml_form}")
         print('#'*80)
         

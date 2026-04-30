@@ -2,7 +2,10 @@
 """
 Generate SLURM job scripts for downstream baseline experiments.
 
-Creates downstream baseline jobs with a map-specific model sweep.
+Creates downstream baseline jobs with a map-specific model sweep and
+per-seed repeats (SEEDS). Jobs are emitted and named so all (map, model)
+runs for one seed complete before the next seed; sbatch_all submits in
+that same order (sorted .job paths).
 """
 
 import os
@@ -51,6 +54,8 @@ MODELS_BY_MAP = {
 
 UI_MASK = "all"
 
+SEEDS = [1, 2]
+
 # ===== Templates =====
 SCRIPT_HEADER = """#!/bin/bash
 #SBATCH --account={account}
@@ -85,7 +90,7 @@ set -euo pipefail
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 shopt -s nullglob
 
-jobs=("$dir"/*.job)
+mapfile -t jobs < <(printf '%s\n' "$dir"/*.job | LC_ALL=C sort)
 if (( ${#jobs[@]} == 0 )); then
   echo "No .job files found in $dir"
   exit 1
@@ -143,40 +148,41 @@ def main():
 
     all_jobs = []
 
-    # Generate jobs for each map-specific model sweep.
-    for map_name, models in MODELS_BY_MAP.items():
-        for model in models:
-            map_short = get_map_short_name(map_name)
-            ui_mask_short = get_ui_mask_short_name(UI_MASK)
-            run_name = f"{EXP_PREFIX}-{map_short}-{model}-{ui_mask_short}"
-            model_overrides = get_model_overrides(model)
+    # Generate jobs: all (map, model) for seed 1, then all for seed 2, ...
+    for seed in SEEDS:
+        for map_name, models in MODELS_BY_MAP.items():
+            for model in models:
+                map_short = get_map_short_name(map_name)
+                ui_mask_short = get_ui_mask_short_name(UI_MASK)
+                run_name = f"{EXP_PREFIX}-seed{seed}-{map_short}-{model}-{ui_mask_short}"
+                model_overrides = get_model_overrides(model) + [f"meta.seed={seed}"]
 
-            header = SCRIPT_HEADER.format(
-                account=ACCOUNT,
-                partition=PARTITION,
-                cpus=CPUS,
-                gpu_constraint=GPU_CONSTRAINT,
-                gpu_count=GPU_COUNT,
-                mem=MEM,
-                time=TIME,
-                job_name=run_name,
-                log_dir=str(log_root),
-                mail_block=mail_block,
-            ).rstrip()
+                header = SCRIPT_HEADER.format(
+                    account=ACCOUNT,
+                    partition=PARTITION,
+                    cpus=CPUS,
+                    gpu_constraint=GPU_CONSTRAINT,
+                    gpu_count=GPU_COUNT,
+                    mem=MEM,
+                    time=TIME,
+                    job_name=run_name,
+                    log_dir=str(log_root),
+                    mail_block=mail_block,
+                ).rstrip()
 
-            body = JOB_BODY.format(
-                project_src=str(project_src),
-                map_name=map_name,
-                model=model,
-                ui_mask=UI_MASK,
-                extra_overrides=" ".join(model_overrides),
-            ).rstrip()
+                body = JOB_BODY.format(
+                    project_src=str(project_src),
+                    map_name=map_name,
+                    model=model,
+                    ui_mask=UI_MASK,
+                    extra_overrides=" ".join(model_overrides),
+                ).rstrip()
 
-            content = header + "\n\n" + body + "\n"
-            job_path = jobs_root / f"{run_name}.job"
-            job_path.write_text(content, encoding="utf-8")
-            job_path.chmod(0o750)
-            all_jobs.append(job_path)
+                content = header + "\n\n" + body + "\n"
+                job_path = jobs_root / f"{run_name}.job"
+                job_path.write_text(content, encoding="utf-8")
+                job_path.chmod(0o750)
+                all_jobs.append(job_path)
 
     # Generate sbatch_all script
     sbatch_all_path = jobs_root / f"sbatch_all_{EXP_PREFIX}.sh"
@@ -189,6 +195,7 @@ def main():
     for map_name, models in MODELS_BY_MAP.items():
         print(f"  - {map_name}: {', '.join(models)}")
     print(f"  - ui_mask: {UI_MASK}")
+    print(f"  - seeds: {SEEDS} (all map/model jobs per seed before next seed)")
     print("  - resnet50: train encoder from scratch")
     print("  - other models: frozen encoder linear probe")
     print(f"  - Total: {len(all_jobs)} jobs")

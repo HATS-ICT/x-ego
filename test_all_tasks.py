@@ -3,7 +3,7 @@
 Test script to verify baseline downstream training works for benchmark tasks.
 
 Runs baseline downstream (siglip, off-the-shelf) on all tasks defined in
-data/labels/task_definitions.csv with use_in_benchmark=yes in dev mode.
+data/dust2/labels/task_definitions.csv with use_in_benchmark=yes in dev mode.
 """
 
 import subprocess
@@ -27,7 +27,8 @@ from typing import Optional
 
 
 MODEL_TYPE = "siglip2"
-TASK_DEFINITIONS_PATH = Path(__file__).parent / "data" / "labels" / "task_definitions.csv"
+MAP_NAME = "dust2"
+TASK_DEFINITIONS_PATH = Path(__file__).parent / "data" / MAP_NAME / "labels" / "task_definitions.csv"
 
 
 @dataclass
@@ -103,6 +104,7 @@ def test_task(task: TaskDefinition) -> TestResult:
         "--mode", "dev",
         "--task", "downstream",
         f"task.task_id={task.task_id}",
+        f"data.map={MAP_NAME}",
         f"model.encoder.model_type={MODEL_TYPE}"
     ]
     
@@ -172,6 +174,7 @@ def main():
     print("="*80)
     print("X-EGO Pipeline Test: All Tasks")
     print(f"Model: {MODEL_TYPE} (baseline)")
+    print(f"Map: {MAP_NAME}")
     print(f"Task definitions: {TASK_DEFINITIONS_PATH}")
     print("="*80)
     

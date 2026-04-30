@@ -3,7 +3,7 @@
 Train downstream tasks on all benchmark tasks.
 
 Runs downstream training (stage 2) on all tasks defined in
-data/labels/task_definitions.csv with use_in_benchmark=yes in train mode.
+data/<map>/labels/task_definitions.csv with use_in_benchmark=yes in train mode.
 """
 
 import argparse
@@ -35,6 +35,12 @@ def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         description="Train downstream tasks on all benchmark tasks."
+    )
+    parser.add_argument(
+        "--map",
+        type=str,
+        default="inferno",
+        help="Map folder name under DATA_BASE_PATH to train on (default: inferno)",
     )
     parser.add_argument(
         "--model-type",
@@ -87,9 +93,6 @@ OUTPUT_BASE_PATH = os.getenv("OUTPUT_BASE_PATH")
 if OUTPUT_BASE_PATH is None:
     raise ValueError("OUTPUT_BASE_PATH not found in .env file")
 
-TASK_DEFINITIONS_PATH = Path(DATA_BASE_PATH) / "labels" / "task_definitions.csv"
-
-
 @dataclass
 class TaskDefinition:
     task_id: str
@@ -108,11 +111,16 @@ class TrainResult:
     error_msg: Optional[str] = None
 
 
-def load_task_definitions() -> list[TaskDefinition]:
+def get_task_definitions_path(map_name: str) -> Path:
+    """Return the map-specific task definitions path."""
+    return Path(DATA_BASE_PATH) / map_name / "labels" / "task_definitions.csv"
+
+
+def load_task_definitions(task_definitions_path: Path) -> list[TaskDefinition]:
     """Load task definitions from CSV."""
     tasks = []
     
-    with open(TASK_DEFINITIONS_PATH, 'r') as f:
+    with open(task_definitions_path, 'r') as f:
         reader = csv.DictReader(f)
         for row in reader:
             tasks.append(TaskDefinition(
@@ -156,13 +164,14 @@ def run_command(cmd: list[str], description: str) -> tuple[bool, str]:
 def train_task(task: TaskDefinition, args: argparse.Namespace) -> TrainResult:
     """Train downstream on a single task."""
     # Build run name: model-task-ui_mask
-    run_name = f"probe-{args.model_type}-{task.task_id}-{args.ui_mask}"
+    run_name = f"probe-{args.map}-{args.model_type}-{task.task_id}-{args.ui_mask}"
     
     cmd = [
         sys.executable, "main.py",
         "--mode", "train",
         "--task", "downstream",
         f"task.task_id={task.task_id}",
+        f"data.map={args.map}",
         f"model.encoder.model_type={args.model_type}",
         f"data.ui_mask={args.ui_mask}",
         f"meta.run_name={run_name}",
@@ -183,7 +192,7 @@ def train_task(task: TaskDefinition, args: argparse.Namespace) -> TrainResult:
     # Add any extra overrides
     cmd.extend(args.extra_overrides)
     
-    description = f"Downstream training ({args.model_type}) on {task.task_id} [ui_mask={args.ui_mask}]"
+    description = f"Downstream training ({args.model_type}) on {args.map}/{task.task_id} [ui_mask={args.ui_mask}]"
     if args.stage1_checkpoint:
         description += f" [stage1: {Path(args.stage1_checkpoint).parent.name}]"
     
@@ -247,9 +256,11 @@ def print_summary(results: list[TrainResult]):
 def main():
     """Run downstream training on all tasks sequentially."""
     args = parse_args()
+    task_definitions_path = get_task_definitions_path(args.map)
     
     print("="*80)
     print("X-EGO Downstream Training: All Tasks")
+    print(f"Map: {args.map}")
     print(f"Model: {args.model_type}")
     print(f"UI Mask: {args.ui_mask}")
     if args.stage1_checkpoint:
@@ -258,11 +269,11 @@ def main():
         print("Stage 1 Checkpoint: None (baseline/off-the-shelf)")
     if args.wandb_group:
         print(f"WandB Group: {args.wandb_group}")
-    print(f"Task definitions: {TASK_DEFINITIONS_PATH}")
+    print(f"Task definitions: {task_definitions_path}")
     print("="*80)
     
     # Load tasks
-    tasks = load_task_definitions()
+    tasks = load_task_definitions(task_definitions_path)
     
     # Filter to benchmark tasks only
     benchmark_tasks = [t for t in tasks if t.use_in_benchmark.lower() == 'yes']

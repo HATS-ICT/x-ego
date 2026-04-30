@@ -2,11 +2,13 @@
 """
 Generate SLURM job scripts for downstream baseline experiments.
 
-Creates 6 jobs: 3 models × 2 UI mask settings (minimap_only, all)
+Creates downstream baseline jobs with a map-specific model sweep.
 """
-from pathlib import Path
-from dotenv import load_dotenv
+
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
@@ -18,27 +20,36 @@ PARTITION = "gpu"
 GPU_CONSTRAINT = "a40|a100"
 GPU_COUNT = 1
 CPUS = 26
-MEM = "60G"
-TIME = "24:00:00"
+MEM = "80G"
+TIME = "48:00:00"
 MAIL_USER = "yunzhewa@usc.edu"
 MAIL_TYPE = "all"
 LOGS_SUBDIR = "logs"
 
 # Experiment configuration
-EXP_PREFIX = "downstream_baseline"
+EXP_PREFIX = "downstream_baseline_v2"
 
-# Models to sweep over (3 options)
-MODELS = [
-    "siglip2",
-    "dinov2",
-    "vjepa2",
-]
+# Model sweep by map. Mirage gets the full model sweep; dust2 and inferno
+# only run the main pretrained baseline and the from-scratch ResNet baseline.
+MODELS_BY_MAP = {
+    "dust2": [
+        "siglip2",
+        "resnet50",
+    ],
+    "inferno": [
+        "siglip2",
+        "resnet50",
+    ],
+    "mirage": [
+        "siglip2",
+        "dinov3",
+        "clip",
+        "vjepa2",
+        "resnet50",
+    ],
+}
 
-# UI mask settings to sweep over (2 options: minimap_only, all)
-UI_MASKS = [
-    "minimap_only",
-    "all",
-]
+UI_MASK = "all"
 
 # ===== Templates =====
 SCRIPT_HEADER = """#!/bin/bash
@@ -62,8 +73,10 @@ JOB_BODY = """module restore
 cd {project_src}
 
 uv run python train_all_downstream.py \\
+  --map {map_name} \\
   --model-type {model} \\
-  --ui-mask {ui_mask}
+  --ui-mask {ui_mask} \\
+  --extra-overrides {extra_overrides}
 """
 
 SBATCH_ALL_HEADER = """#!/bin/bash
@@ -93,13 +106,25 @@ def build_mail_block(mail_user: str, mail_type: str) -> str:
 
 
 def get_ui_mask_short_name(ui_mask: str) -> str:
-    """Convert ui_mask to short form for naming"""
+    """Convert ui_mask to short form for naming."""
     mask_map = {
         "none": "ui-none",
         "minimap_only": "ui-minimap",
         "all": "ui-all",
     }
     return mask_map.get(ui_mask, ui_mask)
+
+
+def get_map_short_name(map_name: str) -> str:
+    """Convert map name to short form for naming."""
+    return map_name.removeprefix("de_")
+
+
+def get_model_overrides(model: str) -> list[str]:
+    """Return config overrides for the requested model baseline."""
+    if model == "resnet50":
+        return ["model.encoder.trainable=true"]
+    return ["model.encoder.trainable=false"]
 
 
 # ===== Main =====
@@ -111,15 +136,20 @@ def main():
     jobs_root.mkdir(parents=True, exist_ok=True)
     log_root.mkdir(parents=True, exist_ok=True)
 
+    for old_job in jobs_root.glob("*.job"):
+        old_job.unlink()
+
     mail_block = build_mail_block(MAIL_USER, MAIL_TYPE)
 
     all_jobs = []
 
-    # Generate jobs for each combination (3 models × 2 ui_masks = 6 jobs)
-    for model in MODELS:
-        for ui_mask in UI_MASKS:
-            ui_mask_short = get_ui_mask_short_name(ui_mask)
-            run_name = f"{EXP_PREFIX}-{model}-{ui_mask_short}"
+    # Generate jobs for each map-specific model sweep.
+    for map_name, models in MODELS_BY_MAP.items():
+        for model in models:
+            map_short = get_map_short_name(map_name)
+            ui_mask_short = get_ui_mask_short_name(UI_MASK)
+            run_name = f"{EXP_PREFIX}-{map_short}-{model}-{ui_mask_short}"
+            model_overrides = get_model_overrides(model)
 
             header = SCRIPT_HEADER.format(
                 account=ACCOUNT,
@@ -136,8 +166,10 @@ def main():
 
             body = JOB_BODY.format(
                 project_src=str(project_src),
+                map_name=map_name,
                 model=model,
-                ui_mask=ui_mask,
+                ui_mask=UI_MASK,
+                extra_overrides=" ".join(model_overrides),
             ).rstrip()
 
             content = header + "\n\n" + body + "\n"
@@ -154,9 +186,12 @@ def main():
     print(f"Generated {len(all_jobs)} job(s) in {jobs_root}")
     print(f"Logs will be written to {log_root}")
     print("\nBreakdown:")
-    print(f"  - {len(MODELS)} models: {', '.join(MODELS)}")
-    print(f"  - {len(UI_MASKS)} ui_mask settings: {', '.join(UI_MASKS)}")
-    print(f"  - Total: {len(MODELS)} × {len(UI_MASKS)} = {len(all_jobs)} jobs")
+    for map_name, models in MODELS_BY_MAP.items():
+        print(f"  - {map_name}: {', '.join(models)}")
+    print(f"  - ui_mask: {UI_MASK}")
+    print("  - resnet50: train encoder from scratch")
+    print("  - other models: frozen encoder linear probe")
+    print(f"  - Total: {len(all_jobs)} jobs")
     print("\nTo submit all jobs to SLURM, run:")
     print(f"  bash {sbatch_all_path}")
 

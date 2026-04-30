@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import glob
+import random
 from pathlib import Path
 import pandas as pd
 from flask import Flask, render_template, request, jsonify, send_file
@@ -53,11 +54,29 @@ def is_snapshot_task(task_name: str) -> bool:
     task_lower = task_name.lower()
     return "location" in task_lower
 
+
+PRIMARY_LABEL_FIELDS = {
+    "Locations",
+    "Location",
+    "POV Dies",
+    "POV Kills",
+    "Any Kill",
+    "Planted",
+    "Site",
+    "Will Plant",
+    "Outcome",
+    "Winner",
+    "Reason",
+    "Direction",
+    "Alive Count",
+}
+
 # Load all offsets to memory
 time_offsets = {}
 map_by_match = {}
 metadata_cache = {}
 kill_events_cache = {}
+random_label_candidates_cache = {}
 logged_root_post = False
 
 for m in MAPS:
@@ -104,6 +123,22 @@ def tick_to_game_seconds(raw_tick, freeze_end_tick):
     if freeze_end_tick is not None and tick >= freeze_end_tick:
         tick -= freeze_end_tick
     return tick / 64.0
+
+
+def is_missing_value(value):
+    try:
+        missing = pd.isnull(value)
+    except (TypeError, ValueError):
+        return False
+    return bool(missing) if not isinstance(missing, (list, tuple)) else False
+
+
+def json_safe_value(value):
+    if is_missing_value(value):
+        return None
+    if hasattr(value, "item"):
+        return value.item()
+    return value
 
 
 def get_first_kill_event_tick(
@@ -221,6 +256,93 @@ def list_tasks():
             tasks.append(f.stem)
     return jsonify(sorted(tasks))
 
+
+@app.route("/api/random_labeled_video")
+def random_labeled_video():
+    map_name = request.args.get("map")
+    task = request.args.get("task")
+    current_video = request.args.get("current_video")
+    desired_label = request.args.get("label")
+
+    if not map_name or map_name not in discover_maps():
+        return jsonify({"error": "Missing or invalid map"}), 400
+    if not task:
+        return jsonify({"error": "Missing task"}), 400
+
+    csv_path = DATA_ROOT / map_name / "labels" / "all_tasks" / f"{task}.csv"
+    if not csv_path.exists():
+        return jsonify({"error": f"Task CSV not found: {csv_path}"}), 404
+
+    available_videos = {}
+    search_dir = TEST_DATA_DIR / map_name
+    if search_dir.exists():
+        for video_path in search_dir.rglob("*.mp4"):
+            rel_path = str(video_path.relative_to(TEST_DATA_DIR)).replace("\\", "/")
+            parts = rel_path.split("/")
+            if len(parts) < 4:
+                continue
+            match_id = parts[-3]
+            player_id = parts[-2]
+            round_name = parts[-1].replace(".mp4", "")
+            try:
+                round_num = int(round_name.replace("round_", ""))
+                key = (match_id, int(player_id), round_num)
+            except ValueError:
+                continue
+            available_videos[key] = rel_path
+
+    if not available_videos:
+        return jsonify({"error": f"No videos found for {map_name}"}), 404
+
+    try:
+        cache_key = (map_name, task)
+        if cache_key not in random_label_candidates_cache:
+            df = pd.read_csv(csv_path)
+            required_cols = {"match_id", "pov_steamid", "round_num", "idx"}
+            if not required_cols.issubset(df.columns):
+                missing_cols = ", ".join(sorted(required_cols - set(df.columns)))
+                return jsonify({"error": f"Task CSV missing columns: {missing_cols}"}), 500
+
+            cached_candidates = []
+            for _, row in df.iterrows():
+                key = (str(row["match_id"]), int(row["pov_steamid"]), int(row["round_num"]))
+                rel_path = available_videos.get(key)
+                if not rel_path:
+                    continue
+                label_value = row.get("label", None)
+                cached_candidates.append({
+                    "video": rel_path,
+                    "idx": int(row["idx"]),
+                    "label": None if pd.isnull(label_value) else int(label_value),
+                })
+            random_label_candidates_cache[cache_key] = cached_candidates
+
+        candidates = [
+            candidate for candidate in random_label_candidates_cache[cache_key]
+            if candidate["video"] != current_video
+        ]
+
+        if desired_label in {"0", "1"}:
+            label_candidates = [
+                candidate for candidate in candidates
+                if candidate["label"] == int(desired_label)
+            ]
+            if label_candidates:
+                candidates = label_candidates
+
+        if not candidates:
+            return jsonify({"error": f"No labeled videos found for {task} on {map_name}"}), 404
+
+        candidate = random.choice(candidates)
+
+        return jsonify({
+            "video": candidate["video"],
+            "idx": candidate["idx"],
+            "label": candidate["label"],
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/video/<path:rel_path>")
 def serve_video(rel_path):
     video_path = TEST_DATA_DIR / rel_path
@@ -278,6 +400,7 @@ def get_label_data():
 
         place_names = get_place_names_for_map(map_name)
         freeze_end_tick = get_round_freeze_end_tick(map_name, match_id, round_num)
+        label_counts = {}
 
         for _, row in df.iterrows():
             start_tick_value = row.get("start_tick_norm")
@@ -369,6 +492,8 @@ def get_label_data():
             
             for k, v in raw_labels.items():
                 if k == "label":
+                    if is_missing_value(v):
+                        continue
                     if "location" in task_lower:
                         idx = int(v)
                         interpreted_labels["Location"] = place_names[idx] if 0 <= idx < len(place_names) else f"Unknown ({idx})"
@@ -397,9 +522,21 @@ def get_label_data():
                     elif "alivecount" in task_lower:
                         interpreted_labels["Alive Count"] = int(v)
                     else:
-                        interpreted_labels[k] = v
+                        safe_value = json_safe_value(v)
+                        if safe_value is not None:
+                            interpreted_labels[k] = safe_value
                 elif not k.startswith("label_"):
-                    interpreted_labels[k] = v
+                    safe_value = json_safe_value(v)
+                    if safe_value is not None:
+                        interpreted_labels[k] = safe_value
+
+            for label_name, label_display in interpreted_labels.items():
+                if label_name not in PRIMARY_LABEL_FIELDS:
+                    continue
+                if isinstance(label_display, (list, dict)):
+                    continue
+                label_key = f"{label_name}: {label_display}"
+                label_counts[label_key] = label_counts.get(label_key, 0) + 1
             
             records.append({
                 "video_start": video_start,
@@ -429,6 +566,7 @@ def get_label_data():
         return jsonify({
             "map": map_name,
             "offset_sec": offset_sec,
+            "label_counts": label_counts,
             "records": records
         })
     except Exception as e:

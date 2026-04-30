@@ -2,7 +2,8 @@
 Linear Probing Model (Stage 2)
 
 Simple linear classifiers/regressors for downstream tasks.
-Uses frozen video encoder - either off-the-shelf from HuggingFace or pretrained from Stage 1 contrastive.
+Uses a frozen video encoder for linear probing, or an explicitly trainable encoder
+for from-scratch baselines such as ResNet-50.
 
 Supports task types (ml_form):
 - binary_cls: Binary classification (BCE loss)
@@ -77,7 +78,8 @@ class LinearProbeModel(L.LightningModule):
     1. Off-the-shelf HuggingFace model (baseline)
     2. Pretrained from Stage 1 contrastive learning
     
-    Only the linear head is trained; the encoder is always frozen.
+    By default only the linear head is trained. Set model.encoder.trainable=true
+    to train the encoder and head together.
     """
     
     def __init__(self, cfg):
@@ -95,6 +97,7 @@ class LinearProbeModel(L.LightningModule):
         self.video_encoder = VideoEncoder(cfg.model.encoder)
         video_embed_dim = self.video_encoder.embed_dim
         print(f"[LinearProbe] Video encoder: {cfg.model.encoder.model_type} (dim: {video_embed_dim})")
+        self.encoder_trainable = bool(getattr(cfg.model.encoder, "trainable", False))
         
         # Load Stage 1 weights if provided (before freezing)
         if cfg.model.stage1_checkpoint:
@@ -102,8 +105,10 @@ class LinearProbeModel(L.LightningModule):
         else:
             print("[LinearProbe] Using off-the-shelf HuggingFace encoder (baseline)")
         
-        # Freeze encoder - always frozen for linear probing
-        self._freeze_encoder()
+        if self.encoder_trainable:
+            print("[LinearProbe] Video encoder trainable")
+        else:
+            self._freeze_encoder()
         
         # Linear probe head directly on encoder output
         self.head = LinearProbeHead(
@@ -209,9 +214,11 @@ class LinearProbeModel(L.LightningModule):
         """
         video = batch['video']  # [B, T, C, H, W]
         
-        # Encode video through frozen encoder
-        with torch.no_grad():
+        if self.encoder_trainable:
             video_embedding = self.video_encoder(video)  # [B, embed_dim]
+        else:
+            with torch.no_grad():
+                video_embedding = self.video_encoder(video)  # [B, embed_dim]
         
         # Linear head
         logits = self.head(video_embedding)

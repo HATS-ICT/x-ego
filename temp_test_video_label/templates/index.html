@@ -113,6 +113,25 @@
         let videoDuration = 0;
         let currentTaskIsSnapshot = false;
         let outOfBoundsRecordsDropped = 0;
+        let apiLabelCounts = {};
+        let droppedLabelCounts = {};
+        let pendingSeekIdx = null;
+        let lastRandomLabelByTask = {};
+        const primaryLabelFields = new Set([
+            "Locations",
+            "Location",
+            "POV Dies",
+            "POV Kills",
+            "Any Kill",
+            "Planted",
+            "Site",
+            "Will Plant",
+            "Outcome",
+            "Winner",
+            "Reason",
+            "Direction",
+            "Alive Count",
+        ]);
 
         function isRecordActiveAtTime(record, timeSec) {
             if (record.has_prediction_tick) {
@@ -143,14 +162,60 @@
             }
 
             const before = currentRecords.length;
-            currentRecords = currentRecords.filter(isRecordWithinVideoBounds);
+            const keptRecords = [];
+            const droppedRecords = [];
+            currentRecords.forEach(record => {
+                if (isRecordWithinVideoBounds(record)) {
+                    keptRecords.push(record);
+                } else {
+                    droppedRecords.push(record);
+                }
+            });
+
+            currentRecords = keptRecords;
             outOfBoundsRecordsDropped += before - currentRecords.length;
+            droppedRecords.forEach(record => {
+                getRecordLabelKeys(record).forEach(labelKey => {
+                    droppedLabelCounts[labelKey] = (droppedLabelCounts[labelKey] || 0) + 1;
+                });
+            });
+        }
+
+        function getRecordLabelKeys(record) {
+            if (!record || !record.labels) return [];
+            return Object.entries(record.labels)
+                .filter(([key, value]) => primaryLabelFields.has(key)
+                    && !Array.isArray(value)
+                    && value !== null
+                    && typeof value !== 'object')
+                .map(([key, value]) => `${key}: ${value}`);
+        }
+
+        function countVisibleLabels() {
+            const counts = {};
+            currentRecords.forEach(record => {
+                getRecordLabelKeys(record).forEach(labelKey => {
+                    counts[labelKey] = (counts[labelKey] || 0) + 1;
+                });
+            });
+            return counts;
+        }
+
+        function formatCounts(counts) {
+            const entries = Object.entries(counts || {});
+            if (entries.length === 0) return "none";
+            return entries
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([key, value]) => `${key}=${value}`)
+                .join(", ");
         }
 
         function updateLoadedStatus() {
             let message = `Loaded ${currentRecords.length} label records successfully.`;
+            message += ` API labels: ${formatCounts(apiLabelCounts)}.`;
+            message += ` Visible labels: ${formatCounts(countVisibleLabels())}.`;
             if (outOfBoundsRecordsDropped > 0) {
-                message += ` Hidden ${outOfBoundsRecordsDropped} out-of-bounds records.`;
+                message += ` Hidden ${outOfBoundsRecordsDropped} out-of-bounds records: ${formatCounts(droppedLabelCounts)}.`;
             }
             statusMsg.textContent = message;
         }
@@ -165,12 +230,43 @@
             return true;
         }
 
+        function selectVideoValueAndAutoLoad(videoValue) {
+            for (let i = 1; i < videoSelect.options.length; i++) {
+                if (videoSelect.options[i].value === videoValue) {
+                    videoSelect.selectedIndex = i;
+                    window._autoLoadPending = true;
+                    videoSelect.dispatchEvent(new Event('change'));
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function seekToPendingRecord() {
+            if (pendingSeekIdx === null || currentRecords.length === 0) return;
+            if (!Number.isFinite(videoDuration) || videoDuration <= 0) return;
+
+            const record = currentRecords.find(r => Number(r.idx) === Number(pendingSeekIdx));
+            if (!record) {
+                statusMsg.textContent = `Loaded data, but sampled label idx ${pendingSeekIdx} is not visible for this video.`;
+                pendingSeekIdx = null;
+                return;
+            }
+
+            const seekTime = record.has_prediction_tick ? record.video_prediction : record.video_start;
+            video.currentTime = Math.max(0, Math.min(videoDuration, seekTime));
+            pendingSeekIdx = null;
+            updateUI();
+        }
+
         function resetLoadedState(message) {
             currentRecords = [];
             currentOffset = 0.0;
             currentMap = "";
             currentTaskIsSnapshot = false;
             outOfBoundsRecordsDropped = 0;
+            apiLabelCounts = {};
+            droppedLabelCounts = {};
             video.pause();
             video.removeAttribute('src');
             videoDuration = 0;
@@ -270,6 +366,8 @@
             currentOffset = 0.0;
             currentTaskIsSnapshot = false;
             outOfBoundsRecordsDropped = 0;
+            apiLabelCounts = {};
+            droppedLabelCounts = {};
             video.pause();
             video.removeAttribute('src');
             videoDuration = 0;
@@ -318,22 +416,43 @@
         });
 
         randomVideoBtn.addEventListener('click', () => {
-            const lastIndex = videoSelect.options.length - 1;
-            if (lastIndex < 1) {
-                statusMsg.textContent = "No videos available.";
+            const mapName = mapSelect.value;
+            const task = taskSelect.value;
+            if (!mapName || !task) {
+                statusMsg.textContent = "Select a map and task first.";
                 return;
             }
 
-            if (lastIndex === 1) {
-                selectVideoAndAutoLoad(1);
-                return;
+            statusMsg.textContent = "Selecting a random labeled segment...";
+            const params = new URLSearchParams({
+                map: mapName,
+                task,
+                current_video: videoSelect.value || "",
+            });
+            const labelKey = `${mapName}:${task}`;
+            if (lastRandomLabelByTask[labelKey] === 0 || lastRandomLabelByTask[labelKey] === 1) {
+                params.set("label", String(1 - lastRandomLabelByTask[labelKey]));
             }
-
-            let nextIndex = Math.floor(Math.random() * lastIndex) + 1;
-            if (nextIndex === videoSelect.selectedIndex) {
-                nextIndex = (nextIndex % lastIndex) + 1;
-            }
-            selectVideoAndAutoLoad(nextIndex);
+            fetch(`/api/random_labeled_video?${params.toString()}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.error) {
+                        statusMsg.textContent = `Error: ${data.error}`;
+                        return;
+                    }
+                    if (data.label === 0 || data.label === 1) {
+                        lastRandomLabelByTask[labelKey] = data.label;
+                    }
+                    pendingSeekIdx = data.idx;
+                    if (!selectVideoValueAndAutoLoad(data.video)) {
+                        pendingSeekIdx = null;
+                        statusMsg.textContent = `Error: sampled video is not in the video list: ${data.video}`;
+                    }
+                })
+                .catch(error => {
+                    pendingSeekIdx = null;
+                    statusMsg.textContent = `Error selecting random label: ${error.message}`;
+                });
         });
 
         loadBtn.addEventListener('click', () => {
@@ -356,14 +475,24 @@
                         return;
                     }
                     currentRecords = data.records;
+                    apiLabelCounts = data.label_counts || {};
                     currentOffset = data.offset_sec;
                     currentTaskIsSnapshot = currentRecords.some(r => r.is_snapshot);
                     outOfBoundsRecordsDropped = 0;
+                    droppedLabelCounts = {};
                     filterRecordsToVideoBounds();
                     vOffset.textContent = currentOffset.toFixed(3);
                     updateLoadedStatus();
                     renderMarkers();
                     updateUI();
+                    seekToPendingRecord();
+                })
+                .catch(error => {
+                    currentRecords = [];
+                    pendingSeekIdx = null;
+                    labelDisplay.textContent = "Error loading data.";
+                    statusMsg.textContent = `Error loading label data: ${error.message}`;
+                    renderMarkers();
                 });
         });
 
@@ -375,6 +504,7 @@
             }
             renderMarkers();
             updateUI();
+            seekToPendingRecord();
         });
 
         video.addEventListener('play', () => playBtn.textContent = 'Pause');

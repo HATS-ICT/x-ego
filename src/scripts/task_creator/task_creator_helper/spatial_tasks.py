@@ -143,7 +143,8 @@ class POVMovementDirectionCreator(TaskCreatorBase):
         
         # Create DataFrame with proper columns even if empty
         columns = ['idx', 'partition', 'pov_steamid', 'pov_side', 'seg_duration_sec', 
-                  'start_tick', 'end_tick', 'prediction_tick', 'match_id', 'round_num', 
+                  'start_tick', 'end_tick', 'prediction_tick', 'start_tick_norm',
+                  'end_tick_norm', 'prediction_tick_norm', 'match_id', 'round_num',
                   'map_name', 'label']
         df = pd.DataFrame(output_rows, columns=columns)
         
@@ -306,7 +307,8 @@ class POVSpeedCreator(TaskCreatorBase):
         
         # Create DataFrame with proper columns even if empty
         columns = ['idx', 'partition', 'pov_steamid', 'pov_side', 'seg_duration_sec', 
-                  'start_tick', 'end_tick', 'prediction_tick', 'match_id', 'round_num', 
+                  'start_tick', 'end_tick', 'prediction_tick', 'start_tick_norm',
+                  'end_tick_norm', 'prediction_tick_norm', 'match_id', 'round_num',
                   'map_name', 'label']
         df = pd.DataFrame(output_rows, columns=columns)
         

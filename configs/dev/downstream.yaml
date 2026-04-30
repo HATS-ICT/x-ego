@@ -15,6 +15,7 @@ training:
 model:
   stage1_checkpoint: null
   encoder:
+    trainable: false  # false = linear probe, true = train encoder + head
     finetune_last_k_layers: 0  # -1: finetune all, 0: freeze all, k: finetune last k layers
     model_type: vjepa2
 wandb:

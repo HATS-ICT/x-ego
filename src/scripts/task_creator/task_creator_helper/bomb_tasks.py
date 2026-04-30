@@ -165,7 +165,7 @@ class BombPlantedStateCreator(TaskCreatorBase):
                 'match_id': segment['match_id'],
                 'round_num': segment['round_num'],
                 'map_name': segment['map_name'],
-                'label_bomb_planted': segment['bomb_planted']
+                'label': segment['bomb_planted']
             }
             output_rows.append(row)
             idx += 1
@@ -319,7 +319,7 @@ class BombSitePredictionCreator(TaskCreatorBase):
                 'match_id': segment['match_id'],
                 'round_num': segment['round_num'],
                 'map_name': segment['map_name'],
-                'label_bomb_site': segment['bomb_site'],
+                'label': segment['bomb_site'],
                 'bomb_site_name': segment['bomb_site_name']
             }
             output_rows.append(row)
@@ -338,8 +338,8 @@ class PostPlantOutcomeCreator(TaskCreatorBase):
     """
     Creates labeled segments for post-plant outcome prediction.
     
-    After bomb is planted, predicts whether it will explode or be defused.
-    Output: Binary classification (0=defused, 1=exploded).
+    After bomb is planted, predicts whether the post-plant resolves for T or CT.
+    Output: Binary classification (0=CT won after plant, 1=T won after plant).
     """
     
     def _extract_segments_from_round(self, match_id: str, round_num: int,
@@ -360,21 +360,21 @@ class PostPlantOutcomeCreator(TaskCreatorBase):
             return []
         
         reason = round_info.iloc[0].get('reason', '')
+        winner = round_info.iloc[0].get('winner', '')
         bomb_site = round_info.iloc[0].get('bomb_site', '')
         
         # Only include rounds where bomb was planted
         if bomb_site == 'not_planted' or pd.isna(bomb_site) or bomb_site == '':
             return []
         
-        # Determine outcome (0=defused, 1=exploded)
-        if reason == 'bomb_defused':
+        # Determine outcome (0=CT won after plant, 1=T won after plant).
+        # Post-plant CT elimination is a T-side success even without a detonate event.
+        if winner == 'ct':
             outcome_label = 0
-        elif reason == 'bomb_exploded':
+        elif winner == 't':
             outcome_label = 1
         else:
-            # Round ended by elimination after plant - use whether bomb exploded
-            detonate_events = bomb_df[bomb_df['event'] == 'detonate']
-            outcome_label = 1 if not detonate_events.empty else 0
+            return []
         
         # Find plant tick
         plant_events = bomb_df[bomb_df['event'] == 'plant']
@@ -458,7 +458,8 @@ class PostPlantOutcomeCreator(TaskCreatorBase):
                     'map_name': map_name,
                     'pov_steamid': pov_data['steamid'],
                     'pov_side': pov_data['side'],
-                    'outcome': outcome_label
+                    'outcome': outcome_label,
+                    'outcome_reason_name': reason
                 }
                 segments.append(segment_info)
             
@@ -489,7 +490,8 @@ class PostPlantOutcomeCreator(TaskCreatorBase):
                 'match_id': segment['match_id'],
                 'round_num': segment['round_num'],
                 'map_name': segment['map_name'],
-                'label_outcome': segment['outcome']  # 0=defused, 1=exploded
+                'label': segment['outcome'],  # 0=CT won after plant, 1=T won after plant
+                'outcome_reason_name': segment['outcome_reason_name']
             }
             output_rows.append(row)
             idx += 1
@@ -631,7 +633,7 @@ class RoundWinnerCreator(TaskCreatorBase):
                 'match_id': segment['match_id'],
                 'round_num': segment['round_num'],
                 'map_name': segment['map_name'],
-                'label_round_winner': segment['round_winner'],
+                'label': segment['round_winner'],
                 'round_winner_name': segment['round_winner_name']
             }
             output_rows.append(row)
@@ -777,7 +779,7 @@ class RoundOutcomeReasonCreator(TaskCreatorBase):
                 'match_id': segment['match_id'],
                 'round_num': segment['round_num'],
                 'map_name': segment['map_name'],
-                'label_outcome_reason': segment['outcome_reason'],
+                'label': segment['outcome_reason'],
                 'outcome_reason_name': segment['outcome_reason_name']
             }
             output_rows.append(row)

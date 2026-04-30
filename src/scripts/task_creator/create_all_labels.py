@@ -91,7 +91,9 @@ TASK_CONFIGS: List[Tuple[str, type, Dict[str, Any]]] = [
     ("teammate_speed", TeammateSpeedCreator, {}),
     
     # ============= COMBAT TASKS =============
-    # Imminent kill (5s, 10s, 20s)
+    # Any kill (0s recognition; 5s, 10s, 20s forecast)
+    ("global_anyKill_0s", ImminentKillCreator,
+     {"horizon_sec": 0.0}),
     ("global_anyKill_5s", ImminentKillCreator, 
      {"horizon_sec": 5.0}),
     ("global_anyKill_10s", ImminentKillCreator, 
@@ -107,7 +109,9 @@ TASK_CONFIGS: List[Tuple[str, type, Dict[str, Any]]] = [
     ("self_death_20s", ImminentDeathSelfCreator, 
      {"horizon_sec": 20.0}),
     
-    # POV player gets a kill (5s, 10s, 20s)
+    # POV player gets a kill (0s recognition; 5s, 10s, 20s forecast)
+    ("self_kill_0s", ImminentKillSelfCreator,
+     {"horizon_sec": 0.0}),
     ("self_kill_5s", ImminentKillSelfCreator, 
      {"horizon_sec": 5.0}),
     ("self_kill_10s", ImminentKillSelfCreator, 
@@ -161,6 +165,9 @@ NOT_IMPLEMENTED_TASKS = [
     "team_executing",        # Site take detection
     "team_rotating",         # Rotation detection
 ]
+
+
+DEFAULT_MAPS = ["dust2", "inferno", "mirage"]
 
 
 def create_task_labels(
@@ -308,77 +315,103 @@ def main():
     if not DATA_BASE_PATH.is_absolute():
         DATA_BASE_PATH = Path(__file__).resolve().parent.parent.parent.parent / DATA_BASE_PATH
         
-    if args.map:
-        data_dir = DATA_BASE_PATH / args.map
-    else:
-        data_dir = DATA_BASE_PATH
-    
-    output_dir = args.output_dir
-    if output_dir is None:
-        output_dir = data_dir / 'labels' / 'all_tasks'
-    
-    partition_csv = data_dir / 'match_round_partitioned.csv'
-    
-    print("=" * 60)
-    print("Task Label Creation")
-    print("=" * 60)
-    print(f"Data directory: {data_dir}")
-    print(f"Output directory: {output_dir}")
-    print(f"Partition CSV: {partition_csv}")
-    print(f"Stride: {args.stride}s")
-    print(f"Segment length: {args.segment_length}s")
-    
-    if args.tasks:
-        print(f"Tasks: {args.tasks}")
-    else:
-        print(f"Tasks: ALL ({len(TASK_CONFIGS)} tasks)")
-    
     partitions = args.partitions if args.partitions else ["train", "val", "test"]
-    print(f"Partitions: {partitions}")
-    
     max_samples = args.max_samples if args.max_samples > 0 else None
-    if max_samples:
-        print(f"Max samples per task: {max_samples}")
+
+    if args.map:
+        map_names = [args.map]
     else:
-        print("Max samples per task: unlimited")
-    
+        map_names = [map_name for map_name in DEFAULT_MAPS if (DATA_BASE_PATH / map_name).is_dir()]
+        if not map_names:
+            raise FileNotFoundError(
+                f"No default map directories found under {DATA_BASE_PATH}: {DEFAULT_MAPS}"
+            )
+
     import multiprocessing as mp
     num_workers = args.workers
-    if num_workers:
-        print(f"Workers: {num_workers}")
-    else:
-        print(f"Workers: auto ({int(mp.cpu_count() * 0.9)} of {mp.cpu_count()} cores)")
-    
-    print("=" * 60)
-    
-    results = create_task_labels(
-        data_dir=data_dir,
-        output_dir=output_dir,
-        partition_csv=partition_csv,
-        task_ids=args.tasks,
-        stride_sec=args.stride,
-        segment_length_sec=args.segment_length,
-        partitions=partitions,
-        max_samples=max_samples,
-        num_workers=num_workers,
-    )
-    
+
+    all_results = {}
+
+    for map_name in map_names:
+        data_dir = DATA_BASE_PATH / map_name
+
+        if args.output_dir is None:
+            output_dir = data_dir / 'labels' / 'all_tasks'
+        elif args.map:
+            output_dir = Path(args.output_dir)
+        else:
+            output_dir = Path(args.output_dir) / map_name
+
+        partition_csv = data_dir / 'match_round_partitioned.csv'
+
+        print("=" * 60)
+        print("Task Label Creation")
+        print("=" * 60)
+        print(f"Map: {map_name}")
+        print(f"Data directory: {data_dir}")
+        print(f"Output directory: {output_dir}")
+        print(f"Partition CSV: {partition_csv}")
+        print(f"Stride: {args.stride}s")
+        print(f"Segment length: {args.segment_length}s")
+
+        if args.tasks:
+            print(f"Tasks: {args.tasks}")
+        else:
+            print(f"Tasks: ALL ({len(TASK_CONFIGS)} tasks)")
+
+        print(f"Partitions: {partitions}")
+
+        if max_samples:
+            print(f"Max samples per task: {max_samples}")
+        else:
+            print("Max samples per task: unlimited")
+
+        if num_workers:
+            print(f"Workers: {num_workers}")
+        else:
+            print(f"Workers: auto ({int(mp.cpu_count() * 0.9)} of {mp.cpu_count()} cores)")
+
+        print("=" * 60)
+
+        all_results[map_name] = create_task_labels(
+            data_dir=data_dir,
+            output_dir=output_dir,
+            partition_csv=partition_csv,
+            task_ids=args.tasks,
+            stride_sec=args.stride,
+            segment_length_sec=args.segment_length,
+            partitions=partitions,
+            max_samples=max_samples,
+            num_workers=num_workers,
+        )
+
     # Summary
     print("\n" + "=" * 60)
     print("Summary")
     print("=" * 60)
-    
-    successful = sum(1 for v in results.values() if v is not None)
-    failed = sum(1 for v in results.values() if v is None)
+
+    successful = sum(
+        1
+        for results in all_results.values()
+        for path in results.values()
+        if path is not None
+    )
+    failed = sum(
+        1
+        for results in all_results.values()
+        for path in results.values()
+        if path is None
+    )
     
     print(f"Successful: {successful}")
     print(f"Failed: {failed}")
     
     if failed > 0:
         print("\nFailed tasks:")
-        for task_id, path in results.items():
-            if path is None:
-                print(f"  - {task_id}")
+        for map_name, results in all_results.items():
+            for task_id, path in results.items():
+                if path is None:
+                    print(f"  - {map_name}/{task_id}")
 
 
 if __name__ == "__main__":

@@ -118,7 +118,10 @@ class TeammateLocationNowcastCreator(TaskCreatorBase):
                     place = tm.get('place', '')
                     if place in place_to_idx:
                         place_labels[place_to_idx[place]] = 1.0
-                
+                if not place_labels.any():
+                    current_tick += stride_ticks
+                    continue
+
                 segment_info = {
                     'start_tick': current_tick,
                     'end_tick': end_tick,
@@ -264,7 +267,10 @@ class EnemyLocationNowcastCreator(TaskCreatorBase):
                     place = en.get('place', '')
                     if place in place_to_idx:
                         place_labels[place_to_idx[place]] = 1.0
-                
+                if not place_labels.any():
+                    current_tick += stride_ticks
+                    continue
+
                 segment_info = {
                     'start_tick': current_tick,
                     'end_tick': end_tick,
@@ -456,6 +462,9 @@ class LocationForecastCreator(TaskCreatorBase):
                         place = t.get('place', '')
                         if place in place_to_idx:
                             place_labels[place_to_idx[place]] = 1.0
+                    if not place_labels.any():
+                        current_tick += stride_ticks
+                        continue
                     
                     segment_info = {
                         'start_tick': current_tick,

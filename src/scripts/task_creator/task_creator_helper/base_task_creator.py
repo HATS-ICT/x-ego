@@ -15,6 +15,11 @@ from tqdm import tqdm
 from abc import ABC, abstractmethod
 import json
 
+try:
+    import cv2
+except ImportError:
+    cv2 = None
+
 
 # Global variable to hold worker instance (one per process)
 _worker_instance = None
@@ -113,6 +118,8 @@ class TaskCreatorBase(ABC):
         self._trajectory_cache = {}
         self._event_cache = {}
         self._metadata_cache = {}
+        self._time_offsets_cache = None
+        self._video_duration_cache = {}
     
     def _load_partition_data(self):
         """Load match round partition data from CSV."""
@@ -124,6 +131,120 @@ class TaskCreatorBase(ABC):
         self.partition_df = pd.read_csv(partition_path)
         if self.verbose:
             print(f"Loaded {len(self.partition_df)} match-round entries from partition file")
+
+    # ========== Video Alignment ==========
+
+    def _load_time_offsets(self) -> Dict:
+        """Load per-video time offsets used to align game seconds to video seconds."""
+        if self._time_offsets_cache is not None:
+            return self._time_offsets_cache
+
+        offset_path = self.data_dir / "time_offset.json"
+        if not offset_path.exists():
+            self._time_offsets_cache = {}
+            return self._time_offsets_cache
+
+        try:
+            with open(offset_path, "r", encoding="utf-8") as f:
+                self._time_offsets_cache = json.load(f)
+        except Exception as e:
+            if self.verbose:
+                print(f"Warning: failed to load {offset_path}: {e}")
+            self._time_offsets_cache = {}
+
+        return self._time_offsets_cache
+
+    def _get_video_duration_seconds(self, match_id: str, steamid: str, round_num: int) -> Optional[float]:
+        """Return actual MP4 duration in seconds for a POV round video."""
+        cache_key = (str(match_id), str(steamid), int(round_num))
+        if cache_key in self._video_duration_cache:
+            return self._video_duration_cache[cache_key]
+
+        if cv2 is None:
+            self._video_duration_cache[cache_key] = None
+            return None
+
+        video_path = (
+            self.data_dir
+            / self.video_folder
+            / str(match_id)
+            / str(steamid)
+            / f"round_{round_num}.mp4"
+        )
+        if not video_path.exists():
+            self._video_duration_cache[cache_key] = None
+            return None
+
+        cap = cv2.VideoCapture(str(video_path))
+        if not cap.isOpened():
+            self._video_duration_cache[cache_key] = None
+            return None
+
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        cap.release()
+
+        if not fps or fps <= 0 or not frame_count or frame_count <= 0:
+            duration = None
+        else:
+            duration = float(frame_count / fps)
+
+        self._video_duration_cache[cache_key] = duration
+        return duration
+
+    def _segment_has_full_video_bounds(self, segment: Dict, tolerance_sec: float = 0.05) -> bool:
+        """Return True only when the aligned label segment is fully inside the source video."""
+        required = ("match_id", "round_num", "pov_steamid", "start_tick_norm", "end_tick_norm")
+        if any(key not in segment for key in required):
+            return False
+
+        match_id = str(segment["match_id"])
+        steamid = str(segment["pov_steamid"])
+        round_num = int(segment["round_num"])
+        round_key = f"round_{round_num}"
+
+        time_offsets = self._load_time_offsets()
+        try:
+            offset_sec = float(time_offsets[match_id][steamid][round_key]["offset_sec"])
+        except (KeyError, TypeError, ValueError):
+            return False
+
+        duration_sec = self._get_video_duration_seconds(match_id, steamid, round_num)
+        if duration_sec is None:
+            return False
+
+        video_start = float(segment["start_tick_norm"]) / self.tick_rate + offset_sec
+        video_end = float(segment["end_tick_norm"]) / self.tick_rate + offset_sec
+
+        if video_start < -tolerance_sec or video_end > duration_sec + tolerance_sec:
+            return False
+
+        prediction_tick_norm = segment.get("prediction_tick_norm")
+        if prediction_tick_norm is not None and not pd.isnull(prediction_tick_norm):
+            video_prediction = float(prediction_tick_norm) / self.tick_rate + offset_sec
+            if video_prediction < -tolerance_sec or video_prediction > duration_sec + tolerance_sec:
+                return False
+
+        return True
+
+    def _filter_segments_to_video_bounds(self, segments: List[Dict], config: Dict[str, Any]) -> List[Dict]:
+        """Drop generated labels whose aligned video window is not fully available."""
+        if not config.get("filter_video_bounds", True):
+            return segments
+
+        if not segments:
+            return segments
+
+        if cv2 is None:
+            raise RuntimeError("OpenCV is required for video-bound label filtering")
+
+        tolerance_sec = float(config.get("video_bounds_tolerance_sec", 0.05))
+        filtered = [segment for segment in segments if self._segment_has_full_video_bounds(segment, tolerance_sec)]
+        dropped = len(segments) - len(filtered)
+        if dropped:
+            print(f"Filtered {dropped} out-of-video-bounds segments")
+
+        return filtered
     
     # ========== Trajectory Loading ==========
     
@@ -838,6 +959,11 @@ class TaskCreatorBase(ABC):
         
         if not all_segments:
             print("No valid segments found. Exiting.")
+            return pd.DataFrame()
+
+        all_segments = self._filter_segments_to_video_bounds(all_segments, config)
+        if not all_segments:
+            print("No valid segments remain after video-bound filtering. Exiting.")
             return pd.DataFrame()
         
         # Downsample if we collected more than max_samples (with balancing)

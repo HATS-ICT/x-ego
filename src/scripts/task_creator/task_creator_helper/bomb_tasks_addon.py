@@ -145,7 +145,7 @@ class WillPlantPredictionCreator(TaskCreatorBase):
                 'match_id': segment['match_id'],
                 'round_num': segment['round_num'],
                 'map_name': segment['map_name'],
-                'label_will_plant': segment['will_plant']
+                'label': segment['will_plant']
             }
             output_rows.append(row)
             idx += 1

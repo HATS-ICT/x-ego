@@ -82,9 +82,14 @@ class ImminentKillCreator(TaskCreatorBase):
                     current_tick += stride_ticks
                     continue
                 
-                # Check for kills in forecast window (any player in game)
-                forecast_start = end_tick
-                forecast_end = end_tick + horizon_ticks
+                # 0s variants are recognition tasks: label kills inside the current segment.
+                # Positive horizons are forecast tasks: label kills after the segment.
+                if horizon_ticks == 0:
+                    forecast_start = current_tick
+                    forecast_end = end_tick
+                else:
+                    forecast_start = end_tick
+                    forecast_end = end_tick + horizon_ticks
                 
                 first_kill_tick = None
                 if not kills_df.empty:
@@ -500,9 +505,14 @@ class ImminentKillSelfCreator(TaskCreatorBase):
                     current_tick += stride_ticks
                     continue
                 
-                # Check if POV player gets a kill in forecast window
-                forecast_start = end_tick
-                forecast_end = end_tick + horizon_ticks
+                # 0s variants are recognition tasks: label kills inside the current segment.
+                # Positive horizons are forecast tasks: label kills after the segment.
+                if horizon_ticks == 0:
+                    forecast_start = current_tick
+                    forecast_end = end_tick
+                else:
+                    forecast_start = end_tick
+                    forecast_end = end_tick + horizon_ticks
                 
                 kill_tick = None
                 if not kills_df.empty:
@@ -554,7 +564,7 @@ class ImminentKillSelfCreator(TaskCreatorBase):
                 'match_id': segment['match_id'],
                 'round_num': segment['round_num'],
                 'map_name': segment['map_name'],
-                'label_pov_kills': segment['pov_kills']
+                'label': segment['pov_kills']
             }
             output_rows.append(row)
             idx += 1

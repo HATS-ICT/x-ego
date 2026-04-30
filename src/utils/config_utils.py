@@ -259,7 +259,6 @@ def _get_label_column_for_task(task_id: str, ml_form: str, output_dim: int) -> s
     The label column naming convention varies by task:
     - Most tasks: 'label'
     - Multi-label/multi-output tasks: 'label_0;label_1;...' (semicolon-separated)
-    - Some tasks have specific column names based on the task
     
     Args:
         task_id: Task identifier
@@ -269,26 +268,6 @@ def _get_label_column_for_task(task_id: str, ml_form: str, output_dim: int) -> s
     Returns:
         Label column name(s), semicolon-separated for multi-column tasks
     """
-    # Task-specific label column mappings (for tasks that don't use 'label')
-    TASK_LABEL_COLUMNS = {
-        # Combat tasks with specific column names
-        'self_kill_5s': 'label_pov_kills',
-        'self_kill_10s': 'label_pov_kills',
-        'self_kill_20s': 'label_pov_kills',
-        # Bomb tasks
-        'global_bombPlanted': 'label_bomb_planted',
-        'global_bombSite': 'label_bomb_site',
-        'global_willPlant': 'label_will_plant',
-        'global_postPlantOutcome': 'label_outcome',
-        # Round tasks
-        'global_roundWinner': 'label_round_winner',
-        'global_roundOutcome': 'label_outcome_reason',
-    }
-    
-    # Check if task has a specific label column mapping
-    if task_id in TASK_LABEL_COLUMNS:
-        return TASK_LABEL_COLUMNS[task_id]
-    
     # Multi-label classification and multi-output regression use label_0, label_1, etc.
     if ml_form == 'multi_label_cls':
         # Multi-label tasks have one column per class (e.g., 23 location classes)

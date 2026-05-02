@@ -38,7 +38,6 @@ EXP_PREFIX = "downstream_finetuned_v2"
 MODELS = [
     "siglip2",
     "dinov3",
-    "clip",
     "vjepa2",
     "resnet50",
 ]

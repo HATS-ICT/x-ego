@@ -35,18 +35,24 @@ LOGS_SUBDIR = "logs"
 # Experiment configuration
 EXP_PREFIX = "downstream_finetuned_v2"
 
-MODELS = [
-    "siglip2",
-    "dinov3",
-    "vjepa2",
-    "resnet50",
-]
-
-MAPS = [
-    "dust2",
-    "inferno",
-    "mirage",
-]
+# Model sweep by map, matching downstream_baseline.py except clip is excluded
+# until the corresponding contrastive checkpoint is ready.
+MODELS_BY_MAP = {
+    "dust2": [
+        "siglip2",
+        "resnet50",
+    ],
+    "inferno": [
+        "siglip2",
+        "resnet50",
+    ],
+    "mirage": [
+        "siglip2",
+        "dinov3",
+        "vjepa2",
+        "resnet50",
+    ],
+}
 
 UI_MASK = "all"
 
@@ -161,8 +167,8 @@ def validate_checkpoint_mapping() -> None:
     """Fail early if any requested (model, map) pair is missing from the mapping."""
     missing = [
         (model, map_name)
-        for model in MODELS
-        for map_name in MAPS
+        for map_name, models in MODELS_BY_MAP.items()
+        for model in models
         if (model, map_name) not in STAGE1_CHECKPOINTS
     ]
     if missing:
@@ -190,8 +196,8 @@ def main():
 
     # Generate jobs: all (map, model) for seed 1, then all for seed 2, ...
     for seed in SEEDS:
-        for map_name in MAPS:
-            for model in MODELS:
+        for map_name, models in MODELS_BY_MAP.items():
+            for model in models:
                 map_short = get_map_short_name(map_name)
                 ui_mask_short = get_ui_mask_short_name(UI_MASK)
                 run_name = f"{EXP_PREFIX}-seed{seed}-{map_short}-{model}-{ui_mask_short}"
@@ -237,8 +243,8 @@ def main():
     print(f"Generated {len(all_jobs)} job(s) in {jobs_root}")
     print(f"Logs will be written to {log_root}")
     print("\nBreakdown:")
-    print(f"  - models: {', '.join(MODELS)}")
-    print(f"  - maps: {', '.join(MAPS)}")
+    for map_name, models in MODELS_BY_MAP.items():
+        print(f"  - {map_name}: {', '.join(models)}")
     print(f"  - ui_mask: {UI_MASK}")
     print(f"  - seeds: {SEEDS} (all map/model jobs per seed before next seed)")
     print(
@@ -247,8 +253,8 @@ def main():
     print("  - encoder: frozen Stage 1 checkpoint linear probe")
     print(f"  - Total: {len(all_jobs)} jobs")
     print("\nStage 1 checkpoints:")
-    for model in MODELS:
-        for map_name in MAPS:
+    for map_name, models in MODELS_BY_MAP.items():
+        for model in models:
             folder = STAGE1_CHECKPOINTS[(model, map_name)]
             print(f"  - {model}/{map_name}: {folder}")
     print("\nTo submit all jobs to SLURM, run:")

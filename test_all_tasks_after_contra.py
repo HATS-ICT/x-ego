@@ -9,6 +9,7 @@ The script first prints checkpoint availability, then runs:
 
 import argparse
 import csv
+import gc
 import os
 import subprocess
 import sys
@@ -138,6 +139,43 @@ def checkpoint_path(model: str, map_name: str) -> Path:
     return OUTPUT_BASE_PATH / folder / CHECKPOINT_FILENAME
 
 
+def read_checkpoint_metadata(path: Path) -> str:
+    """Return a compact epoch/step summary from a Lightning checkpoint."""
+    try:
+        import torch
+    except ImportError as exc:
+        return f"metadata unavailable: torch import failed: {exc}"
+
+    try:
+        try:
+            checkpoint = torch.load(
+                path,
+                map_location="cpu",
+                weights_only=False,
+                mmap=True,
+            )
+        except TypeError:
+            checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+
+        epoch = checkpoint.get("epoch", "unknown")
+        global_step = checkpoint.get("global_step", "unknown")
+        loops = checkpoint.get("loops", {})
+        fit_loop = loops.get("fit_loop", {}) if isinstance(loops, dict) else {}
+        loop_epoch = fit_loop.get("epoch_progress", {}) if isinstance(fit_loop, dict) else {}
+        metadata = f"epoch={epoch}, global_step={global_step}"
+        if loop_epoch:
+            metadata += f", epoch_progress={loop_epoch}"
+        return metadata
+    except Exception as exc:
+        return f"metadata unavailable: {exc}"
+    finally:
+        try:
+            del checkpoint
+        except UnboundLocalError:
+            pass
+        gc.collect()
+
+
 def task_definitions_path(map_name: str) -> Path:
     return DATA_BASE_PATH / map_name / "labels" / "task_definitions.csv"
 
@@ -186,7 +224,8 @@ def check_checkpoint_availability() -> dict[tuple[str, str], Path]:
         for model in MODELS:
             path = checkpoint_path(model, map_name)
             if path.exists():
-                print(f"  FOUND   {model}: {path}")
+                metadata = read_checkpoint_metadata(path)
+                print(f"  FOUND   {model}: {path} ({metadata})")
                 available[(model, map_name)] = path
             else:
                 print(f"  MISSING {model}: {path}")

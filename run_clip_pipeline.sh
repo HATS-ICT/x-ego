@@ -33,11 +33,11 @@ run_contrastive() {
         model.encoder.model_type=clip \
         data.map="${map_name}" \
         data.ui_mask=all \
-        data.batch_size=128 \
+        data.batch_size=64 \
         data.num_workers=8 \
         training.max_epochs=40 \
         training.accumulate_grad_batches=1 \
-        training.contrastive_accumulate_batches=8 \
+        training.contrastive_accumulate_batches=16 \
         training.torch_compile=false \
         meta.exp_name=main_contra_with_accu \
         meta.run_name="${run_name}"

@@ -34,6 +34,7 @@ from src.models.contrastive_model import ContrastiveModel
 from src.utils.env_utils import get_output_base_path, get_data_base_path
 from src.dataset.dataset_utils import apply_all_ui_mask
 from src.scripts.attention_visualization.visualize_attention import (
+    DEFAULT_EXPERIMENT,
     load_vision_model_eager,
     get_attention_weights,
     visualize_attention_on_frame,
@@ -44,7 +45,7 @@ from src.scripts.attention_visualization.visualize_attention import (
 # Default experiment names for each model type
 DEFAULT_EXPERIMENTS = {
     'dinov2': "main_ui_cover-dinov2-ui-all-260122-035704-my8c",
-    'siglip2': "main_ui_cover-siglip2-ui-all-260122-064933-md8t",
+    'siglip2': DEFAULT_EXPERIMENT,
     'vjepa2': "main_ui_cover-vjepa2-ui-all-260122-072237-nrz4",
     'clip': "main_ui_cover-clip-ui-all-260124-084053-wxbo",
 }
@@ -146,7 +147,7 @@ def load_finetuned_vision_model(experiment_name: str, epoch: int, model_type: st
     if not ckpt_files:
         raise FileNotFoundError(f"No checkpoint found for epoch {epoch} in {checkpoint_dir}")
     checkpoint_path = ckpt_files[0]
-    checkpoint = torch.load(checkpoint_path, weights_only=False)
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     state_dict = checkpoint['state_dict']
     state_dict = ContrastiveModel._strip_orig_mod_prefix(state_dict)
     model = ContrastiveModel(cfg)
@@ -156,26 +157,15 @@ def load_finetuned_vision_model(experiment_name: str, epoch: int, model_type: st
     # Load vision model with eager attention
     finetuned_vision_model = load_vision_model_eager(model_type)
     
-    # Transfer weights from checkpoint to vision model
-    if model_type == 'vjepa2':
-        encoder_state = model.video_encoder.video_encoder.vision_model.encoder.state_dict()
-        new_state = {f"encoder.{k}": v for k, v in encoder_state.items()}
-        finetuned_vision_model.load_state_dict(new_state, strict=False)
-    elif model_type == 'siglip2':
-        encoder_state = model.video_encoder.video_encoder.vision_model.state_dict()
-        new_state = {f"vision_model.{k}": v for k, v in encoder_state.items()}
-        finetuned_vision_model.load_state_dict(new_state)
-    elif model_type == 'clip':
-        # CLIPVisionModel expects keys with "vision_model." prefix
-        encoder_state = model.video_encoder.video_encoder.vision_model.state_dict()
-        new_state = {f"vision_model.{k}": v for k, v in encoder_state.items()}
-        finetuned_vision_model.load_state_dict(new_state)
-    else:
-        encoder_state = model.video_encoder.video_encoder.vision_model.state_dict()
-        finetuned_vision_model.load_state_dict(encoder_state)
+    encoder_state = model.video_encoder.video_encoder.vision_model.state_dict()
+    missing, unexpected = finetuned_vision_model.load_state_dict(encoder_state, strict=False)
+    if unexpected:
+        raise RuntimeError(f"Unexpected vision state keys for {model_type}: {unexpected[:5]}")
+    if missing:
+        print(f"Warning: {len(missing)} missing vision keys while loading eager model")
     
     finetuned_vision_model.eval()
-    finetuned_vision_model.cuda()
+    finetuned_vision_model.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
     
     return finetuned_vision_model
 
@@ -248,6 +238,7 @@ def render_attention_video(
     Middle: CECL (finetuned) attention overlay
     Right: Off-the-shelf pretrained attention overlay
     """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Loading video: {video_path}")
     frames, fps = load_video_frames(video_path)
     num_frames = len(frames)
@@ -259,7 +250,7 @@ def render_attention_video(
     print(f"Loading pretrained {model_type} model (off-the-shelf)...")
     pretrained_model = load_vision_model_eager(model_type)
     pretrained_model.eval()
-    pretrained_model.cuda()
+    pretrained_model.to(device)
     
     print(f"Loading finetuned {model_type} model from {experiment_name}...")
     finetuned_model = load_finetuned_vision_model(experiment_name, epoch, model_type)
@@ -291,7 +282,7 @@ def render_attention_video(
         # VJEPA2 processes all frames together
         print("Preprocessing frames for VJEPA2...")
         video_tensor = preprocess_frames_for_model(frames, model_type)
-        video_tensor = video_tensor.unsqueeze(0).cuda()
+        video_tensor = video_tensor.unsqueeze(0).to(device)
         
         with torch.no_grad():
             finetuned_attentions = get_attention_weights(finetuned_model, video_tensor, model_type)
@@ -345,7 +336,7 @@ def render_attention_video(
             batch_frames = frames[batch_start:batch_end]
             
             video_tensor = preprocess_frames_for_model(batch_frames, model_type)
-            video_tensor = video_tensor.unsqueeze(0).cuda()
+            video_tensor = video_tensor.unsqueeze(0).to(device)
             
             with torch.no_grad():
                 finetuned_attentions = get_attention_weights(finetuned_model, video_tensor, model_type)

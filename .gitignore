@@ -208,6 +208,7 @@ __marimo__/
 
 .vscode/
 .cursor/
+.claude/
 
 data/
 artifacts/

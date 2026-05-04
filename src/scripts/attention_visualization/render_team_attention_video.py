@@ -138,6 +138,7 @@ def render_team_attention_video(
     - 3 rows: Original, Model + CECL, Model
     - 5 columns: One per team member
     """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     video_base = Path(video_base_path)
     metadata_base = Path(metadata_base_path)
     
@@ -189,7 +190,7 @@ def render_team_attention_video(
     print(f"Loading pretrained {model_type} model...")
     pretrained_model = load_vision_model_eager(model_type)
     pretrained_model.eval()
-    pretrained_model.cuda()
+    pretrained_model.to(device)
     
     print(f"Loading finetuned {model_type} model from {experiment_name}...")
     finetuned_model = load_finetuned_vision_model(experiment_name, epoch, model_type)
@@ -232,7 +233,7 @@ def render_team_attention_video(
                 continue
             
             video_tensor = preprocess_frames_for_model(batch_frames, model_type)
-            video_tensor = video_tensor.unsqueeze(0).cuda()
+            video_tensor = video_tensor.unsqueeze(0).to(device)
             
             with torch.no_grad():
                 finetuned_attn = get_attention_weights(finetuned_model, video_tensor, model_type)

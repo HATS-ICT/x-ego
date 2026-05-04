@@ -8,6 +8,7 @@ Visualizes how linguistic concepts (text-image similarities) change:
 Saves visualizations to artifacts/language_visualization/
 """
 
+import argparse
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
@@ -47,21 +48,71 @@ if platform.system() == 'Windows':
     pathlib.PosixPath = pathlib.WindowsPath
 
 
-def load_checkpoint_vision_state(experiment_name: str, epoch: int):
+DEFAULT_EXPERIMENT = "main_contra_with_accu-siglip2-mirage-ui-all-260427-080317-eixo"
+DEFAULT_EPOCHS = [1, 4, 10, 19, 27, 39]
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Generate aggregate language-rank visualizations for SigLIP2 checkpoints."
+    )
+    parser.add_argument("--experiment", default=DEFAULT_EXPERIMENT)
+    parser.add_argument("--experiment-dir", default=None)
+    parser.add_argument("--checkpoint-dir", default=None)
+    parser.add_argument("--epochs", nargs="*", type=int, default=DEFAULT_EPOCHS)
+    parser.add_argument("--all-epochs", action="store_true")
+    parser.add_argument("--final-epoch", type=int, default=None)
+    parser.add_argument("--num-samples", type=int, default=100)
+    parser.add_argument("--artifact-dir", default=str(Path("artifacts") / "language_visualization_v4"))
+    parser.add_argument("--generate-individual-plots", action="store_true")
+    return parser.parse_args()
+
+
+def experiment_dir_from_args(args) -> Path:
+    if args.experiment_dir:
+        exp_dir = Path(args.experiment_dir).expanduser()
+    else:
+        exp_dir = Path(get_output_base_path()) / args.experiment
+    if not exp_dir.exists():
+        raise FileNotFoundError(f"Experiment directory not found: {exp_dir}")
+    args.experiment = exp_dir.name
+    return exp_dir
+
+
+def checkpoint_dir_from_args(args) -> Path:
+    if args.checkpoint_dir:
+        checkpoint_dir = Path(args.checkpoint_dir).expanduser()
+    else:
+        checkpoint_dir = experiment_dir_from_args(args) / "checkpoint"
+    if not checkpoint_dir.exists():
+        raise FileNotFoundError(f"Checkpoint directory not found: {checkpoint_dir}")
+    return checkpoint_dir
+
+
+def discover_checkpoint_epochs(checkpoint_dir: Path) -> list[int]:
+    import re
+
+    epochs = set()
+    for path in checkpoint_dir.glob("*.ckpt"):
+        match = re.search(r"-e(\d+)-", path.name)
+        if match:
+            epochs.add(int(match.group(1)))
+    if not epochs:
+        raise FileNotFoundError(f"No per-epoch checkpoints found in {checkpoint_dir}")
+    return sorted(epochs)
+
+
+def load_checkpoint_vision_state(checkpoint_dir: Path, epoch: int):
     """
     Load vision encoder state dict from a checkpoint.
     
     Args:
-        experiment_name: Name of the experiment directory
+        checkpoint_dir: Directory containing per-epoch checkpoints
         epoch: Epoch number to load
         
     Returns:
         State dict of the vision encoder, or None if not found
     """
-    output_base = Path(get_output_base_path())
-    exp_dir = output_base / experiment_name
-    checkpoint_dir = exp_dir / "checkpoint"
-    
     ckpt_files = list(checkpoint_dir.glob(f"*-e{epoch:02d}-*.ckpt"))
     if not ckpt_files:
         print(f"  Warning: No checkpoint found for epoch {epoch}")
@@ -70,7 +121,7 @@ def load_checkpoint_vision_state(experiment_name: str, epoch: int):
     checkpoint_path = ckpt_files[0]
     print(f"  Loading checkpoint: {checkpoint_path.name}")
     
-    checkpoint = torch.load(checkpoint_path, weights_only=False)
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     state_dict = checkpoint['state_dict']
     state_dict = ContrastiveModel._strip_orig_mod_prefix(state_dict)
     
@@ -85,10 +136,8 @@ def load_checkpoint_vision_state(experiment_name: str, epoch: int):
     return vision_state
 
 
-def load_experiment_config(experiment_name: str):
+def load_experiment_config(exp_dir: Path):
     """Load experiment config from hparam.yaml."""
-    output_base = Path(get_output_base_path())
-    exp_dir = output_base / experiment_name
     hparam_path = exp_dir / "hparam.yaml"
     
     cfg = OmegaConf.load(hparam_path)
@@ -100,15 +149,43 @@ def load_experiment_config(experiment_name: str):
             'data': str(data_base),
         },
         'data': {
-            'label_path': str(data_base / cfg.data.labels_folder / cfg.data.labels_filename),
-            'video_base_path': str(data_base / cfg.data.video_folder),
             'random_mask': {
                 'enable': False,
             }
         }
     })
     cfg = OmegaConf.merge(cfg, path_cfg)
+    cfg.data.label_path = str(resolve_contrastive_label_path(data_base, cfg))
+    cfg.data.video_base_path = str(data_base / cfg.data.map / cfg.data.video_folder)
     return cfg
+
+
+def resolve_contrastive_label_path(data_base: Path, cfg) -> Path:
+    candidates = []
+    if "map" in cfg.data:
+        candidates.append(data_base / cfg.data.map / cfg.data.labels_folder / cfg.data.labels_filename)
+    candidates.append(data_base / cfg.data.labels_folder / cfg.data.labels_filename)
+
+    for path in candidates:
+        if path.exists():
+            return path
+
+    searched = ", ".join(str(path) for path in candidates)
+    raise FileNotFoundError(f"Could not find contrastive labels. Searched: {searched}")
+
+
+def format_epoch_label(epoch) -> str:
+    return "Base" if epoch == "baseline" else f"Ep{epoch}"
+
+
+def epoch_panels(available_epochs: list) -> tuple[list, list]:
+    """Return early and full epoch panels without assuming a specific checkpoint cadence."""
+    ordered = [epoch for epoch in available_epochs if epoch == "baseline"] + [
+        epoch for epoch in available_epochs if epoch != "baseline"
+    ]
+    if len(ordered) <= 7:
+        return ordered, ordered
+    return ordered[:6], ordered
 
 
 def process_video_frames(video_clip: torch.Tensor, processor, model, device) -> torch.Tensor:
@@ -444,13 +521,7 @@ def create_ranking_change_plot(
     """
     from matplotlib.lines import Line2D
     
-    # Define the two epoch splits
-    early_epochs = ['baseline', 0, 1, 2, 3, 4]
-    full_epochs = ['baseline', 4, 9, 14, 19, 24, 29, 34, 39]
-    
-    # Filter to only available epochs
-    early_epochs = [e for e in early_epochs if e in epoch_similarities]
-    full_epochs = [e for e in full_epochs if e in epoch_similarities]
+    early_epochs, full_epochs = epoch_panels([e for e in epochs if e in epoch_similarities])
     
     # Compute mean similarity per concept per epoch (for all epochs)
     mean_sims = {}
@@ -478,10 +549,7 @@ def create_ranking_change_plot(
         x_labels = []
         for i, e in enumerate(plot_epochs):
             x_positions.append(i)  # Use sequential positions
-            if e == 'baseline':
-                x_labels.append('Base')
-            else:
-                x_labels.append(f'Ep{e}')
+            x_labels.append(format_epoch_label(e))
         
         # Plot each concept's ranking trajectory
         for concept_idx, concept in enumerate(ALL_CONCEPTS):
@@ -547,10 +615,10 @@ def create_ranking_change_plot(
         ax.set_title(title_suffix, fontsize=12, fontweight='bold')
     
     # Plot early training (left subplot)
-    plot_ranking_subplot(ax_early, early_epochs, 'Early Training (Baseline → Epoch 4)')
+    plot_ranking_subplot(ax_early, early_epochs, 'Early Training')
     
     # Plot full training (right subplot)
-    plot_ranking_subplot(ax_full, full_epochs, 'Full Training (Baseline → Epoch 39)')
+    plot_ranking_subplot(ax_full, full_epochs, 'Full Training')
     
     # Add shared legend at the bottom using GROUP_COLORS
     legend_elements = [
@@ -625,22 +693,10 @@ def create_aggregate_ranking_plot(
                 rank[idx] = r + 1
             final_rankings[epoch] = rank
     
-    # Define the two epoch splits
-    early_epochs = ['baseline', 0, 1, 2, 3, 4]
-    full_epochs = ['baseline', 4, 9, 14, 19, 24, 29, 34, 39]
-    
-    early_epochs = [e for e in early_epochs if e in final_rankings]
-    full_epochs = [e for e in full_epochs if e in final_rankings]
+    early_epochs, full_epochs = epoch_panels([e for e in epochs if e in final_rankings])
     
     # Create figure with two subplots side by side
     fig, (ax_early, ax_full) = plt.subplots(1, 2, figsize=(24, 16))
-    
-    def get_shifted_label(epoch):
-        """Convert epoch to shifted label: baseline->Ep0, 4->Ep5, 9->Ep10, etc."""
-        if epoch == 'baseline':
-            return 'Ep0'
-        else:
-            return f'Ep{epoch + 1}'
     
     def plot_aggregate_subplot(ax, plot_epochs):
         """Helper function to plot aggregate ranking evolution."""
@@ -648,7 +704,7 @@ def create_aggregate_ranking_plot(
         x_labels = []
         for i, e in enumerate(plot_epochs):
             x_positions.append(i)
-            x_labels.append(get_shifted_label(e))
+            x_labels.append(format_epoch_label(e))
         
         # Plot each concept's average ranking trajectory (no markers)
         for concept_idx, concept in enumerate(ALL_CONCEPTS):
@@ -782,23 +838,14 @@ def create_aggregate_ranking_plot_single(
                 rank[idx] = r + 1
             final_rankings[epoch] = rank
     
-    # Only full epochs (longer range)
-    full_epochs = ['baseline', 4, 9, 14, 19, 24, 29, 34, 39]
-    full_epochs = [e for e in full_epochs if e in final_rankings]
+    _, full_epochs = epoch_panels([e for e in epochs if e in final_rankings])
     
     # Create single-panel figure
     fig, ax = plt.subplots(1, 1, figsize=(14, 16))
     
-    def get_shifted_label(epoch):
-        """Convert epoch to shifted label: baseline->Ep0, 4->Ep5, 9->Ep10, etc."""
-        if epoch == 'baseline':
-            return 'Ep0'
-        else:
-            return f'Ep{epoch + 1}'
-    
     # Plot
     x_positions = list(range(len(full_epochs)))
-    x_labels = [get_shifted_label(e) for e in full_epochs]
+    x_labels = [format_epoch_label(e) for e in full_epochs]
     
     # Plot each concept's average ranking trajectory
     for concept_idx, concept in enumerate(ALL_CONCEPTS):
@@ -943,12 +990,7 @@ def create_group_ranking_plot(
             group_stats[group]['max'].append(np.max(group_ranks))
             group_stats[group]['std'].append(np.std(group_ranks))
     
-    # Define epoch splits
-    early_epochs = ['baseline', 0, 1, 2, 3, 4]
-    full_epochs = ['baseline', 4, 9, 14, 19, 24, 29, 34, 39]
-    
-    early_epochs = [e for e in early_epochs if e in avg_rankings]
-    full_epochs = [e for e in full_epochs if e in avg_rankings]
+    early_epochs, full_epochs = epoch_panels([e for e in epochs if e in avg_rankings])
     
     # Create figure
     fig, (ax_early, ax_full) = plt.subplots(1, 2, figsize=(16, 8))
@@ -960,7 +1002,7 @@ def create_group_ranking_plot(
     def plot_group_subplot(ax, plot_epochs):
         """Plot group-level ranking evolution."""
         x_positions = list(range(len(plot_epochs)))
-        x_labels = ['Base' if e == 'baseline' else f'Ep{e}' for e in plot_epochs]
+        x_labels = [format_epoch_label(e) for e in plot_epochs]
         epoch_indices = get_epoch_indices(plot_epochs, available_epochs)
         
         for group in CATEGORY_GROUPS.keys():
@@ -1019,8 +1061,6 @@ def create_combined_group_ranking_plot(
     Create a combined plot showing the right panel (full training) from both direct 
     and prompted versions side by side.
     
-    X-axis labels are shifted: Base -> Ep0, Ep4 -> Ep5, Ep9 -> Ep10, etc.
-    
     Args:
         all_sample_rankings_direct: Rankings from direct mode
         all_sample_rankings_prompted: Rankings from prompted mode
@@ -1029,9 +1069,6 @@ def create_combined_group_ranking_plot(
     """
     
     num_concepts = len(ALL_CONCEPTS)
-    
-    # Define full training epochs only (right panel)
-    full_epochs = ['baseline', 4, 9, 14, 19, 24, 29, 34, 39]
     
     def compute_group_stats_for_mode(all_sample_rankings):
         """Compute group statistics for a given mode."""
@@ -1068,9 +1105,8 @@ def create_combined_group_ranking_plot(
     group_stats_direct, available_epochs_direct = compute_group_stats_for_mode(all_sample_rankings_direct)
     group_stats_prompted, available_epochs_prompted = compute_group_stats_for_mode(all_sample_rankings_prompted)
     
-    # Filter to full epochs
-    full_epochs_direct = [e for e in full_epochs if e in available_epochs_direct]
-    full_epochs_prompted = [e for e in full_epochs if e in available_epochs_prompted]
+    _, full_epochs_direct = epoch_panels(available_epochs_direct)
+    _, full_epochs_prompted = epoch_panels(available_epochs_prompted)
     
     # Create figure with two subplots side by side (smaller for paper)
     fig, (ax_direct, ax_prompted) = plt.subplots(1, 2, figsize=(10, 5))
@@ -1079,18 +1115,10 @@ def create_combined_group_ranking_plot(
         """Get indices into the stats arrays for the given epochs."""
         return [all_epochs.index(e) for e in plot_epochs if e in all_epochs]
     
-    def get_shifted_label(epoch):
-        """Convert epoch to shifted label: baseline->Ep0, 4->Ep5, 9->Ep10, etc."""
-        if epoch == 'baseline':
-            return 'Ep0'
-        else:
-            return f'Ep{epoch + 1}'
-    
     def plot_group_subplot(ax, plot_epochs, group_stats, available_epochs, title):
         """Plot group-level ranking evolution."""
         x_positions = list(range(len(plot_epochs)))
-        # Use shifted labels
-        x_labels = [get_shifted_label(e) for e in plot_epochs]
+        x_labels = [format_epoch_label(e) for e in plot_epochs]
         epoch_indices = get_epoch_indices(plot_epochs, available_epochs)
         
         for group in CATEGORY_GROUPS.keys():
@@ -1224,20 +1252,21 @@ def create_ranking_summary(final_rankings: dict, epochs: list, num_samples: int)
 
 def main():
     """Main function to generate language visualizations."""
-    # Configuration
-    experiment_name = "main_ui_cover-siglip2-ui-all-260122-064933-md8t"
-    # All epochs for trajectory visualization: baseline, 0, 1, 2, 3, 4, 9, 14, 19, 24, 29, 34, 39
-    epochs_to_load = [0, 1, 2, 3, 4, 9, 14, 19, 24, 29, 34, 39]
-    final_epoch = 39  # For before/after comparison (baseline vs epoch 39)
-    num_samples = 100
-    
-    # Disable individual sample plots (only generate aggregate)
-    generate_individual_plots = False
+    args = parse_args()
+    exp_dir = experiment_dir_from_args(args)
+    checkpoint_dir = checkpoint_dir_from_args(args)
+    if args.all_epochs:
+        epochs_to_load = discover_checkpoint_epochs(checkpoint_dir)
+    else:
+        epochs_to_load = args.epochs
+    final_epoch = args.final_epoch if args.final_epoch is not None else max(epochs_to_load)
+    num_samples = args.num_samples
+    generate_individual_plots = args.generate_individual_plots
     
     # Setup paths
     output_base = Path(get_output_base_path())
     data_base = Path(get_data_base_path())
-    artifacts_dir = Path("artifacts") / "language_visualization"
+    artifacts_dir = Path(args.artifact_dir)
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     
     print("=" * 60)
@@ -1246,11 +1275,11 @@ def main():
     
     # Load experiment config
     print("\n[1/5] Loading experiment configuration...")
-    cfg = load_experiment_config(experiment_name)
+    cfg = load_experiment_config(exp_dir)
     
     # Load data
     print("\n[2/5] Loading test data...")
-    df = pl.read_csv(data_base / "labels" / "contrastive.csv", null_values=[])
+    df = pl.read_csv(resolve_contrastive_label_path(data_base, cfg), null_values=[])
     df = df.filter(pl.col('partition') == 'test')
     
     # Sample videos
@@ -1293,7 +1322,7 @@ def main():
     
     for epoch in epochs_to_load:
         print(f"  Loading epoch {epoch}...")
-        state = load_checkpoint_vision_state(experiment_name, epoch)
+        state = load_checkpoint_vision_state(checkpoint_dir, epoch)
         if state is not None:
             epoch_vision_states[epoch] = state
     

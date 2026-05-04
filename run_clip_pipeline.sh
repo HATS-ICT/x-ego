@@ -6,9 +6,15 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
-set -a
-source .env
-set +a
+# Load .env robustly (handles CRLF line endings from Windows).
+if [[ -f .env ]]; then
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        line="${line%$'\r'}"
+        [[ -z "${line}" || "${line}" =~ ^[[:space:]]*# ]] && continue
+        [[ "${line}" == *"="* ]] || continue
+        export "${line?}"
+    done < .env
+fi
 
 : "${OUTPUT_BASE_PATH:?OUTPUT_BASE_PATH not set in .env}"
 

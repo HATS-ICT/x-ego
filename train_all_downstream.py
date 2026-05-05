@@ -74,6 +74,11 @@ def parse_args() -> argparse.Namespace:
         help="WandB group name (default: None to disable)",
     )
     parser.add_argument(
+        "--no-resume",
+        action="store_true",
+        help="Disable automatic per-task resume (re-run every task even if outputs exist)",
+    )
+    parser.add_argument(
         "--extra-overrides",
         type=str,
         nargs="*",
@@ -109,6 +114,7 @@ class TrainResult:
     category: str
     success: bool
     error_msg: Optional[str] = None
+    skipped: bool = False
 
 
 def get_task_definitions_path(map_name: str) -> Path:
@@ -161,10 +167,51 @@ def run_command(cmd: list[str], description: str) -> tuple[bool, str]:
         return False, str(e)
 
 
+def get_run_name(task: TaskDefinition, args: argparse.Namespace) -> str:
+    """Build the run-name prefix used for output folders for this task."""
+    return f"probe-{args.map}-{args.model_type}-{task.task_id}-{args.ui_mask}"
+
+
+def find_task_run_folders(run_name: str) -> list[Path]:
+    """Return any existing output folders that match this run_name prefix.
+
+    Output folders are named `{run_name}-{timestamp}-{suffix}`, so we glob
+    `{run_name}-*` under OUTPUT_BASE_PATH.
+    """
+    output_root = Path(OUTPUT_BASE_PATH)
+    if not output_root.exists():
+        return []
+    return sorted(p for p in output_root.glob(f"{run_name}-*") if p.is_dir())
+
+
+def task_completion_status(run_name: str) -> tuple[str, Optional[Path]]:
+    """Classify a task's prior runs.
+
+    Returns one of:
+      ("not_started", None)              -- no folder for this run_name
+      ("incomplete", folder)             -- folder exists but missing result jsons
+      ("complete", folder)               -- folder exists with both result jsons
+    """
+    folders = find_task_run_folders(run_name)
+    if not folders:
+        return "not_started", None
+
+    complete_folder: Optional[Path] = None
+    for folder in folders:
+        has_best = (folder / "test_results_best.json").exists()
+        has_last = (folder / "test_results_last.json").exists()
+        if has_best and has_last:
+            complete_folder = folder
+            break
+
+    if complete_folder is not None:
+        return "complete", complete_folder
+    return "incomplete", folders[-1]
+
+
 def train_task(task: TaskDefinition, args: argparse.Namespace) -> TrainResult:
     """Train downstream on a single task."""
-    # Build run name: model-task-ui_mask
-    run_name = f"probe-{args.map}-{args.model_type}-{task.task_id}-{args.ui_mask}"
+    run_name = get_run_name(task, args)
     
     cmd = [
         sys.executable, "main.py",
@@ -222,23 +269,31 @@ def print_summary(results: list[TrainResult]):
     
     total_passed = 0
     total_failed = 0
+    total_skipped = 0
     failed_tasks: list[TrainResult] = []
-    
+
     for category in sorted(by_category.keys()):
         print(f"\n{category.upper()}:")
         for r in by_category[category]:
-            status = "PASS" if r.success else "FAIL"
-            symbol = "CHECK" if r.success else "X"
+            if r.skipped:
+                status = "SKIP"
+                symbol = "-"
+            else:
+                status = "PASS" if r.success else "FAIL"
+                symbol = "CHECK" if r.success else "X"
             print(f"  {symbol} {r.task_id}: {status}")
-            
-            if r.success:
+
+            if r.skipped:
+                total_skipped += 1
+                total_passed += 1
+            elif r.success:
                 total_passed += 1
             else:
                 total_failed += 1
                 failed_tasks.append(r)
-    
+
     print(f"\n{'='*80}")
-    print(f"Total: {total_passed} passed, {total_failed} failed")
+    print(f"Total: {total_passed} passed ({total_skipped} skipped), {total_failed} failed")
     print("="*80)
     
     # Print detailed failures
@@ -300,7 +355,28 @@ def main():
         print(f"# Task {i}/{len(benchmark_tasks)}: {task.task_id}")
         print(f"# Category: {task.category} | ML Form: {task.ml_form}")
         print('#'*80)
-        
+
+        if not args.no_resume:
+            run_name = get_run_name(task, args)
+            status, folder = task_completion_status(run_name)
+            if status == "complete":
+                print(f"SKIP: already complete -> {folder.name}")
+                results.append(TrainResult(
+                    task_id=task.task_id,
+                    task_name=task.task_name,
+                    category=task.category,
+                    success=True,
+                    skipped=True,
+                ))
+                continue
+            elif status == "incomplete":
+                print(
+                    f"RESUME: found incomplete run -> {folder.name} "
+                    "(missing test_results_best.json and/or test_results_last.json); retraining"
+                )
+            else:
+                print("START: no prior run folder found")
+
         result = train_task(task, args)
         results.append(result)
     

@@ -1,0 +1,6 @@
+# Shell scripts must keep LF endings. A CRLF checkout fails on Linux with
+# "bad interpreter: /usr/bin/env bash^M", which is easy to misdiagnose.
+*.sh text eol=lf
+
+# SLURM job files are consumed by bash on the cluster.
+*.job text eol=lf

@@ -355,7 +355,77 @@ class LinearProbeModel(L.LightningModule):
         return self._step(batch, 'val')
     
     def test_step(self, batch, batch_idx):
-        return self._step(batch, 'test')
+        loss = self._step(batch, 'test')
+        self._collect_test_predictions(batch)
+        return loss
+
+    def _collect_test_predictions(self, batch):
+        """Buffer per-sample logits keyed by original_csv_idx.
+
+        Needed to slice test results into controlled subsets offline (see
+        src/scripts/eval_subsets/). Only aggregate metrics are saved otherwise,
+        which makes any conditional analysis impossible without a re-run.
+        Off by default. Enable with data.dump_test_predictions=true, or by setting
+        XEGO_DUMP_TEST_PREDICTIONS=1. The env var exists because `--mode test`
+        reloads a saved experiment config, and configs saved before this key
+        existed cannot accept it as an override.
+        """
+        import os
+        enabled = (getattr(self.cfg.data, 'dump_test_predictions', False)
+                   or os.environ.get('XEGO_DUMP_TEST_PREDICTIONS', '') not in ('', '0', 'false'))
+        if not enabled:
+            return
+        if not hasattr(self, '_test_pred_buffer'):
+            self._test_pred_buffer = []
+
+        with torch.no_grad():
+            logits = self.forward(batch).detach().float().cpu()
+            targets = batch['label'].detach().float().cpu()
+
+        idx = batch.get('original_csv_idx')
+        if torch.is_tensor(idx):
+            idx = idx.detach().cpu().tolist()
+        elif idx is None:
+            idx = [None] * logits.shape[0]
+
+        self._test_pred_buffer.append({
+            'original_csv_idx': idx,
+            'match_id': list(batch.get('match_id', [])) or [None] * logits.shape[0],
+            'player_id': list(batch.get('player_id', [])) or [None] * logits.shape[0],
+            'logits': logits.numpy(),
+            'targets': targets.numpy(),
+        })
+
+    def _write_test_predictions(self):
+        """Flatten the buffer to one parquet file, one row per test sample."""
+        buf = getattr(self, '_test_pred_buffer', None)
+        if not buf:
+            return None
+
+        import numpy as np
+        import pandas as pd
+
+        logits = np.concatenate([b['logits'].reshape(len(b['original_csv_idx']), -1) for b in buf])
+        targets = np.concatenate([b['targets'].reshape(len(b['original_csv_idx']), -1) for b in buf])
+        frame = pd.DataFrame({
+            'original_csv_idx': [i for b in buf for i in b['original_csv_idx']],
+            'match_id': [m for b in buf for m in b['match_id']],
+            'player_id': [p for b in buf for p in b['player_id']],
+        })
+        for j in range(logits.shape[1]):
+            frame[f'logit_{j}'] = logits[:, j]
+        for j in range(targets.shape[1]):
+            frame[f'target_{j}'] = targets[:, j]
+
+        checkpoint_name = getattr(self, 'checkpoint_name', 'unknown')
+        out_path = Path(self.output_dir) / f'test_predictions_{checkpoint_name}.parquet'
+        try:
+            frame.to_parquet(out_path, index=False)
+        except Exception:
+            out_path = out_path.with_suffix('.csv')
+            frame.to_csv(out_path, index=False)
+        self._test_pred_buffer = []
+        return out_path
     
     def on_test_epoch_end(self):
         """Save test results to JSON file after test epoch completes."""
@@ -405,6 +475,10 @@ class LinearProbeModel(L.LightningModule):
         
         print(f"\nTest results saved to: {results_file}")
         print(f"Test metrics: {test_results['metrics']}")
+
+        pred_path = self._write_test_predictions()
+        if pred_path is not None:
+            print(f"Per-sample test predictions saved to: {pred_path}")
     
     def on_load_checkpoint(self, checkpoint: dict) -> None:
         """

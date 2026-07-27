@@ -30,7 +30,11 @@ data:
   fixed_duration_seconds: 5
   target_fps: 4
   video_column_name: video_path
-  ui_mask: all  # options: none, minimap_only, all (all not implemented yet)
+  ui_mask: all  # options: none, minimap_only, all
+  # Dump per-sample test logits to test_predictions_{best,last}.parquet in the run
+  # dir. Needed for subset analysis (src/scripts/eval_subsets). Can also be forced
+  # with XEGO_DUMP_TEST_PREDICTIONS=1, which is what --mode test reruns use.
+  dump_test_predictions: false
   time_jitter_max_seconds: 0
   random_mask:
     enable: false

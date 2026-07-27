@@ -25,6 +25,7 @@ import csv
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional
+import yaml
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -60,6 +61,15 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         help="Stage 1 checkpoint path (default: None for baseline/off-the-shelf)",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help=(
+            "Seed for this run. Included in the output run-name to disambiguate "
+            "repeated/parallel seed runs, and forwarded as a meta.seed override."
+        ),
     )
     parser.add_argument(
         "--start-from-task",
@@ -167,32 +177,98 @@ def run_command(cmd: list[str], description: str) -> tuple[bool, str]:
         return False, str(e)
 
 
-def get_run_name(task: TaskDefinition, args: argparse.Namespace) -> str:
-    """Build the run-name prefix used for output folders for this task."""
+def get_stage1_checkpoint_tag(stage1_checkpoint: str) -> str:
+    """Short tag identifying which Stage 1 checkpoint a run was initialized from.
+
+    Checkpoint paths look like `<exp-name>-<timestamp>-<suffix>/checkpoint/last.ckpt`;
+    the trailing random suffix is enough to disambiguate between checkpoints without
+    making run_name unwieldy.
+    """
+    exp_dir_name = Path(stage1_checkpoint).parent.parent.name
+    suffix = exp_dir_name.split("-")[-1]
+    return f"ck{suffix}"
+
+
+def get_base_run_name(task: TaskDefinition, args: argparse.Namespace) -> str:
+    """Plain map/model/task/ui_mask prefix shared by every run of this task,
+    regardless of seed or Stage 1 checkpoint. Used to glob candidate output
+    folders, including ones written before seed/checkpoint tags existed.
+    """
     return f"probe-{args.map}-{args.model_type}-{task.task_id}-{args.ui_mask}"
 
 
-def find_task_run_folders(run_name: str) -> list[Path]:
-    """Return any existing output folders that match this run_name prefix.
+def get_run_name(task: TaskDefinition, args: argparse.Namespace) -> str:
+    """Build the run-name used for meta.run_name (and thus the output folder name).
 
-    Output folders are named `{run_name}-{timestamp}-{suffix}`, so we glob
-    `{run_name}-*` under OUTPUT_BASE_PATH.
+    Includes seed and a Stage 1 checkpoint tag so that different seeds and
+    different initializations (baseline vs. finetuned-from-checkpoint) produce
+    distinct, self-describing folder names going forward.
+    """
+    parts = [get_base_run_name(task, args)]
+    if args.seed is not None:
+        parts.append(f"seed{args.seed}")
+    if args.stage1_checkpoint:
+        parts.append(get_stage1_checkpoint_tag(args.stage1_checkpoint))
+    return "-".join(parts)
+
+
+def resolve_stage1_checkpoint(stage1_checkpoint: Optional[str]) -> Optional[str]:
+    """Resolve a (possibly relative) checkpoint path the same way train_task() does,
+    so it can be compared against the absolute path recorded in a prior run's hparam.yaml.
+    """
+    if not stage1_checkpoint:
+        return None
+    checkpoint_path = Path(stage1_checkpoint)
+    if not checkpoint_path.is_absolute():
+        checkpoint_path = Path(OUTPUT_BASE_PATH) / checkpoint_path
+    return str(checkpoint_path)
+
+
+def find_task_run_folders(base_run_name: str) -> list[Path]:
+    """Return any existing output folders that match this task's base run-name prefix.
+
+    Output folders are named `{base_run_name}[-seed{N}][-ck{tag}]-{timestamp}-{suffix}`,
+    so glob on the base prefix to catch both pre- and post-disambiguation folders.
     """
     output_root = Path(OUTPUT_BASE_PATH)
     if not output_root.exists():
         return []
-    return sorted(p for p in output_root.glob(f"{run_name}-*") if p.is_dir())
+    return sorted(p for p in output_root.glob(f"{base_run_name}*") if p.is_dir())
 
 
-def task_completion_status(run_name: str) -> tuple[str, Optional[Path]]:
-    """Classify a task's prior runs.
+def folder_matches_run(folder: Path, args: argparse.Namespace) -> bool:
+    """Check whether an existing output folder was produced with the same seed and
+    Stage 1 checkpoint as the current run, so that runs sharing the same
+    map/model/task/ui_mask prefix (e.g. baseline vs. finetuned, or a different seed)
+    aren't mistaken for a completed run of this one.
+    """
+    hparam_path = folder / "hparam.yaml"
+    if not hparam_path.exists():
+        return False
+    try:
+        with open(hparam_path) as f:
+            hparam = yaml.safe_load(f) or {}
+    except Exception:
+        return False
+
+    folder_seed = (hparam.get("meta") or {}).get("seed")
+    if folder_seed != args.seed:
+        return False
+
+    folder_checkpoint = (hparam.get("model") or {}).get("stage1_checkpoint")
+    return folder_checkpoint == resolve_stage1_checkpoint(args.stage1_checkpoint)
+
+
+def task_completion_status(task: TaskDefinition, args: argparse.Namespace) -> tuple[str, Optional[Path]]:
+    """Classify a task's prior runs for this exact (map, model, seed, stage1_checkpoint).
 
     Returns one of:
-      ("not_started", None)              -- no folder for this run_name
+      ("not_started", None)              -- no matching folder
       ("incomplete", folder)             -- folder exists but missing result jsons
       ("complete", folder)               -- folder exists with both result jsons
     """
-    folders = find_task_run_folders(run_name)
+    base_run_name = get_base_run_name(task, args)
+    folders = [f for f in find_task_run_folders(base_run_name) if folder_matches_run(f, args)]
     if not folders:
         return "not_started", None
 
@@ -231,7 +307,11 @@ def train_task(task: TaskDefinition, args: argparse.Namespace) -> TrainResult:
         if not checkpoint_path.is_absolute():
             checkpoint_path = Path(OUTPUT_BASE_PATH) / checkpoint_path
         cmd.append(f"model.stage1_checkpoint={checkpoint_path}")
-    
+
+    # Add seed override if specified
+    if args.seed is not None:
+        cmd.append(f"meta.seed={args.seed}")
+
     # Add WandB group if specified
     if args.wandb_group is not None:
         cmd.append(f"wandb.group={args.wandb_group}")
@@ -357,8 +437,7 @@ def main():
         print('#'*80)
 
         if not args.no_resume:
-            run_name = get_run_name(task, args)
-            status, folder = task_completion_status(run_name)
+            status, folder = task_completion_status(task, args)
             if status == "complete":
                 print(f"SKIP: already complete -> {folder.name}")
                 results.append(TrainResult(

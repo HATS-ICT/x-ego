@@ -84,6 +84,7 @@ uv run python train_all_downstream.py \\
   --map {map_name} \\
   --model-type {model} \\
   --ui-mask {ui_mask} \\
+  --seed {seed} \\
   --extra-overrides {extra_overrides}
 """
 
@@ -165,7 +166,7 @@ def main():
                 map_short = get_map_short_name(map_name)
                 ui_mask_short = get_ui_mask_short_name(UI_MASK)
                 run_name = f"{EXP_PREFIX}-seed{seed}-{map_short}-{model}-{ui_mask_short}"
-                model_overrides = get_model_overrides(model) + [f"meta.seed={seed}"]
+                model_overrides = get_model_overrides(model)
 
                 header = SCRIPT_HEADER.format(
                     account=ACCOUNT,
@@ -185,6 +186,7 @@ def main():
                     map_name=map_name,
                     model=model,
                     ui_mask=UI_MASK,
+                    seed=seed,
                     extra_overrides=" ".join(model_overrides),
                 ).rstrip()
 

@@ -103,6 +103,7 @@ uv run python train_all_downstream.py \\
   --model-type {model} \\
   --ui-mask {ui_mask} \\
   --stage1-checkpoint {stage1_checkpoint} \\
+  --seed {seed} \\
   --extra-overrides {extra_overrides}
 """
 
@@ -204,7 +205,6 @@ def main():
                 stage1_checkpoint = get_stage1_checkpoint(model, map_name)
                 model_overrides = [
                     "model.encoder.trainable=false",
-                    f"meta.seed={seed}",
                 ]
 
                 header = SCRIPT_HEADER.format(
@@ -226,6 +226,7 @@ def main():
                     model=model,
                     ui_mask=UI_MASK,
                     stage1_checkpoint=stage1_checkpoint,
+                    seed=seed,
                     extra_overrides=" ".join(model_overrides),
                 ).rstrip()
 

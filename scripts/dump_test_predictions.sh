@@ -21,6 +21,14 @@ TASK_FILTER="${2:-.}"
 OUTPUT_BASE="${OUTPUT_BASE_PATH:-/project2/ustun_1726/x-ego/output}"
 export XEGO_DUMP_TEST_PREDICTIONS=1
 
+# Fewer DataLoader workers. The default of 8 exhausts /dev/shm on some nodes,
+# surfacing as "unable to allocate shared memory(shm) for file ...". Test is a
+# single pass, so throughput barely matters here.
+NUM_WORKERS="${XEGO_TEST_NUM_WORKERS:-2}"
+
+# One wandb run per checkpoint would create 120 junk runs and slow every step.
+export WANDB_MODE="${WANDB_MODE:-disabled}"
+
 if [[ ! -f "$MANIFEST" ]]; then
   echo "manifest not found: $MANIFEST" >&2
   exit 1
@@ -38,8 +46,10 @@ while IFS=$'\t' read -r arm map enc task seed stage1 run_dir; do
   [[ "$task" =~ $TASK_FILTER ]] || continue
   total=$((total + 1))
 
-  target="${OUTPUT_BASE}/${run_dir}/test_predictions_best.parquet"
-  if [[ -f "$target" ]]; then
+  # --mode test evaluates the "last" checkpoint, so that is the file produced.
+  target="${OUTPUT_BASE}/${run_dir}/test_predictions_last.parquet"
+  alt="${OUTPUT_BASE}/${run_dir}/test_predictions_best.parquet"
+  if [[ -f "$target" || -f "$alt" ]]; then
     done_already=$((done_already + 1))
     continue
   fi
@@ -53,8 +63,8 @@ while IFS=$'\t' read -r arm map enc task seed stage1 run_dir; do
 
   echo "=== [$total] $arm $map/$enc $task seed$seed"
   echo "    $run_dir"
-  if "${RUNNER[@]}" main.py --mode test --task downstream "meta.resume_exp=${run_dir}"; then
-    if [[ -f "$target" ]]; then
+  if "${RUNNER[@]}" main.py --mode test --task downstream        "meta.resume_exp=${run_dir}" "data.num_workers=${NUM_WORKERS}"; then
+    if [[ -f "$target" || -f "$alt" ]]; then
       ok=$((ok + 1))
     else
       echo "    WARNING: exited 0 but no parquet written" >&2

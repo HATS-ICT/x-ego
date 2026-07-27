@@ -76,16 +76,20 @@ def metric(ml_form: str, logits: np.ndarray, targets: np.ndarray) -> float:
     raise ValueError(ml_form)
 
 
-def load_run(output_base: Path, run_dir: str):
+def load_run(output_base: Path, run_dir: str, reference: dict | None = None):
+    """Load dumped predictions. `--mode test` evaluates the 'last' checkpoint, so
+    that file is preferred; '_best' is accepted for runs dumped during training."""
     d = output_base / run_dir
-    pq = d / 'test_predictions_best.parquet'
-    if not pq.exists():
-        alt = d / 'test_predictions_best.csv'
-        if not alt.exists():
-            return None
-        frame = pd.read_csv(alt)
-    else:
-        frame = pd.read_parquet(pq)
+    frame = None
+    for name in ('test_predictions_last.parquet', 'test_predictions_best.parquet',
+                 'test_predictions_last.csv', 'test_predictions_best.csv'):
+        f = d / name
+        if f.exists():
+            frame = pd.read_parquet(f) if f.suffix == '.parquet' else pd.read_csv(f)
+            which = 'last' if 'last' in name else 'best'
+            break
+    if frame is None:
+        return None
     hp = yaml.safe_load((d / 'hparam.yaml').read_text(encoding='utf-8'))
     ml_form = (hp.get('task') or {}).get('ml_form')
     lcols = sorted([c for c in frame.columns if c.startswith('logit_')],
@@ -97,18 +101,22 @@ def load_run(output_base: Path, run_dir: str):
         'logits': frame[lcols].to_numpy(dtype=float),
         'targets': frame[tcols].to_numpy(dtype=float),
         'ml_form': ml_form,
-        'reported': _reported(d),
+        # Verify against the metrics recorded BEFORE this rerun. The rerun
+        # overwrites test_results_last.json in place, so comparing against that
+        # file would be circular.
+        'reported': (reference or {}).get((run_dir, which),
+                                          (reference or {}).get((run_dir, 'best'))),
     }
 
 
-def _reported(run_path: Path):
-    f = run_path / 'test_results_best.json'
-    if not f.exists():
-        return None
-    j = json.loads(f.read_text(encoding='utf-8'))
-    key = {'binary_cls': 'acc', 'multi_cls': 'acc',
-           'multi_label_cls': 'f1', 'regression': 'r2'}.get(j.get('ml_form'))
-    return (j.get('metrics') or {}).get(key)
+def load_reference(path: Path) -> dict:
+    """Original per-run metrics, keyed by (run_dir, which). Written before any
+    rerun, so it is an external check rather than a self-comparison."""
+    if not path.exists():
+        print(f'WARNING: no reference table at {path}; verification will be skipped')
+        return {}
+    ref = pd.read_csv(path, sep='	')
+    return {(r['run_dir'], r['which']): float(r['value']) for r in ref.to_dict('records')}
 
 
 def main():
@@ -118,6 +126,8 @@ def main():
     ap.add_argument('--output-base', default=None,
                     help='dir holding the probe run dirs (default: $OUTPUT_BASE_PATH or output)')
     ap.add_argument('--subset-dir', default='output/eval_subsets')
+    ap.add_argument('--reference', default='src/scripts/eval_subsets/reference_metrics.tsv',
+                    help='original metrics recorded before any rerun, for --verify')
     ap.add_argument('--verify', action='store_true',
                     help='only check dumped logits reproduce test_results_best.json')
     ap.add_argument('--out', default=None, help='write a markdown report here')

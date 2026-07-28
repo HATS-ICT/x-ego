@@ -73,8 +73,18 @@ def metric(ml_form: str, logits: np.ndarray, targets: np.ndarray) -> float:
         pred = sigmoid(logits.reshape(len(logits), -1)[:, 0]) > 0.5
         return float(np.mean(pred == (targets.reshape(len(targets), -1)[:, 0] > 0.5)))
     if ml_form == 'multi_cls':
+        # MulticlassAccuracy is built without an `average` argument
+        # (downstream.py:185,517) and torchmetrics defaults to average='macro',
+        # so the published "acc" is per-class recall averaged over classes, not
+        # plain accuracy. On enemy_aliveCount the two differ by 0.09.
+        y = targets.reshape(len(targets), -1)
+        true = y[:, 0].astype(int) if y.shape[1] == 1 else y.argmax(axis=1)
         pred = logits.argmax(axis=1)
-        return float(np.mean(pred == targets.reshape(len(targets), -1)[:, 0].astype(int)))
+        recalls = []
+        for c in range(logits.shape[1]):
+            m = true == c
+            recalls.append(float(np.mean(pred[m] == c)) if m.any() else 0.0)
+        return float(np.mean(recalls))
     if ml_form == 'regression':
         y = targets.reshape(len(targets), -1)
         p = logits.reshape(len(logits), -1)
@@ -100,6 +110,16 @@ def load_run(output_base: Path, run_dir: str, reference: dict | None = None):
         return None
     hp = yaml.safe_load((d / 'hparam.yaml').read_text(encoding='utf-8'))
     ml_form = (hp.get('task') or {}).get('ml_form')
+    metric_key = {'multi_label_cls': 'f1', 'regression': 'r2'}.get(ml_form, 'acc')
+
+    # Written by torchmetrics in the same process that produced the parquet, so
+    # comparing it against a recompute from the raw logits is an independent
+    # check of the metric definition. This is check A below.
+    self_reported = None
+    jf = d / f'test_results_{which}.json'
+    if jf.exists():
+        v = (json.loads(jf.read_text(encoding='utf-8')).get('metrics') or {}).get(metric_key)
+        self_reported = float(v) if v is not None else None
     lcols = sorted([c for c in frame.columns if c.startswith('logit_')],
                    key=lambda c: int(c.split('_')[1]))
     tcols = sorted([c for c in frame.columns if c.startswith('target_')],
@@ -109,9 +129,13 @@ def load_run(output_base: Path, run_dir: str, reference: dict | None = None):
         'logits': frame[lcols].to_numpy(dtype=float),
         'targets': frame[tcols].to_numpy(dtype=float),
         'ml_form': ml_form,
-        # Verify against the metrics recorded BEFORE this rerun. The rerun
-        # overwrites test_results_last.json in place, so comparing against that
-        # file would be circular.
+        'which': which,
+        # torchmetrics value from this rerun, for the definition check.
+        'self_reported': self_reported,
+        # Metrics recorded BEFORE this rerun, for the checkpoint-identity check.
+        # NOTE the reference table's `which` column is not meaningful: all 1133
+        # runs carry identical best and last rows, so these are best-checkpoint
+        # values. A dump of `last` will differ slightly wherever best != last.
         'reported': (reference or {}).get((run_dir, which),
                                           (reference or {}).get((run_dir, 'best'))),
     }
@@ -172,28 +196,46 @@ def main():
         )
 
     # ---- verification -----------------------------------------------------
-    diffs = []
-    for k, v in runs.items():
-        if v['reported'] is None:
-            continue
-        got = metric(v['ml_form'], v['logits'], v['targets'])
-        diffs.append((abs(got - v['reported']), k, got, v['reported']))
-    diffs.sort(reverse=True)
-    if diffs:
-        worst = diffs[0]
+    # Two independent questions, previously conflated into one number.
+    #
+    #   A  Does a recompute from the raw logits match what torchmetrics computed
+    #      in the same process? Catches metric-definition errors in this file.
+    #      Must be tight; anything above 1e-2 is a definition mismatch.
+    #   B  Does this rerun agree with the metrics recorded before it? Catches a
+    #      changed checkpoint. Loose, because the reference holds best-checkpoint
+    #      values while --mode test dumps `last`.
+    recomputed = {k: metric(v['ml_form'], v['logits'], v['targets']) for k, v in runs.items()}
+
+    def report(label, field, tol, note=''):
+        diffs = sorted(((abs(recomputed[k] - v[field]), k, recomputed[k], v[field])
+                        for k, v in runs.items() if v.get(field) is not None), reverse=True)
+        if not diffs:
+            print(f'\n{label}\n  WARNING: 0 of {len(runs)} runs had a value to compare '
+                  f'against, so this check did NOT run.')
+            return False
         med = statistics.median(d[0] for d in diffs)
-        print(f'\nverification over {len(diffs)} runs: median |diff| {med:.5f}, max {worst[0]:.5f}')
-        for d, k, got, rep in diffs[:5]:
-            flag = 'OK  ' if d < 1e-3 else 'BAD '
-            print(f'  {flag}{d:.5f}  recomputed {got:.4f} vs reported {rep:.4f}  {k}')
-        if worst[0] >= 1e-3:
-            print('\n  WARNING: at least one run does not reproduce its reported metric.')
-            print('  Do not trust the subset numbers until this is resolved.')
-    else:
-        # An empty diff list means nothing was checked. Silence here previously
-        # read as a clean pass, so say it out loud.
-        print(f'\nWARNING: verified 0 of {len(runs)} runs. No run matched a row in '
-              f'{args.reference}, so the dumps are UNVERIFIED.')
+        print(f'\n{label}\n  {len(diffs)} runs, median |diff| {med:.5f}, max {diffs[0][0]:.5f}'
+              f'{note}')
+        by_form = collections.defaultdict(list)
+        for d, k, _, _ in diffs:
+            by_form[runs[k]['ml_form']].append(d)
+        for form, ds in sorted(by_form.items()):
+            worst = max(ds)
+            print(f'    {"OK  " if worst < tol else "BAD "}{form:16s} n={len(ds):3d} '
+                  f'median {statistics.median(ds):.5f}  max {worst:.5f}')
+        for d, k, got, rep in diffs[:3]:
+            if d >= tol:
+                print(f'    worst  recomputed {got:.4f} vs {rep:.4f}  {k}')
+        return diffs[0][0] < tol
+
+    ok_a = report('check A, recompute vs this run\'s own torchmetrics value', 'self_reported',
+                  1e-2, '  (tolerance 1e-2; small gaps are mixed-precision)')
+    report('check B, this run vs metrics recorded before the rerun', 'reported', 5e-2,
+           '  (reference holds best-checkpoint values, dumps are last)')
+    if not ok_a:
+        print('\n  WARNING: the recompute does not match torchmetrics. The metric in '
+              'this file is\n  defined differently from the training code. Do not trust '
+              'the subset numbers.')
     if args.verify:
         return
 

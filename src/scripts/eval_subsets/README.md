@@ -72,6 +72,77 @@ script prints a warning but does not stop you, so check the output.
   reloads a saved experiment config, and configs written before that key existed
   cannot accept it as an override.
 - `mirage/clip` is excluded: it has baseline runs but no CECL counterpart.
-- `build_relay_conditions.py` (the C1–C4 relay ladder) is **not** part of this
-  flow. It needs view angles, which the current trajectory parse does not extract.
-  Run `src/scripts/data_processing/parse_traj_with_angles.py` first.
+- The C1–C4 relay ladder is a separate flow with its own prerequisites. See below.
+
+## The relay ladder (C1–C4)
+
+Tests whether the POV agent's representation encodes an enemy it cannot see but a
+teammate can. Reuses the same 120 dumps, so **no retraining and no new forward
+passes** — only new per-sample flags and a re-slice.
+
+| Condition | Meaning |
+|---|---|
+| C1 | B sees an enemy directly |
+| C2 | B sees no enemy, a teammate A does, and B can see A |
+| C3 | same, but B cannot see any informed teammate |
+| C4 | nobody on B's team sees any enemy |
+
+C2 versus C3 is the discriminator. C4 is the Area Chair's condition.
+
+### Two visibility backends, deliberately
+
+The engine tracks spotted state for **enemies only**. `m_bSpottedByMask` (exposed
+by demoparser2 as `approximate_spotted_by`) names exactly which players have
+spotted a given enemy, but teammates are on the radar regardless of line of sight
+and never appear in it. So:
+
+- **enemy leg** (`does teammate A see enemy E`) uses the mask, which is exact and
+  accounts for occlusion, smoke, and the engine's own rules
+- **teammate leg** (`does B see teammate A`) uses awpy line-of-sight against the
+  map collision mesh, intersected with a field-of-view cone
+
+### Steps, all CPU-only
+
+```bash
+# 1. Re-parse with pitch/yaw/spotted mask. Smoke-test one demo first.
+bash scripts/reparse_all_angles.sh --data-dir $DATA --limit 1
+bash scripts/reparse_all_angles.sh --data-dir $DATA
+
+# 2. Collision mesh, once per map. Needs a .vphys extracted with Source 2 Viewer;
+#    build_map_tri.py prints the exact export steps.
+python -m src.scripts.data_processing.build_map_tri --map inferno --data-dir $DATA
+
+# 3. VALIDATE. Do not skip. Prints the mask bit offset to use in step 4.
+python -m src.scripts.eval_subsets.validate_visibility --map inferno \
+    --data-dir $DATA --tri-path $DATA/inferno/mesh/de_inferno.tri
+
+# 4. Build the conditions with the offset from step 3.
+MASK_OFFSET=0 bash scripts/build_all_relay.sh --data-dir $DATA
+
+# 5. The report picks up a relay section per task automatically.
+python -m src.scripts.eval_subsets.analyze_subsets --out reviews/subset-results.md
+```
+
+### Why step 3 is mandatory
+
+`m_bSpottedByMask` is indexed by entity slot, and the offset between `entity_id`
+and the bit index has changed across parser versions. A wrong offset yields
+plausible C2/C3 counts that mean nothing. `validate_visibility.py` resolves the
+offset by agreement with geometry and checks three things that must hold
+regardless of the data: no player is spotted by themselves, set bits name
+opponents rather than teammates, and the mask implies the team-level `spotted`
+flag. If any of those warn, use `ENEMY_BACKEND=los` instead and accept that
+geometry over-counts because it does not model smoke or flashes.
+
+### Known limits
+
+- The labels are a **team-level multi-hot** over regions for all enemies jointly,
+  so a condition attaches to a row, not to one enemy. Regions with exactly one
+  occupant are attributable, and `n_relay_regions` / `relay_regions` record them
+  for a finer label-level test. Do not report per-enemy conditions from the
+  aggregate columns.
+- C2 is the rarest cell by construction, being a four-way conjunction. The builder
+  warns below n=100, at which point the C2 versus C3 comparison has no power and
+  maps must be pooled.
+- `EYE_HEIGHT` is the standing offset. Stance is not recorded, so crouched players
+  are modelled slightly too tall.

@@ -1,12 +1,12 @@
 """
 Assign relay conditions C1-C4 to enemy-location samples.
 
-The question this supports: when the POV agent B cannot see an enemy, but a
-teammate A can, and B can see A, does the CECL representation encode the enemy
-better than baseline? At inference B's embedding comes from B's video alone, so
-nothing is transmitted at test time. What is being tested is whether alignment
-taught the encoder to read teammate behaviour (stance, aim direction, peek
-posture) as evidence about the unseen world.
+The question. When the POV agent B cannot see an enemy, but a teammate A can, and
+B can see A, does the CECL representation encode that enemy better than baseline?
+At inference B's embedding comes from B's own video alone, so nothing is
+transmitted at test time. What is tested is whether cross-ego alignment taught the
+encoder to read teammate behaviour, meaning stance, aim direction, peek posture, as
+evidence about a part of the world B cannot see.
 
 Conditions, evaluated at the prediction tick for POV agent B:
 
@@ -15,213 +15,80 @@ Conditions, evaluated at the prediction tick for POV agent B:
   C3  relay, no contact B sees no enemy; some teammate sees an enemy; B sees no such A
   C4  team blind        nobody on B's team sees any enemy
 
-Predicted CECL gain under the shared-mental-model account is C2 > C3 > C4, with
-C1 small because the information is already local. C2 versus C3 is the
-discriminator. If C2 >> C3 the transfer depends on visual contact with the
-informed teammate. If C2 == C3 the representation is team-aware regardless of
-contact, which is a weaker relay story but still supports shared latent state.
-C4 is the Area Chair's condition and isolates prior-based inference.
+Predicted CECL gain under the shared-mental-model reading is C2 > C3 > C4, with C1
+small because the information is already local. C2 versus C3 is the discriminator.
+If C2 greatly exceeds C3 the transfer depends on visual contact with the informed
+teammate. If they are equal the representation is team-aware regardless of contact,
+a weaker relay story that still supports shared latent state. C4 isolates
+prior-based inference and is the Area Chair's condition.
 
-IMPORTANT SCOPE LIMIT. The enemy_location labels are a team-level multi-hot over
-map regions for all enemies jointly, so a condition cannot be attached to one
-enemy without per-place attribution. Conditions here are therefore row-level
-aggregate predicates. Per-enemy detail is emitted alongside so a finer analysis
-is possible later, but do not report per-enemy conditions from this file as if
-the label were per-enemy.
+TWO BACKENDS, ON PURPOSE. The engine maintains spotted state for enemies only, so
+m_bSpottedByMask answers "does teammate A see enemy E" exactly but says nothing
+about "does B see teammate A". The enemy leg therefore defaults to the mask and the
+teammate leg to geometry. See visibility.py.
 
-PREREQUISITE. Requires view angles in the trajectories, which the current parse
-does not extract (parse_traj_per_player.py requests only
-tick/steamid/name/side/X/Y/Z/place/health with player_props=[]). Run
-src/scripts/data_processing/parse_traj_with_angles.py first, then point
---trajectory-folder at its output.
+SCOPE LIMIT. enemy_location labels are a team-level multi-hot over map regions for
+all enemies jointly, so a condition cannot be attached to one enemy without
+per-region attribution. Conditions here are row-level aggregate predicates. Where
+a region has exactly one occupant, attribution is possible and the columns
+`n_regions_single_occupant` and `relay_regions` record it, which supports a finer
+label-level analysis later. Do not report per-enemy conditions from the aggregate
+columns.
+
+RUN validate_visibility.py FIRST. The mask bit offset is not fixed across parser
+versions and a wrong offset produces plausible, meaningless counts.
 
 Example:
     python -m src.scripts.eval_subsets.build_relay_conditions \
         --map inferno --task enemy_location_0s \
-        --trajectory-folder trajectory_angles --backend geometric
+        --tri-path data/inferno/mesh/de_inferno.tri --mask-bit-offset 0
 """
 
 from __future__ import annotations
 
 import argparse
-import math
 from pathlib import Path
 from typing import Dict, Optional
 
-import numpy as np
 import pandas as pd
 
+from src.scripts.eval_subsets.relay_io import load_alt_trajectories
 from src.scripts.eval_subsets.subset_common import (
     load_labels,
-    load_round_trajectories,
+    place_to_idx_for_map,
     player_side,
     state_at_tick,
 )
+from src.scripts.eval_subsets.visibility import (
+    MASK_COLUMN,
+    FovConeVisibility,
+    LineOfSightVisibility,
+    SpottedMaskVisibility,
+    TeamSpottedVisibility,
+)
 
 OPPOSITE = {"ct": "t", "t": "ct"}
-EYE_HEIGHT = 64.0  # positions are at the feet; CS2 standing eye offset
 
 
-# --------------------------------------------------------------------------
-# Visibility backends
-# --------------------------------------------------------------------------
-
-class GeometricVisibility:
-    """Field-of-view cone test. No occlusion, so this OVER-counts visibility.
-
-    Treat results as an upper bound. A player behind a wall but inside the cone
-    counts as visible, which on Inferno is a large fraction of pairs. Use this
-    to prototype the pipeline and to define `sees(B, A)` for teammates, where
-    same-region plus short range makes the proxy reasonable. For `sees(X, enemy)`
-    prefer the awpy backend or engine spotted flags.
-    """
-
-    name = "geometric"
-
-    def __init__(self, half_fov_deg: float = 53.0, max_dist: float = 3000.0,
-                 require_same_or_missing_place: bool = False):
-        self.cos_half_fov = math.cos(math.radians(half_fov_deg))
-        self.max_dist = max_dist
-        self.require_same_place = require_same_or_missing_place
-
-    @staticmethod
-    def _forward(pitch_deg: float, yaw_deg: float) -> np.ndarray:
-        # Source-engine convention: positive pitch looks down.
-        p = math.radians(float(pitch_deg))
-        y = math.radians(float(yaw_deg))
-        return np.array(
-            [math.cos(p) * math.cos(y), math.cos(p) * math.sin(y), -math.sin(p)],
-            dtype=float,
+def _make(kind: str, args, label: str):
+    if kind == "mask":
+        return SpottedMaskVisibility(bit_offset=args.mask_bit_offset)
+    if kind == "team_spotted":
+        return TeamSpottedVisibility()
+    if kind == "los":
+        if not args.tri_path:
+            raise SystemExit(
+                f"--{label}-backend los needs --tri-path. Build the mesh with\n"
+                f"  python -m src.scripts.data_processing.build_map_tri --map {args.map}\n"
+                f"or use --{label}-backend fov, which ignores walls and over-counts."
+            )
+        return LineOfSightVisibility(
+            args.tri_path, args.half_fov, args.max_dist, require_fov=not args.no_fov
         )
+    if kind == "fov":
+        return FovConeVisibility(args.half_fov, args.max_dist)
+    raise ValueError(kind)
 
-    def sees(self, observer, target) -> Optional[bool]:
-        for col in ("pitch", "yaw"):
-            if col not in observer or pd.isna(observer.get(col)):
-                return None  # cannot evaluate without angles
-        eye = np.array(
-            [float(observer["X"]), float(observer["Y"]), float(observer["Z"]) + EYE_HEIGHT]
-        )
-        tgt = np.array(
-            [float(target["X"]), float(target["Y"]), float(target["Z"]) + EYE_HEIGHT]
-        )
-        delta = tgt - eye
-        dist = float(np.linalg.norm(delta))
-        if dist <= 1e-6 or dist > self.max_dist:
-            return False
-        if self.require_same_place:
-            op, tp = observer.get("place"), target.get("place")
-            if isinstance(op, str) and isinstance(tp, str) and op != tp:
-                return False
-        fwd = self._forward(observer["pitch"], observer["yaw"])
-        return bool(float(np.dot(fwd, delta / dist)) >= self.cos_half_fov)
-
-
-class AwpyVisibility:
-    """Line-of-sight through awpy's triangle-mesh visibility checker.
-
-    VERIFY BEFORE TRUSTING RESULTS. awpy's visibility API has changed across 2.x
-    releases, so this resolves the entry point at runtime rather than hard-coding
-    a signature. If construction fails it raises with the names it actually found,
-    which is what you use to fix `_resolve`. Inspect with:
-
-        python -c "import awpy.visibility as v; print(dir(v))"
-
-    The mesh files are per-map .tri artifacts that awpy downloads separately; see
-    the awpy docs for the artifact fetch step. Point --tri-path at the .tri file
-    for the map if autodiscovery fails.
-    """
-
-    name = "awpy"
-
-    def __init__(self, map_name: str, tri_path: Optional[str] = None):
-        self._checker = self._resolve(map_name, tri_path)
-
-    @staticmethod
-    def _resolve(map_name: str, tri_path: Optional[str]):
-        try:
-            import awpy.visibility as av
-        except Exception as exc:  # pragma: no cover
-            raise RuntimeError(
-                "awpy is not installed. `pip install awpy`, then fetch the map "
-                "triangle artifacts per the awpy docs."
-            ) from exc
-
-        full = map_name if map_name.startswith("de_") else f"de_{map_name}"
-        candidates = [n for n in dir(av) if "isib" in n and not n.startswith("_")]
-        for name in candidates:
-            obj = getattr(av, name)
-            if not isinstance(obj, type):
-                continue
-            for kwargs in (
-                {"path": tri_path} if tri_path else {},
-                {"tri_path": tri_path} if tri_path else {},
-                {"map_name": full},
-                {},
-            ):
-                try:
-                    return obj(**kwargs)
-                except Exception:
-                    continue
-        raise RuntimeError(
-            "Could not construct an awpy visibility checker. Names found in "
-            f"awpy.visibility: {candidates or dir(av)}. Fix AwpyVisibility._resolve "
-            "to match your awpy version, or use --backend geometric."
-        )
-
-    def sees(self, observer, target) -> Optional[bool]:
-        a = (float(observer["X"]), float(observer["Y"]), float(observer["Z"]) + EYE_HEIGHT)
-        b = (float(target["X"]), float(target["Y"]), float(target["Z"]) + EYE_HEIGHT)
-        for meth in ("is_visible", "visible", "check_visibility"):
-            fn = getattr(self._checker, meth, None)
-            if callable(fn):
-                res = fn(a, b)
-                # Some versions return (bool, detail).
-                if isinstance(res, tuple):
-                    res = res[0]
-                return bool(res)
-        raise RuntimeError(
-            "awpy checker exposes no recognised visibility method. Methods: "
-            f"{[m for m in dir(self._checker) if not m.startswith('_')]}"
-        )
-
-
-class SpottedFlagVisibility:
-    """Engine spotted state, exact and occlusion-aware, for observer->enemy only.
-
-    Requires a boolean spotted column in the trajectories. CS2 tracks spotted
-    state per enemy, not per (observer, enemy) pair in every parser build, so if
-    your column is team-level this answers "does B's team see E" rather than
-    "does B see E". Check which you have before assigning C2 versus C3, because
-    that distinction is the whole experiment.
-    """
-
-    name = "spotted"
-
-    def __init__(self, column: str = "is_spotted"):
-        self.column = column
-
-    def sees(self, observer, target) -> Optional[bool]:
-        val = target.get(self.column)
-        if val is None or pd.isna(val):
-            return None
-        return bool(val)
-
-
-def make_backend(args, map_name: str):
-    if args.backend == "geometric":
-        return GeometricVisibility(
-            half_fov_deg=args.half_fov, max_dist=args.max_dist
-        )
-    if args.backend == "awpy":
-        return AwpyVisibility(map_name, args.tri_path)
-    if args.backend == "spotted":
-        return SpottedFlagVisibility(args.spotted_column)
-    raise ValueError(args.backend)
-
-
-# --------------------------------------------------------------------------
-# Condition assignment
-# --------------------------------------------------------------------------
 
 def assign_condition(
     pov_row,
@@ -229,71 +96,92 @@ def assign_condition(
     enemy_rows: Dict[str, object],
     enemy_vis,
     teammate_vis,
+    place_to_idx: Optional[dict] = None,
 ) -> dict:
-    """Row-level condition from aggregate visibility predicates."""
+    """Row-level condition plus the per-region detail needed for attribution."""
     pov_sees_enemy = False
-    informed_mates: list[str] = []
-    unresolved = 0
+    unresolved_enemy = 0
+    seen_by_pov: set[str] = set()
 
-    for erow in enemy_rows.values():
+    for sid, erow in enemy_rows.items():
         v = enemy_vis.sees(pov_row, erow)
         if v is None:
-            unresolved += 1
+            unresolved_enemy += 1
         elif v:
             pov_sees_enemy = True
+            seen_by_pov.add(sid)
 
+    # Which teammates see an enemy the POV agent does not.
+    informed: dict[str, set[str]] = {}
     for sid, arow in teammate_rows.items():
-        for erow in enemy_rows.values():
-            v = enemy_vis.sees(arow, erow)
-            if v:
-                informed_mates.append(sid)
-                break
+        seen = set()
+        for esid, erow in enemy_rows.items():
+            if enemy_vis.sees(arow, erow):
+                seen.add(esid)
+        exclusive = seen - seen_by_pov
+        if exclusive:
+            informed[sid] = exclusive
 
-    contact_with_informed = False
-    for sid in informed_mates:
-        v = teammate_vis.sees(pov_row, teammate_rows[sid])
-        if v:
-            contact_with_informed = True
-            break
+    contact = [sid for sid in informed if teammate_vis.sees(pov_row, teammate_rows[sid])]
 
     if pov_sees_enemy:
         cond = "C1"
-    elif informed_mates and contact_with_informed:
+    elif informed and contact:
         cond = "C2"
-    elif informed_mates:
+    elif informed:
         cond = "C3"
     else:
         cond = "C4"
 
+    # Regions holding exactly one enemy can be attributed to that enemy, which
+    # turns the team-level multi-hot into a per-enemy question for those labels.
+    occupancy: dict[str, list[str]] = {}
+    for sid, erow in enemy_rows.items():
+        p = erow.get("place")
+        if isinstance(p, str) and p:
+            occupancy.setdefault(p, []).append(sid)
+    single = {p: sids[0] for p, sids in occupancy.items() if len(sids) == 1}
+    relayed = {p for p, sid in single.items()
+               if sid not in seen_by_pov
+               and any(sid in ex for ex in (informed.get(m, set()) for m in contact))}
+    relay_idx = sorted(
+        place_to_idx[p] for p in relayed
+        if place_to_idx and p in place_to_idx
+    ) if place_to_idx else []
+
     return {
         "condition": cond,
         "pov_sees_enemy": int(pov_sees_enemy),
-        "n_informed_teammates": len(informed_mates),
-        "contact_with_informed": int(contact_with_informed),
+        "n_enemies_seen_by_pov": len(seen_by_pov),
+        "n_informed_teammates": len(informed),
+        "n_informed_with_contact": len(contact),
+        "contact_with_informed": int(bool(contact)),
         "n_enemies_alive": len(enemy_rows),
         "n_teammates_alive": len(teammate_rows),
-        "n_unresolved_enemy_pairs": unresolved,
+        "n_unresolved_enemy_pairs": unresolved_enemy,
+        "n_regions_single_occupant": len(single),
+        # Label columns attributable to an enemy visible only via a teammate the
+        # POV agent can see. Empty for most rows; the basis of the label-level test.
+        "relay_regions": ";".join(str(i) for i in relay_idx),
+        "n_relay_regions": len(relay_idx),
     }
 
 
 def build(args) -> pd.DataFrame:
     data_dir = str(Path(args.data_dir).resolve())
     labels = load_labels(Path(args.data_dir), args.map, args.task)
-    enemy_vis = make_backend(args, args.map)
-    # Teammate contact always uses geometry; no engine flag covers teammates.
-    teammate_vis = GeometricVisibility(
-        half_fov_deg=args.half_fov, max_dist=args.teammate_max_dist
-    )
+    enemy_vis = _make(args.enemy_backend, args, "enemy")
+    teammate_vis = _make(args.teammate_backend, args, "teammate")
+    try:
+        p2i = place_to_idx_for_map(args.map)
+    except Exception:
+        p2i = None
 
-    original_folder = load_round_trajectories.__wrapped__  # bypass lru_cache signature
-    rows = []
+    rows, checked_columns = [], False
     for rec in labels.to_dict("records"):
-        match_id = str(rec["match_id"])
-        round_num = int(rec["round_num"])
-        traj = original_folder(
-            data_dir, args.map, match_id, round_num
-        ) if args.trajectory_folder == "trajectory" else _load_alt(
-            data_dir, args.map, args.trajectory_folder, match_id, round_num
+        traj = load_alt_trajectories(
+            data_dir, args.map, args.trajectory_folder,
+            str(rec["match_id"]), int(rec["round_num"]),
         )
         if not traj:
             continue
@@ -307,14 +195,28 @@ def build(args) -> pd.DataFrame:
         if pov_row is None:
             continue
 
+        if not checked_columns:
+            checked_columns = True
+            need = {"pitch", "yaw"}
+            if args.enemy_backend == "mask":
+                need |= {MASK_COLUMN, "entity_id"}
+            absent = sorted(need - set(pov_row.index))
+            if absent:
+                raise SystemExit(
+                    f"trajectories under {args.trajectory_folder!r} lack {absent}.\n"
+                    "Re-parse with\n"
+                    "  python -m src.scripts.data_processing.parse_traj_with_angles "
+                    f"--map {args.map}"
+                )
+
         teammate_rows, enemy_rows = {}, {}
         for sid, df in traj.items():
             if sid == pov:
                 continue
-            side = player_side(df)
             row = state_at_tick(df, tick, require_alive=True)
             if row is None:
                 continue
+            side = player_side(df)
             if side == pov_side:
                 teammate_rows[sid] = row
             elif side == enemy_side:
@@ -324,33 +226,12 @@ def build(args) -> pd.DataFrame:
             continue
 
         out = {"partition": rec["partition"], "idx": int(rec["idx"])}
-        out.update(
-            assign_condition(pov_row, teammate_rows, enemy_rows, enemy_vis, teammate_vis)
-        )
+        out.update(assign_condition(
+            pov_row, teammate_rows, enemy_rows, enemy_vis, teammate_vis, p2i
+        ))
         rows.append(out)
 
     return pd.DataFrame(rows)
-
-
-def _load_alt(data_dir, map_name, folder, match_id, round_num):
-    """Load trajectories from an alternate folder (e.g. the angle-augmented parse)."""
-    match_dir = Path(data_dir) / map_name / folder / match_id
-    out = {}
-    if not match_dir.exists():
-        return out
-    for player_dir in match_dir.iterdir():
-        if not player_dir.is_dir():
-            continue
-        p = player_dir / f"round_{round_num}.csv"
-        if not p.exists():
-            continue
-        try:
-            df = pd.read_csv(p)
-        except Exception:
-            continue
-        if not df.empty and "tick" in df.columns:
-            out[player_dir.name] = df.sort_values("tick").reset_index(drop=True)
-    return out
 
 
 def main():
@@ -363,22 +244,24 @@ def main():
     ap.add_argument("--trajectory-folder", default="trajectory_angles")
     ap.add_argument("--out-dir", default="output/eval_subsets")
     ap.add_argument("--partition", default="test")
-    ap.add_argument(
-        "--backend", default="geometric", choices=["geometric", "awpy", "spotted"]
-    )
-    ap.add_argument("--tri-path", default=None, help="awpy backend: path to map .tri")
-    ap.add_argument("--spotted-column", default="is_spotted")
+    ap.add_argument("--enemy-backend", default="mask",
+                    choices=["mask", "los", "fov", "team_spotted"],
+                    help="observer -> enemy. mask is the engine's own answer")
+    ap.add_argument("--teammate-backend", default="los",
+                    choices=["los", "fov"],
+                    help="observer -> teammate. The mask cannot answer this")
+    ap.add_argument("--tri-path", default=None, help="map .tri mesh for the los backend")
+    ap.add_argument("--mask-bit-offset", type=int, default=0,
+                    help="entity_id to mask-bit offset; get it from validate_visibility")
     ap.add_argument("--half-fov", type=float, default=53.0)
     ap.add_argument("--max-dist", type=float, default=3000.0)
-    ap.add_argument("--teammate-max-dist", type=float, default=1500.0)
+    ap.add_argument("--no-fov", action="store_true",
+                    help="los backend: skip the cone test, keeping pure line of sight")
     args = ap.parse_args()
 
     df = build(args)
     if df.empty:
-        print(
-            "No rows produced. Most likely the trajectory folder lacks view angles. "
-            "Run parse_traj_with_angles.py first."
-        )
+        print("No rows produced. Check --map, --task, and --trajectory-folder.")
         return
 
     if args.partition != "all":
@@ -387,27 +270,34 @@ def main():
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{args.map}-{args.task}-relay-{args.backend}.csv"
+    tag = f"{args.enemy_backend}-{args.teammate_backend}"
+    out_path = out_dir / f"{args.map}-{args.task}-relay-{tag}.csv"
     df.to_csv(out_path, index=False)
 
     print(f"wrote {out_path}  ({len(df)} rows)\n")
-    counts = df["condition"].value_counts().sort_index()
-    for cond in ["C1", "C2", "C3", "C4"]:
+    counts = df["condition"].value_counts()
+    for cond, desc in (("C1", "B sees an enemy"),
+                       ("C2", "relay with contact"),
+                       ("C3", "relay without contact"),
+                       ("C4", "team blind")):
         n = int(counts.get(cond, 0))
-        print(f"  {cond}  {n:6d} / {len(df)}  ({100.0 * n / len(df):.1f}%)")
+        print(f"  {cond}  {n:6d} / {len(df)}  ({100.0 * n / len(df):5.1f}%)  {desc}")
+
+    attributable = int((df["n_relay_regions"] > 0).sum())
+    print(f"\n  rows with an attributable relay region: {attributable} "
+          f"({100.0 * attributable / len(df):.1f}%)")
+
     unresolved = int((df["n_unresolved_enemy_pairs"] > 0).sum())
     if unresolved:
-        print(
-            f"\nWARNING: {unresolved} rows had at least one enemy pair whose "
-            "visibility could not be evaluated. Conditions for those rows are "
-            "biased toward C3/C4."
-        )
-    if int(counts.get("C2", 0)) < 100:
-        print(
-            "\nWARNING: fewer than 100 C2 samples. The C2 versus C3 comparison "
-            "is the point of this experiment and will not have power. Widen the "
-            "partition set or pool maps before drawing conclusions."
-        )
+        print(f"\nWARNING: {unresolved} rows ({100.0*unresolved/len(df):.1f}%) had an "
+              "enemy pair whose visibility\n  could not be evaluated. Those rows are "
+              "biased toward C3 and C4.")
+    for cond in ("C2", "C3"):
+        if int(counts.get(cond, 0)) < 100:
+            print(f"\nWARNING: only {int(counts.get(cond, 0))} {cond} samples. C2 versus "
+                  "C3 is the point of this\n  experiment and will not have power. Pool "
+                  "maps or widen --partition before\n  drawing any conclusion.")
+            break
 
 
 if __name__ == "__main__":

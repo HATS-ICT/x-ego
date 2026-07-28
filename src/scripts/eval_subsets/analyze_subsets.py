@@ -141,6 +141,59 @@ def load_run(output_base: Path, run_dir: str, reference: dict | None = None):
     }
 
 
+def cell_delta(runs: dict, task: str, mp: str, enc: str, keep_idx, min_rows: int = 10):
+    """CECL minus baseline for one (map, encoder) cell, restricted to `keep_idx`.
+
+    `keep_idx` of None means the full split. Seeds are averaged within an arm
+    before differencing. Returns (delta, median_rows) or None when either arm has
+    no seed with at least `min_rows` selected rows, so an under-powered slice is
+    dropped rather than reported as a delta of zero.
+    """
+    arm_vals, ns = {}, []
+    for arm in ('BASE', 'CECL'):
+        seed_vals = []
+        for seed in (1, 2):
+            v = runs.get((arm, mp, enc, task, seed))
+            if v is None:
+                continue
+            sel = (np.ones(len(v['idx']), dtype=bool) if keep_idx is None
+                   else np.isin(v['idx'], keep_idx))
+            if sel.sum() < min_rows:
+                continue
+            seed_vals.append(metric(v['ml_form'], v['logits'][sel], v['targets'][sel]))
+            ns.append(int(sel.sum()))
+        if seed_vals:
+            arm_vals[arm] = statistics.fmean(seed_vals)
+    if len(arm_vals) != 2:
+        return None
+    return arm_vals['CECL'] - arm_vals['BASE'], (statistics.median(ns) if ns else 0)
+
+
+def summary_row(label: str, results: list) -> str:
+    """One markdown row from a list of (delta, n) per cell."""
+    results = [r for r in results if r is not None]
+    if not results:
+        return f'| {label} | no data | 0/0 | 0 |'
+    deltas = [d for d, _ in results]
+    pos = sum(1 for d in deltas if d > 0)
+    return (f'| {label} | {statistics.fmean(deltas):+.4f} | {pos}/{len(deltas)} | '
+            f'{int(statistics.median([n for _, n in results]))} |')
+
+
+def load_flags(subset_dir: str, mp: str, task: str, suffix: str):
+    """Subset flag CSV for one (map, task), or None when it was never built."""
+    p = Path(subset_dir) / f'{mp}-{task}-{suffix}.csv'
+    return pd.read_csv(p) if p.exists() else None
+
+
+def load_relay_flags(subset_dir: str, mp: str, task: str):
+    """Relay condition CSV for one (map, task), whichever backend pair was used."""
+    matches = sorted(Path(subset_dir).glob(f'{mp}-{task}-relay-*.csv'))
+    if not matches:
+        return None, None
+    return pd.read_csv(matches[0]), matches[0].name
+
+
 def load_reference(path: Path) -> dict:
     """Original per-run metrics, keyed by (run_dir, which). Written before any
     rerun, so it is an external check rather than a self-comparison."""
@@ -243,8 +296,6 @@ def main():
     lines = ['# Subset analysis', '',
              'Delta is CECL minus baseline, seeds averaged within each arm before',
              'differencing. `n` is the number of test rows in the condition.', '']
-    cells = sorted({(m, e) for (_, m, e, _, _) in runs})
-
     for task, (suffix, conds) in CONDITIONS.items():
         task_keys = sorted({(m, e) for (a, m, e, t, s) in runs if t == task})
         if not task_keys:
@@ -253,44 +304,18 @@ def main():
                   '| condition | mean delta | cells positive | median n |', '|---|---|---|---|']
 
         for label, query in [('full test split', None)] + conds:
-            per_cell, ns = [], []
+            results = []
             for (mp, enc) in task_keys:
-                mask_idx = None
+                keep = None
                 if query is not None:
-                    sf = Path(args.subset_dir) / f'{mp}-{task}-{suffix}.csv'
-                    if not sf.exists():
+                    flags = load_flags(args.subset_dir, mp, task, suffix)
+                    if flags is None:
                         continue
-                    flags = pd.read_csv(sf)
-                    mask_idx = set(flags.query(query)['idx'].tolist())
-                    if not mask_idx:
+                    keep = flags.query(query)['idx'].tolist()
+                    if not keep:
                         continue
-
-                arm_vals = {}
-                for arm in ('BASE', 'CECL'):
-                    seed_vals = []
-                    for seed in (1, 2):
-                        v = runs.get((arm, mp, enc, task, seed))
-                        if v is None:
-                            continue
-                        if mask_idx is None:
-                            sel = np.ones(len(v['idx']), dtype=bool)
-                        else:
-                            sel = np.isin(v['idx'], list(mask_idx))
-                        if sel.sum() < 10:
-                            continue
-                        seed_vals.append(metric(v['ml_form'], v['logits'][sel], v['targets'][sel]))
-                        ns.append(int(sel.sum()))
-                    if seed_vals:
-                        arm_vals[arm] = statistics.fmean(seed_vals)
-                if len(arm_vals) == 2:
-                    per_cell.append(arm_vals['CECL'] - arm_vals['BASE'])
-
-            if per_cell:
-                pos = sum(1 for x in per_cell if x > 0)
-                lines.append(f'| {label} | {statistics.fmean(per_cell):+.4f} | '
-                             f'{pos}/{len(per_cell)} | {int(statistics.median(ns)) if ns else 0} |')
-            else:
-                lines.append(f'| {label} | no data | 0/0 | 0 |')
+                results.append(cell_delta(runs, task, mp, enc, keep))
+            lines.append(summary_row(label, results))
         lines.append('')
 
         # jaccard-binned view for the forecast tasks
@@ -299,43 +324,53 @@ def main():
                       'Lower jaccard means less can be carried forward.', '',
                       '| jaccard | mean delta | cells positive | median n |', '|---|---|---|---|']
             for lo, hi in JACCARD_BINS:
-                per_cell, ns = [], []
+                results = []
                 for (mp, enc) in task_keys:
-                    sf = Path(args.subset_dir) / f'{mp}-{task}-moved.csv'
-                    if not sf.exists():
+                    flags = load_flags(args.subset_dir, mp, task, 'moved')
+                    if flags is None:
                         continue
-                    flags = pd.read_csv(sf)
-                    sub = flags[(flags['jaccard'] > lo) & (flags['jaccard'] <= hi)]
-                    keep = set(sub['idx'].tolist())
+                    keep = flags[(flags['jaccard'] > lo)
+                                 & (flags['jaccard'] <= hi)]['idx'].tolist()
                     if len(keep) < 10:
                         continue
-                    arm_vals = {}
-                    for arm in ('BASE', 'CECL'):
-                        seed_vals = []
-                        for seed in (1, 2):
-                            v = runs.get((arm, mp, enc, task, seed))
-                            if v is None:
-                                continue
-                            sel = np.isin(v['idx'], list(keep))
-                            if sel.sum() < 10:
-                                continue
-                            seed_vals.append(metric(v['ml_form'], v['logits'][sel], v['targets'][sel]))
-                            ns.append(int(sel.sum()))
-                        if seed_vals:
-                            arm_vals[arm] = statistics.fmean(seed_vals)
-                    if len(arm_vals) == 2:
-                        per_cell.append(arm_vals['CECL'] - arm_vals['BASE'])
-                if per_cell:
-                    pos = sum(1 for x in per_cell if x > 0)
-                    lines.append(f'| {lo:.2f}-{hi:.2f} | {statistics.fmean(per_cell):+.4f} | '
-                                 f'{pos}/{len(per_cell)} | {int(statistics.median(ns))} |')
+                    results.append(cell_delta(runs, task, mp, enc, keep))
+                lines.append(summary_row(f'{lo:.2f}-{hi:.2f}', results))
             lines.append('')
 
-    report = '\n'.join(lines)
-    print('\n' + report)
+    # ---- relay conditions -------------------------------------------------
+    # Only present once build_relay_conditions.py has been run, which needs the
+    # angle-augmented parse. Absent is normal, not an error.
+    relay_tasks = sorted({t for (_, _, _, t, _) in runs
+                          if any(Path(args.subset_dir).glob(f'*-{t}-relay-*.csv'))})
+    for task in relay_tasks:
+        task_keys = sorted({(m, e) for (a, m, e, t, s) in runs if t == task})
+        srcs = set()
+        lines += [f'## {task}, relay conditions', '',
+                  'C1 the POV agent sees an enemy. C2 it does not, but a teammate does '
+                  'and the agent',
+                  'can see that teammate. C3 the same without visual contact. C4 nobody '
+                  'on the team',
+                  'sees any enemy. C2 versus C3 is the discriminator.', '',
+                  '| condition | mean delta | cells positive | median n |', '|---|---|---|---|']
+        for cond in ('C1', 'C2', 'C3', 'C4'):
+            results = []
+            for (mp, enc) in task_keys:
+                flags, src = load_relay_flags(args.subset_dir, mp, task)
+                if flags is None:
+                    continue
+                srcs.add(src)
+                keep = flags[flags['condition'] == cond]['idx'].tolist()
+                if len(keep) < 10:
+                    continue
+                results.append(cell_delta(runs, task, mp, enc, keep))
+            lines.append(summary_row(cond, results))
+        lines += ['', f'Source: {", ".join(sorted(srcs)) or "none"}', '']
+
+    report_text = '\n'.join(lines)
+    print('\n' + report_text)
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.out).write_text(report, encoding='utf-8')
+        Path(args.out).write_text(report_text, encoding='utf-8')
         print(f'wrote {args.out}')
 
 

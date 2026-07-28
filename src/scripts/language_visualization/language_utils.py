@@ -9,11 +9,13 @@ from transformers import AutoModel, AutoProcessor
 # Import concept vocabulary from separate file
 
 
+PRETRAINED_NAME = "google/siglip2-base-patch16-224"
+
+
 def load_siglip2_model():
     """Load the full SigLIP2 model for text-image similarity."""
-    pretrained_name = "google/siglip2-base-patch16-224"
-    model = AutoModel.from_pretrained(pretrained_name)
-    processor = AutoProcessor.from_pretrained(pretrained_name)
+    model = AutoModel.from_pretrained(PRETRAINED_NAME)
+    processor = AutoProcessor.from_pretrained(PRETRAINED_NAME)
     return model, processor
 
 
@@ -43,6 +45,40 @@ def get_text_embeddings(model, processor, texts: list, device: torch.device) -> 
         text_embeds = F.normalize(text_embeds, p=2, dim=-1)
     
     return text_embeds
+
+
+def get_text_embeddings_ensemble(model, processor, variant_texts: list, device: torch.device) -> torch.Tensor:
+    """
+    Get mean-pooled text embeddings across several prompt variants of the same concepts.
+
+    Args:
+        model: SigLIP2 model
+        processor: SigLIP2 processor
+        variant_texts: List of per-variant text lists, each of length num_concepts and
+            in the same concept order (as returned by prompt_templates.build_texts for
+            an ensemble key)
+        device: Device to run on
+
+    Returns:
+        Normalized text embeddings [num_concepts, embed_dim]
+    """
+    if not variant_texts:
+        raise ValueError("variant_texts must contain at least one variant")
+
+    num_concepts = len(variant_texts[0])
+    for i, texts in enumerate(variant_texts):
+        if len(texts) != num_concepts:
+            raise ValueError(
+                f"Variant {i} has {len(texts)} texts, expected {num_concepts}"
+            )
+
+    # Embed each variant separately, then average over variants and re-normalize.
+    per_variant = [
+        get_text_embeddings(model, processor, texts, device) for texts in variant_texts
+    ]
+    stacked = torch.stack(per_variant, dim=0)  # [num_variants, num_concepts, embed_dim]
+    pooled = stacked.mean(dim=0)
+    return F.normalize(pooled, p=2, dim=-1)
 
 
 def get_image_embeddings(model, pixel_values: torch.Tensor) -> torch.Tensor:

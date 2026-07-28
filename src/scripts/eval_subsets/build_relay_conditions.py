@@ -66,6 +66,7 @@ from src.scripts.eval_subsets.visibility import (
     SpottedMaskVisibility,
     TeamSpottedVisibility,
 )
+from src.utils.env_utils import resolve_data_dir
 
 OPPOSITE = {"ct": "t", "t": "ct"}
 
@@ -240,7 +241,8 @@ def main():
     )
     ap.add_argument("--map", required=True)
     ap.add_argument("--task", default="enemy_location_0s")
-    ap.add_argument("--data-dir", default="data")
+    ap.add_argument("--data-dir", default=None,
+                    help='defaults to $DATA_BASE_PATH from .env, else "data"')
     ap.add_argument("--trajectory-folder", default="trajectory_angles")
     ap.add_argument("--out-dir", default="output/eval_subsets")
     ap.add_argument("--partition", default="test")
@@ -258,6 +260,7 @@ def main():
     ap.add_argument("--no-fov", action="store_true",
                     help="los backend: skip the cone test, keeping pure line of sight")
     args = ap.parse_args()
+    args.data_dir = resolve_data_dir(args.data_dir)
 
     df = build(args)
     if df.empty:

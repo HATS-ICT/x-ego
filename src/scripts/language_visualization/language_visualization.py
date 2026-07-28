@@ -1,14 +1,26 @@
 """
 Language Visualization Script for SigLIP2 Models.
 
-Visualizes how linguistic concepts (text-image similarities) change:
-1. Before vs After: baseline (off-the-shelf pretrained) vs epoch 39, with difference matrix
-2. Across training epochs: baseline, 0, 1, 2, 3, 4, 9, 14, 19, 24, 29, 34, 39
+Measures how the encoder's language-aligned concept rankings drift over CECL training,
+by scoring a 250-concept vocabulary against per-frame image embeddings from the
+off-the-shelf baseline and from each per-epoch checkpoint.
 
-Saves visualizations to artifacts/language_visualization/
+Produces:
+1. Before vs After: baseline (off-the-shelf pretrained) vs the final epoch
+2. Ranking evolution across the requested epoch grid (default: baseline, 1, 4, 10, 19, 27, 39)
+3. Prompt-template sensitivity tables (--templates), since the published analysis used a
+   single template and the ranking trajectories could otherwise be a prompt artifact
+
+Image embeddings do not depend on the prompt, so the vision pass runs once per
+(sample, encoder state) and is shared across every template arm. With --embed-cache the
+embeddings are persisted, making a later template sweep text-only.
+
+Figures go to <artifact-dir>/sample_aggregate/; machine-readable tables go to
+<artifact-dir>/template_sensitivity/.
 """
 
 import argparse
+import json
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
@@ -27,11 +39,25 @@ from src.models.contrastive_model import ContrastiveModel
 from src.dataset.dataset_utils import construct_video_path, load_video_clip
 from src.utils.env_utils import get_output_base_path, get_data_base_path
 from src.scripts.language_visualization.language_utils import (
+    PRETRAINED_NAME,
     load_siglip2_model,
     get_text_embeddings,
+    get_text_embeddings_ensemble,
     get_image_embeddings,
     compute_text_image_similarity,
     replace_vision_encoder_weights,
+)
+from src.scripts.language_visualization.prompt_templates import (
+    ALL_TEMPLATE_KEYS,
+    LEGACY_DIR_NAMES,
+    LEGACY_MODE_KEYS,
+    REBUTTAL_TEMPLATES,
+    SINGLETON_TEMPLATE_KEYS,
+    TEMPLATE_FAMILY,
+    build_texts,
+    describe_template,
+    is_ensemble,
+    resolve_template_key,
 )
 from src.scripts.language_visualization.concept_vocabulary import (
     ALL_CONCEPTS,
@@ -65,7 +91,69 @@ def parse_args():
     parser.add_argument("--num-samples", type=int, default=100)
     parser.add_argument("--artifact-dir", default=str(Path("artifacts") / "language_visualization_v4"))
     parser.add_argument("--generate-individual-plots", action="store_true")
+    parser.add_argument(
+        "--templates",
+        nargs="*",
+        default=None,
+        help="Template keys to score. Default: the two legacy modes (direct, prompted). "
+             "Pass 'all' for the full 47-arm bank.",
+    )
+    parser.add_argument(
+        "--embed-cache",
+        default=None,
+        help="Directory for cached per-frame image embeddings. Enables reuse across template sweeps.",
+    )
+    parser.add_argument(
+        "--reuse-embed-cache",
+        action="store_true",
+        help="Read image embeddings from --embed-cache instead of running the vision encoder.",
+    )
+    parser.add_argument("--bootstrap", type=int, default=1000,
+                        help="Bootstrap resamples for group-change CIs (0 disables).")
+    parser.add_argument("--permutations", type=int, default=1000,
+                        help="Concept-to-group permutations for the null (0 disables).")
+    parser.add_argument("--map-label", default=None,
+                        help="Map name stamped on CSV rows. Defaults to cfg.data.map.")
+    parser.add_argument("--stats-seed", type=int, default=0,
+                        help="Seed for bootstrap and permutation resampling.")
     return parser.parse_args()
+
+
+def resolve_templates(requested) -> list[str]:
+    """
+    Resolve the --templates argument to an ordered list of canonical template keys.
+
+    Default (None) is the two legacy modes, so an invocation without --templates
+    reproduces the published behaviour. 'all' selects the full bank.
+    """
+    if requested is None:
+        requested = list(LEGACY_MODE_KEYS.keys())
+    if len(requested) == 1 and requested[0] == "all":
+        return list(ALL_TEMPLATE_KEYS)
+    if len(requested) == 1 and requested[0] == "singletons":
+        return list(SINGLETON_TEMPLATE_KEYS)
+    if len(requested) == 1 and requested[0] == "rebuttal":
+        return list(REBUTTAL_TEMPLATES)
+
+    resolved = []
+    for key in requested:
+        canonical = resolve_template_key(key)
+        if canonical not in resolved:
+            resolved.append(canonical)
+    return resolved
+
+
+def build_template_embeddings(model, processor, template_keys: list[str], concepts: list[str],
+                              device: torch.device) -> dict:
+    """Pre-compute normalized text embeddings for every template arm."""
+    embeddings = {}
+    for key in template_keys:
+        texts = build_texts(key, concepts)
+        if is_ensemble(key):
+            embeddings[key] = get_text_embeddings_ensemble(model, processor, texts, device)
+        else:
+            embeddings[key] = get_text_embeddings(model, processor, texts, device)
+    return embeddings
 
 
 def experiment_dir_from_args(args) -> Path:
@@ -102,6 +190,12 @@ def discover_checkpoint_epochs(checkpoint_dir: Path) -> list[int]:
     return sorted(epochs)
 
 
+def find_checkpoint_for_epoch(checkpoint_dir: Path, epoch: int) -> Path | None:
+    """Locate the checkpoint file for an epoch, or None if it is missing."""
+    ckpt_files = sorted(checkpoint_dir.glob(f"*-e{epoch:02d}-*.ckpt"))
+    return ckpt_files[0] if ckpt_files else None
+
+
 def load_checkpoint_vision_state(checkpoint_dir: Path, epoch: int):
     """
     Load vision encoder state dict from a checkpoint.
@@ -113,12 +207,11 @@ def load_checkpoint_vision_state(checkpoint_dir: Path, epoch: int):
     Returns:
         State dict of the vision encoder, or None if not found
     """
-    ckpt_files = list(checkpoint_dir.glob(f"*-e{epoch:02d}-*.ckpt"))
-    if not ckpt_files:
+    checkpoint_path = find_checkpoint_for_epoch(checkpoint_dir, epoch)
+    if checkpoint_path is None:
         print(f"  Warning: No checkpoint found for epoch {epoch}")
         return None
-    
-    checkpoint_path = ckpt_files[0]
+
     print(f"  Loading checkpoint: {checkpoint_path.name}")
     
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
@@ -201,10 +294,27 @@ def process_video_frames(video_clip: torch.Tensor, processor, model, device) -> 
     Returns:
         Image embeddings [T, embed_dim]
     """
+    pixel_values = preprocess_video_frames(video_clip, processor).to(device)
+    return get_image_embeddings(model, pixel_values)
+
+
+def preprocess_video_frames(video_clip: torch.Tensor, processor) -> torch.Tensor:
+    """
+    Run the SigLIP2 image processor over every frame of a clip.
+
+    Batched into a single processor call, which is materially faster than the
+    per-frame loop and numerically identical to it.
+
+    Args:
+        video_clip: Raw video tensor [T, C, H, W]
+        processor: SigLIP2 processor
+
+    Returns:
+        Pixel values [T, C, H, W] on CPU
+    """
     num_frames = video_clip.shape[0]
-    
-    # Process each frame through the processor
-    processed_frames = []
+
+    frames_np = []
     for i in range(num_frames):
         frame = video_clip[i]  # [C, H, W]
         # Convert to PIL-like format (HWC, uint8)
@@ -213,18 +323,10 @@ def process_video_frames(video_clip: torch.Tensor, processor, model, device) -> 
             frame_np = (frame_np * 255).astype(np.uint8)
         else:
             frame_np = frame_np.astype(np.uint8)
-        
-        # Process through SigLIP2 processor
-        processed = processor(images=frame_np, return_tensors="pt")
-        processed_frames.append(processed.pixel_values)
-    
-    # Stack and move to device
-    pixel_values = torch.cat(processed_frames, dim=0).to(device)  # [T, C, H, W]
-    
-    # Get embeddings
-    image_embeds = get_image_embeddings(model, pixel_values)
-    
-    return image_embeds
+        frames_np.append(frame_np)
+
+    processed = processor(images=frames_np, return_tensors="pt")
+    return processed.pixel_values
 
 
 def compute_similarities_for_video(
@@ -249,11 +351,111 @@ def compute_similarities_for_video(
     """
     # Get image embeddings for all frames
     image_embeds = process_video_frames(video_clip, processor, model, device)
-    
+
     # Compute similarities
     similarities = compute_text_image_similarity(text_embeds, image_embeds)
-    
+
     return similarities.cpu().numpy()
+
+
+# ---------------------------------------------------------------------------
+# Per-frame image embedding cache.
+#
+# Image embeddings are independent of the prompt template, so caching them makes a
+# template sweep cost only text re-embedding. The manifest records which checkpoint
+# file backs each epoch tag, so a stale cache cannot be silently scored against
+# different weights.
+# ---------------------------------------------------------------------------
+
+def state_tag(epoch) -> str:
+    """Canonical cache key for an encoder state."""
+    return "baseline" if epoch == "baseline" else f"epoch_{int(epoch):02d}"
+
+
+def embed_cache_dir(cache_root, experiment: str) -> Path:
+    return Path(cache_root) / experiment
+
+
+def write_cache_manifest(cache_dir: Path, experiment: str, epoch_ckpts: dict,
+                         num_frames: int, embed_dim: int, pretrained_name: str) -> None:
+    manifest = {
+        "experiment": experiment,
+        "pretrained_name": pretrained_name,
+        "num_frames": num_frames,
+        "embed_dim": embed_dim,
+        "states": {state_tag(k): v for k, v in epoch_ckpts.items()},
+    }
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    with open(cache_dir / "manifest.json", "w") as f:
+        json.dump(manifest, f, indent=2)
+
+
+def validate_cache_manifest(cache_dir: Path, experiment: str, epoch_ckpts: dict,
+                            pretrained_name: str) -> dict:
+    """
+    Verify a cache is safe to reuse. Raises on any disagreement.
+
+    A cache is only reusable if it was built from the same experiment, the same
+    pretrained baseline, and the same checkpoint file for every requested epoch.
+    """
+    manifest_path = cache_dir / "manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(
+            f"No cache manifest at {manifest_path}. Run once without --reuse-embed-cache first."
+        )
+    with open(manifest_path) as f:
+        manifest = json.load(f)
+
+    if manifest.get("experiment") != experiment:
+        raise ValueError(
+            f"Cache experiment mismatch: manifest has '{manifest.get('experiment')}', "
+            f"requested '{experiment}'"
+        )
+    if manifest.get("pretrained_name") != pretrained_name:
+        raise ValueError(
+            f"Cache baseline mismatch: manifest has '{manifest.get('pretrained_name')}', "
+            f"requested '{pretrained_name}'"
+        )
+
+    cached_states = manifest.get("states", {})
+    for epoch, ckpt_name in epoch_ckpts.items():
+        tag = state_tag(epoch)
+        if tag not in cached_states:
+            raise ValueError(f"Cache is missing state '{tag}'. Rebuild the cache.")
+        if cached_states[tag] != ckpt_name:
+            raise ValueError(
+                f"Cache state '{tag}' was built from '{cached_states[tag]}' but "
+                f"'{ckpt_name}' was requested. Rebuild the cache."
+            )
+    return manifest
+
+
+def load_cached_sample_embeds(cache_dir: Path, sample_idx: int, tags: list[str],
+                             device: torch.device):
+    """Load cached [T, D] embeddings for one sample, or None if absent/incomplete."""
+    path = cache_dir / f"sample_{sample_idx}.npz"
+    if not path.exists():
+        return None
+    with np.load(path) as data:
+        if any(tag not in data for tag in tags):
+            return None
+        return {
+            tag: torch.from_numpy(data[tag].astype(np.float32)).to(device)
+            for tag in tags
+        }
+
+
+def save_cached_sample_embeds(cache_dir: Path, sample_idx: int, embeds: dict) -> None:
+    """
+    Persist [T, D] embeddings for one sample.
+
+    Kept at float32 so a cached run is bit-identical to a fresh one. float16 halves the
+    footprint but perturbs group mean ranks by ~0.02 through rank flips among near-ties,
+    and 43 MB per 100 samples is not worth that.
+    """
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    arrays = {tag: emb.cpu().numpy().astype(np.float32) for tag, emb in embeds.items()}
+    np.savez_compressed(cache_dir / f"sample_{sample_idx}.npz", **arrays)
 
 
 def create_before_after_plot(
@@ -960,37 +1162,12 @@ def create_group_ranking_plot(
     
     num_samples = len(all_sample_rankings)
     num_concepts = len(ALL_CONCEPTS)
-    
-    # Compute average rank for each concept at each epoch (across samples)
-    avg_rankings = {}
-    for epoch in epochs:
-        epoch_ranks = []
-        for sample_idx, sample_rankings in all_sample_rankings.items():
-            if epoch in sample_rankings:
-                epoch_ranks.append(sample_rankings[epoch])
-        
-        if epoch_ranks:
-            stacked_ranks = np.stack(epoch_ranks, axis=0)
-            avg_rankings[epoch] = stacked_ranks.mean(axis=0)
-    
-    # For each group, compute mean, min, max rank at each epoch
-    group_stats = {group: {'mean': [], 'min': [], 'max': [], 'std': []} 
-                   for group in CATEGORY_GROUPS.keys()}
-    
+
+    avg_rankings = compute_avg_rankings(all_sample_rankings, epochs)
     available_epochs = [e for e in epochs if e in avg_rankings]
-    
-    for epoch in available_epochs:
-        for group in CATEGORY_GROUPS.keys():
-            # Get indices of concepts in this group
-            group_indices = [i for i, c in enumerate(ALL_CONCEPTS) if CONCEPT_TO_GROUP[c] == group]
-            group_ranks = avg_rankings[epoch][group_indices]
-            
-            group_stats[group]['mean'].append(np.mean(group_ranks))
-            group_stats[group]['min'].append(np.min(group_ranks))
-            group_stats[group]['max'].append(np.max(group_ranks))
-            group_stats[group]['std'].append(np.std(group_ranks))
-    
-    early_epochs, full_epochs = epoch_panels([e for e in epochs if e in avg_rankings])
+    group_stats = compute_group_stats(avg_rankings, available_epochs)
+
+    early_epochs, full_epochs = epoch_panels(available_epochs)
     
     # Create figure
     fig, (ax_early, ax_full) = plt.subplots(1, 2, figsize=(16, 8))
@@ -1172,6 +1349,164 @@ def create_combined_group_ranking_plot(
     plt.close()
 
 
+def group_index_map() -> dict:
+    """Group name -> array of indices into ALL_CONCEPTS."""
+    return {
+        group: np.array([i for i, c in enumerate(ALL_CONCEPTS) if CONCEPT_TO_GROUP[c] == group])
+        for group in CATEGORY_GROUPS.keys()
+    }
+
+
+def compute_avg_rankings(all_sample_rankings: dict, epochs: list) -> dict:
+    """
+    Borda-style aggregation: mean rank per concept at each epoch, across samples.
+
+    Args:
+        all_sample_rankings: sample_idx -> {epoch: rank array [num_concepts]}
+        epochs: epochs to aggregate, may include 'baseline'
+
+    Returns:
+        epoch -> mean rank array [num_concepts], omitting epochs with no data
+    """
+    avg_rankings = {}
+    for epoch in epochs:
+        epoch_ranks = [
+            sample_rankings[epoch]
+            for sample_rankings in all_sample_rankings.values()
+            if epoch in sample_rankings
+        ]
+        if epoch_ranks:
+            avg_rankings[epoch] = np.stack(epoch_ranks, axis=0).mean(axis=0)
+    return avg_rankings
+
+
+def compute_group_stats(avg_rankings: dict, available_epochs: list) -> dict:
+    """Per-group mean/min/max/std of the averaged per-concept ranks, per epoch."""
+    group_stats = {group: {'mean': [], 'min': [], 'max': [], 'std': []}
+                   for group in CATEGORY_GROUPS.keys()}
+    indices = group_index_map()
+
+    for epoch in available_epochs:
+        for group in CATEGORY_GROUPS.keys():
+            group_ranks = avg_rankings[epoch][indices[group]]
+            group_stats[group]['mean'].append(np.mean(group_ranks))
+            group_stats[group]['min'].append(np.min(group_ranks))
+            group_stats[group]['max'].append(np.max(group_ranks))
+            group_stats[group]['std'].append(np.std(group_ranks))
+
+    return group_stats
+
+
+def bootstrap_group_changes(all_sample_rankings: dict, baseline_key, final_key,
+                            num_resamples: int, rng: np.random.Generator) -> dict:
+    """
+    Bootstrap the group-level rank change over samples.
+
+    Resamples the per-sample rank vectors with replacement, recomputes the Borda mean
+    and the group change (baseline minus final, so positive = rose), and returns the
+    resample distribution per group.
+
+    Returns:
+        group -> {'sd': float, 'ci_lo': float, 'ci_hi': float}, empty if not computable
+    """
+    usable = [
+        r for r in all_sample_rankings.values()
+        if baseline_key in r and final_key in r
+    ]
+    if num_resamples <= 0 or len(usable) < 2:
+        return {}
+
+    baseline_stack = np.stack([r[baseline_key] for r in usable], axis=0).astype(np.float64)
+    final_stack = np.stack([r[final_key] for r in usable], axis=0).astype(np.float64)
+    n = len(usable)
+    indices = group_index_map()
+
+    draws = {group: np.empty(num_resamples) for group in indices}
+    for b in range(num_resamples):
+        pick = rng.integers(0, n, size=n)
+        base_mean = baseline_stack[pick].mean(axis=0)
+        final_mean = final_stack[pick].mean(axis=0)
+        change = base_mean - final_mean
+        for group, idx in indices.items():
+            draws[group][b] = change[idx].mean()
+
+    return {
+        group: {
+            'sd': float(np.std(values, ddof=1)),
+            'ci_lo': float(np.percentile(values, 2.5)),
+            'ci_hi': float(np.percentile(values, 97.5)),
+        }
+        for group, values in draws.items()
+    }
+
+
+def permutation_group_pvalues(concept_changes: np.ndarray, num_permutations: int,
+                              rng: np.random.Generator) -> dict:
+    """
+    Two-sided permutation test for the group-level change statistic.
+
+    The per-concept rank changes are held fixed and the concept-to-group assignment is
+    shuffled, which gives the distribution of group mean change expected by chance for
+    a group of that size. Without this reference the magnitude of a group change has
+    no scale.
+
+    Returns:
+        group -> {'p': float, 'null_sd': float, 'null_lo': float, 'null_hi': float}
+    """
+    indices = group_index_map()
+    if num_permutations <= 0:
+        return {}
+
+    observed = {group: float(concept_changes[idx].mean()) for group, idx in indices.items()}
+    sizes = {group: len(idx) for group, idx in indices.items()}
+
+    # Group sizes are all 50 here, but compute per distinct size so this stays correct
+    # if the vocabulary is ever rebalanced.
+    null_by_size = {}
+    for size in set(sizes.values()):
+        draws = np.empty(num_permutations)
+        for b in range(num_permutations):
+            draws[b] = concept_changes[rng.choice(len(concept_changes), size=size, replace=False)].mean()
+        null_by_size[size] = draws
+
+    results = {}
+    for group, size in sizes.items():
+        null = null_by_size[size]
+        # Two-sided, centred on the null mean; +1 smoothing so p is never exactly 0.
+        centre = null.mean()
+        extreme = np.abs(null - centre) >= abs(observed[group] - centre)
+        results[group] = {
+            'p': float((extreme.sum() + 1) / (num_permutations + 1)),
+            'null_sd': float(np.std(null, ddof=1)),
+            'null_lo': float(np.percentile(null, 2.5)),
+            'null_hi': float(np.percentile(null, 97.5)),
+        }
+    return results
+
+
+def spearman_rho(a: np.ndarray, b: np.ndarray) -> float:
+    """Spearman correlation via Pearson on ranks. Handles ties by average rank."""
+    def rankdata(x):
+        order = np.argsort(x, kind="stable")
+        ranks = np.empty(len(x), dtype=np.float64)
+        ranks[order] = np.arange(1, len(x) + 1)
+        # Average ranks within tied groups.
+        sorted_x = x[order]
+        start = 0
+        for i in range(1, len(x) + 1):
+            if i == len(x) or sorted_x[i] != sorted_x[start]:
+                if i - start > 1:
+                    ranks[order[start:i]] = ranks[order[start:i]].mean()
+                start = i
+        return ranks
+
+    ra, rb = rankdata(np.asarray(a, dtype=np.float64)), rankdata(np.asarray(b, dtype=np.float64))
+    ra -= ra.mean()
+    rb -= rb.mean()
+    denom = np.sqrt((ra ** 2).sum() * (rb ** 2).sum())
+    return float((ra * rb).sum() / denom) if denom > 0 else float("nan")
+
+
 def compute_group_summary(group_stats: dict, epochs: list) -> dict:
     """Compute summary statistics for group ranking changes."""
     summary = {}
@@ -1250,6 +1585,152 @@ def create_ranking_summary(final_rankings: dict, epochs: list, num_samples: int)
     return summary
 
 
+GROUP_ORDER = ['egocentric', 'teammate', 'enemy', 'global', 'spatial']
+
+
+def write_template_sensitivity_outputs(rankings_by_template: dict, all_epochs_for_plot: list,
+                                       artifacts_dir: Path, map_label: str, experiment: str,
+                                       num_bootstrap: int, num_permutations: int,
+                                       stats_seed: int) -> None:
+    """
+    Emit the machine-readable template-sensitivity tables.
+
+    Writes four CSVs under <artifacts_dir>/template_sensitivity/:
+      group_changes.csv      group-level change per (template, group), with bootstrap CI
+                             over samples and a permutation-null p-value
+      concept_changes.csv    per-concept baseline/final rank and change, per template
+      trajectory_changes.csv group mean rank at every epoch, per template
+      template_agreement.csv pairwise Spearman rho between per-concept change vectors
+    """
+    out_dir = artifacts_dir / "template_sensitivity"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    baseline_key = all_epochs_for_plot[0]
+    final_key = all_epochs_for_plot[-1]
+
+    group_rows, concept_rows, traj_rows = [], [], []
+    change_vectors = {}
+
+    for template_key, all_sample_rankings in rankings_by_template.items():
+        if not all_sample_rankings:
+            print(f"  Warning: no scored samples for template '{template_key}', skipping")
+            continue
+
+        avg_rankings = compute_avg_rankings(all_sample_rankings, all_epochs_for_plot)
+        available = [e for e in all_epochs_for_plot if e in avg_rankings]
+        if len(available) < 2:
+            print(f"  Warning: fewer than 2 epochs for template '{template_key}', skipping")
+            continue
+
+        group_stats = compute_group_stats(avg_rankings, available)
+        summary = compute_group_summary(group_stats, available)
+        n_samples = len(all_sample_rankings)
+        family = TEMPLATE_FAMILY.get(template_key, "?")
+
+        # Fresh generator per template so each arm's CIs are reproducible independently
+        # of how many other arms were run.
+        rng = np.random.default_rng(stats_seed)
+        boot = bootstrap_group_changes(
+            all_sample_rankings, baseline_key, final_key, num_bootstrap, rng
+        )
+
+        changes = avg_rankings[baseline_key] - avg_rankings[final_key]
+        change_vectors[template_key] = changes
+        perm = permutation_group_pvalues(changes, num_permutations, rng)
+
+        for group in GROUP_ORDER:
+            if group not in summary:
+                continue
+            gs = summary[group]
+            b = boot.get(group, {})
+            p = perm.get(group, {})
+            group_rows.append({
+                "map": map_label,
+                "experiment": experiment,
+                "template": template_key,
+                "family": family,
+                "group": group,
+                "n_samples": n_samples,
+                "baseline_mean": gs['baseline_mean'],
+                "final_mean": gs['final_mean'],
+                "change": gs['change'],
+                "boot_sd": b.get('sd'),
+                "ci_lo": b.get('ci_lo'),
+                "ci_hi": b.get('ci_hi'),
+                "perm_p": p.get('p'),
+                "null_sd": p.get('null_sd'),
+                "null_lo": p.get('null_lo'),
+                "null_hi": p.get('null_hi'),
+                "direction": "rose" if gs['change'] > 0 else "fell" if gs['change'] < 0 else "same",
+            })
+
+            for i, epoch in enumerate(available):
+                traj_rows.append({
+                    "map": map_label,
+                    "template": template_key,
+                    "family": family,
+                    "group": group,
+                    "epoch": str(epoch),
+                    "epoch_label": format_epoch_label(epoch),
+                    "epoch_index": i,
+                    "mean_rank": group_stats[group]['mean'][i],
+                    "std_rank": group_stats[group]['std'][i],
+                })
+
+        for i, concept in enumerate(ALL_CONCEPTS):
+            concept_rows.append({
+                "map": map_label,
+                "template": template_key,
+                "family": family,
+                "concept": concept,
+                "group": CONCEPT_TO_GROUP[concept],
+                "baseline_rank": float(avg_rankings[baseline_key][i]),
+                "final_rank": float(avg_rankings[final_key][i]),
+                "change": float(changes[i]),
+            })
+
+    # Pairwise agreement between templates on the per-concept change vector. This is the
+    # concept-level answer to "do different prompts induce the same reordering".
+    agreement_rows = []
+    keys = list(change_vectors.keys())
+    for i, a in enumerate(keys):
+        for b in keys[i + 1:]:
+            agreement_rows.append({
+                "map": map_label,
+                "template_a": a,
+                "template_b": b,
+                "family_a": TEMPLATE_FAMILY.get(a, "?"),
+                "family_b": TEMPLATE_FAMILY.get(b, "?"),
+                "spearman_rho": spearman_rho(change_vectors[a], change_vectors[b]),
+            })
+
+    for name, rows in [
+        ("group_changes.csv", group_rows),
+        ("concept_changes.csv", concept_rows),
+        ("trajectory_changes.csv", traj_rows),
+        ("template_agreement.csv", agreement_rows),
+    ]:
+        if rows:
+            pl.DataFrame(rows).write_csv(out_dir / name)
+            print(f"  Wrote {out_dir / name} ({len(rows)} rows)")
+
+    manifest = {
+        "map": map_label,
+        "experiment": experiment,
+        "templates": list(rankings_by_template.keys()),
+        "epochs": [str(e) for e in all_epochs_for_plot],
+        "baseline_key": str(baseline_key),
+        "final_key": str(final_key),
+        "num_concepts": len(ALL_CONCEPTS),
+        "n_samples_per_template": {k: len(v) for k, v in rankings_by_template.items()},
+        "num_bootstrap": num_bootstrap,
+        "num_permutations": num_permutations,
+        "stats_seed": stats_seed,
+    }
+    with open(out_dir / "run_manifest.json", "w") as f:
+        json.dump(manifest, f, indent=2)
+
+
 def main():
     """Main function to generate language visualizations."""
     args = parse_args()
@@ -1300,138 +1781,194 @@ def main():
     siglip_model = siglip_model.to(device)
     siglip_model.eval()
     
-    # Pre-compute text embeddings for both modes:
-    # 1. Direct: just the concept term
-    # 2. Prompted: "this video shows 'xxx'"
-    print(f"  Computing text embeddings for {len(ALL_CONCEPTS)} concepts...")
-    
-    # Direct mode: use concepts as-is
-    text_embeds_direct = get_text_embeddings(siglip_model, processor, ALL_CONCEPTS, device)
-    
-    # Prompted mode: wrap concepts in "this video shows 'xxx'"
-    prompted_concepts = [f"this video shows \"{concept}\"" for concept in ALL_CONCEPTS]
-    text_embeds_prompted = get_text_embeddings(siglip_model, processor, prompted_concepts, device)
-    
+    # Pre-compute text embeddings for every requested template arm. Image embeddings do
+    # not depend on the template, so template count only costs text embedding + a matmul.
+    template_keys = resolve_templates(args.templates)
+    print(f"  Computing text embeddings for {len(ALL_CONCEPTS)} concepts "
+          f"x {len(template_keys)} template arms...")
+    for key in template_keys:
+        print(f"    {key:<22} {describe_template(key)}")
+    template_embeds = build_template_embeddings(
+        siglip_model, processor, template_keys, ALL_CONCEPTS, device
+    )
+
     # Save baseline (off-the-shelf pretrained) vision weights
     # This is the original pretrained model before any finetuning
     baseline_vision_state = {k: v.clone() for k, v in siglip_model.vision_model.state_dict().items()}
-    
+
     # Load finetuned weights for different epochs
     print("\n[4/5] Loading checkpoint weights...")
     epoch_vision_states = {}
-    
+    epoch_ckpt_names = {"baseline": PRETRAINED_NAME}
+
     for epoch in epochs_to_load:
         print(f"  Loading epoch {epoch}...")
+        ckpt_path = find_checkpoint_for_epoch(checkpoint_dir, epoch)
         state = load_checkpoint_vision_state(checkpoint_dir, epoch)
         if state is not None:
             epoch_vision_states[epoch] = state
-    
-    # Process each sample and collect rankings for aggregation (for both modes)
+            epoch_ckpt_names[epoch] = ckpt_path.name
+
+    available_epochs = [
+        e for e in epochs_to_load
+        if e in epoch_vision_states and epoch_vision_states[e] is not None
+    ]
+    if not available_epochs:
+        raise RuntimeError(f"No usable checkpoints found in {checkpoint_dir}")
+    missing_epochs = [e for e in epochs_to_load if e not in available_epochs]
+    if missing_epochs:
+        print(f"  Note: requested epochs with no checkpoint, excluded: {missing_epochs}")
+
+    state_tags = ["baseline"] + [state_tag(e) for e in available_epochs]
+    tag_to_epoch = dict(zip(state_tags, ["baseline"] + list(available_epochs)))
+
+    # Image embedding cache. Reuse makes a template sweep text-only.
+    cache_dir = None
+    if args.embed_cache:
+        cache_dir = embed_cache_dir(args.embed_cache, args.experiment)
+        requested_ckpts = {e: epoch_ckpt_names[e] for e in available_epochs}
+        if args.reuse_embed_cache:
+            validate_cache_manifest(cache_dir, args.experiment, requested_ckpts, PRETRAINED_NAME)
+            print(f"  Reusing image embeddings from {cache_dir}")
+        else:
+            print(f"  Writing image embeddings to {cache_dir}")
+    elif args.reuse_embed_cache:
+        raise ValueError("--reuse-embed-cache requires --embed-cache")
+
+    # Process each sample and collect rankings for aggregation, per template arm.
+    #
+    # The vision pass is hoisted out of the template loop: image embeddings do not
+    # depend on the prompt, so they are computed once per (sample, encoder state) and
+    # then scored against every template. This makes template count nearly free.
     print("\n[5/6] Processing samples for aggregate visualization...")
-    all_sample_rankings_direct = {}  # For Borda-style aggregation (direct mode)
-    all_sample_rankings_prompted = {}  # For Borda-style aggregation (prompted mode)
-    all_epochs_for_plot = None
-    
+    rankings_by_template = {key: {} for key in template_keys}
+    all_epochs_for_plot = ['baseline'] + list(available_epochs)
+    skipped_samples = []
+
     for sample_idx in tqdm(sample_indices, desc="Processing samples"):
         row = df.row(sample_idx, named=True)
         match_id = row['match_id']
         round_num = row['round_num']
         start_seconds = row['start_seconds']
         end_seconds = row['end_seconds']
-        
+
         # Use first teammate
         agent_id = row['teammate_0_id']
         if agent_id is None:
+            skipped_samples.append((sample_idx, "no teammate_0_id"))
             continue
-        
-        # Load video
-        video_path = construct_video_path(cfg, match_id, str(agent_id), round_num)
-        try:
-            video_result = load_video_clip(cfg, video_path, start_seconds, end_seconds)
-            video_clip = video_result['video']
-        except Exception as e:
-            print(f"  Warning: Failed to load video for sample {sample_idx}: {e}")
-            continue
-        
-        # Process for both direct and prompted modes
-        for mode, text_embeds, all_sample_rankings in [
-            ("direct", text_embeds_direct, all_sample_rankings_direct),
-            ("prompted", text_embeds_prompted, all_sample_rankings_prompted),
-        ]:
-            # 1. Compute similarities with baseline (off-the-shelf pretrained) model
+
+        state_embeds = None
+        if cache_dir is not None and args.reuse_embed_cache:
+            state_embeds = load_cached_sample_embeds(cache_dir, sample_idx, state_tags, device)
+            if state_embeds is None:
+                skipped_samples.append((sample_idx, "not in embedding cache"))
+                continue
+
+        if state_embeds is None:
+            # Load video
+            video_path = construct_video_path(cfg, match_id, str(agent_id), round_num)
+            try:
+                video_result = load_video_clip(cfg, video_path, start_seconds, end_seconds)
+                video_clip = video_result['video']
+            except Exception as e:
+                print(f"  Warning: Failed to load video for sample {sample_idx}: {e}")
+                skipped_samples.append((sample_idx, f"video load failed: {e}"))
+                continue
+
+            # One vision pass per encoder state, shared across all templates.
+            pixel_values = preprocess_video_frames(video_clip, processor).to(device)
+            state_embeds = {}
             replace_vision_encoder_weights(siglip_model, baseline_vision_state)
-            baseline_sims = compute_similarities_for_video(
-                video_clip, siglip_model, processor, text_embeds, device
-            )
-            
-            # 2. Compute similarities for each epoch (for evolution visualization)
-            # Start with baseline as the first point
-            epoch_similarities = {'baseline': baseline_sims}
-            
-            available_epochs = [e for e in epochs_to_load if e in epoch_vision_states and epoch_vision_states[e] is not None]
-            
+            state_embeds["baseline"] = get_image_embeddings(siglip_model, pixel_values)
             for epoch in available_epochs:
                 replace_vision_encoder_weights(siglip_model, epoch_vision_states[epoch])
-                epoch_similarities[epoch] = compute_similarities_for_video(
-                    video_clip, siglip_model, processor, text_embeds, device
+                state_embeds[state_tag(epoch)] = get_image_embeddings(siglip_model, pixel_values)
+            replace_vision_encoder_weights(siglip_model, baseline_vision_state)
+
+            if cache_dir is not None:
+                save_cached_sample_embeds(cache_dir, sample_idx, state_embeds)
+        else:
+            video_clip = None
+
+        # Score every template arm against the cached image embeddings.
+        for template_key in template_keys:
+            text_embeds = template_embeds[template_key]
+            epoch_similarities = {
+                tag_to_epoch[tag]: compute_text_image_similarity(text_embeds, emb).cpu().numpy()
+                for tag, emb in state_embeds.items()
+            }
+
+            # Per-sample diagnostic plots are only meaningful for a single arm and need
+            # the decoded frames, so they stay opt-in and skip cache-only runs.
+            if generate_individual_plots and video_clip is not None:
+                sample_dir = artifacts_dir / f"sample_{sample_idx}" / template_key
+                sample_dir.mkdir(parents=True, exist_ok=True)
+
+                if final_epoch in epoch_similarities:
+                    create_before_after_plot(
+                        epoch_similarities['baseline'], epoch_similarities[final_epoch],
+                        video_clip, sample_idx, sample_dir / "before_after.png"
+                    )
+
+                create_epoch_evolution_plot(
+                    epoch_similarities, video_clip, sample_idx,
+                    sample_dir / "epoch_evolution.png", all_epochs_for_plot
                 )
-            
-            # Create trajectory plots with baseline + all epochs
-            all_epochs_for_plot = ['baseline'] + available_epochs
-            
-            if len(available_epochs) >= 1:
-                # Generate individual plots only if enabled
-                if generate_individual_plots:
-                    sample_dir = artifacts_dir / f"sample_{sample_idx}" / mode
-                    sample_dir.mkdir(parents=True, exist_ok=True)
-                    
-                    # Create before/after plot: baseline vs epoch 39
-                    if final_epoch in epoch_vision_states and epoch_vision_states[final_epoch] is not None:
-                        finetuned_sims = epoch_similarities[final_epoch]
-                        create_before_after_plot(
-                            baseline_sims, finetuned_sims, video_clip, sample_idx,
-                            sample_dir / "before_after.png"
-                        )
-                    
-                    # Create epoch evolution plot
-                    create_epoch_evolution_plot(
-                        epoch_similarities,
-                        video_clip, sample_idx,
-                        sample_dir / "epoch_evolution.png",
-                        all_epochs_for_plot
-                    )
-                    
-                    # Create concept trajectory plot
-                    create_concept_trajectory_plot(
-                        epoch_similarities,
-                        sample_idx,
-                        sample_dir / "concept_trajectories.png",
-                        all_epochs_for_plot
-                    )
-                    
-                    # Create ranking change plot (all concepts)
-                    create_ranking_change_plot(
-                        epoch_similarities,
-                        sample_idx,
-                        sample_dir / "ranking_evolution.png",
-                        all_epochs_for_plot
-                    )
-                
-                # Collect rankings for aggregation
-                # Compute rankings for this sample at each epoch
-                sample_rankings = {}
-                for epoch in all_epochs_for_plot:
-                    mean_sim = epoch_similarities[epoch].mean(axis=0)  # [num_concepts]
-                    sorted_indices = np.argsort(-mean_sim)
-                    rank = np.zeros(len(ALL_CONCEPTS), dtype=int)
-                    for r, idx in enumerate(sorted_indices):
-                        rank[idx] = r + 1
-                    sample_rankings[epoch] = rank
-                all_sample_rankings[sample_idx] = sample_rankings
-        
-        # Restore baseline weights for next sample
-        replace_vision_encoder_weights(siglip_model, baseline_vision_state)
-    
+                create_concept_trajectory_plot(
+                    epoch_similarities, sample_idx,
+                    sample_dir / "concept_trajectories.png", all_epochs_for_plot
+                )
+                create_ranking_change_plot(
+                    epoch_similarities, sample_idx,
+                    sample_dir / "ranking_evolution.png", all_epochs_for_plot
+                )
+
+            # Collect rankings for aggregation (1 = highest similarity)
+            sample_rankings = {}
+            for epoch in all_epochs_for_plot:
+                mean_sim = epoch_similarities[epoch].mean(axis=0)  # [num_concepts]
+                sorted_indices = np.argsort(-mean_sim)
+                rank = np.zeros(len(ALL_CONCEPTS), dtype=int)
+                for r, idx in enumerate(sorted_indices):
+                    rank[idx] = r + 1
+                sample_rankings[epoch] = rank
+            rankings_by_template[template_key][sample_idx] = sample_rankings
+
+    n_scored = len(rankings_by_template[template_keys[0]]) if template_keys else 0
+    print(f"  Scored {n_scored} of {len(sample_indices)} sampled clips "
+          f"({len(skipped_samples)} skipped)")
+    if skipped_samples:
+        for sample_idx, reason in skipped_samples[:10]:
+            print(f"    skipped sample {sample_idx}: {reason}")
+        if len(skipped_samples) > 10:
+            print(f"    ... and {len(skipped_samples) - 10} more")
+
+    if cache_dir is not None and not args.reuse_embed_cache:
+        write_cache_manifest(
+            cache_dir, args.experiment,
+            {e: epoch_ckpt_names[e] for e in available_epochs},
+            num_frames=int(cfg.data.fixed_duration_seconds * cfg.data.target_fps),
+            embed_dim=int(template_embeds[template_keys[0]].shape[-1]),
+            pretrained_name=PRETRAINED_NAME,
+        )
+
+    # Machine-readable template-sensitivity tables.
+    write_template_sensitivity_outputs(
+        rankings_by_template=rankings_by_template,
+        all_epochs_for_plot=all_epochs_for_plot,
+        artifacts_dir=artifacts_dir,
+        map_label=args.map_label or str(cfg.data.get('map', 'unknown')),
+        experiment=args.experiment,
+        num_bootstrap=args.bootstrap,
+        num_permutations=args.permutations,
+        stats_seed=args.stats_seed,
+    )
+
+    # Back-compat handles for the legacy two-panel figure and per-mode artifacts.
+    all_sample_rankings_direct = rankings_by_template.get(LEGACY_MODE_KEYS["direct"], {})
+    all_sample_rankings_prompted = rankings_by_template.get(LEGACY_MODE_KEYS["prompted"], {})
+
     # Create aggregate ranking plots for both modes
     print("\n[6/6] Generating aggregate ranking visualizations...")
     
@@ -1448,14 +1985,18 @@ def main():
         )
         print(f"  Combined plot saved to: {aggregate_dir / 'ranking_evolution_combined.png'}")
     
-    for mode, all_sample_rankings in [
-        ("direct", all_sample_rankings_direct),
-        ("prompted", all_sample_rankings_prompted),
-    ]:
+    # Per-template figures and the Table-18-format text summary. Restricted to the
+    # rebuttal-named templates so a 47-arm sweep does not emit 47 sets of plots; the
+    # CSVs carry the full bank.
+    plot_templates = [k for k in template_keys if k in REBUTTAL_TEMPLATES]
+    for template_key in plot_templates:
+        all_sample_rankings = rankings_by_template[template_key]
         if all_sample_rankings and all_epochs_for_plot:
+            # bare/paper keep their legacy directory names so old and new runs stay diffable.
+            mode = LEGACY_DIR_NAMES.get(template_key, template_key)
             aggregate_dir = artifacts_dir / "sample_aggregate" / mode
             aggregate_dir.mkdir(parents=True, exist_ok=True)
-            
+
             # Create detailed per-concept aggregate plot (all concepts, two panels)
             summary = create_aggregate_ranking_plot(
                 all_sample_rankings,
@@ -1463,7 +2004,7 @@ def main():
                 all_epochs_for_plot,
                 prompt_mode=mode,
             )
-            
+
             # Create single-panel plot (longer epoch only)
             create_aggregate_ranking_plot_single(
                 all_sample_rankings,
@@ -1471,7 +2012,7 @@ def main():
                 all_epochs_for_plot,
                 prompt_mode=mode,
             )
-            
+
             # Create clean group-level plot (5 curves only)
             group_summary = create_group_ranking_plot(
                 all_sample_rankings,
@@ -1479,9 +2020,9 @@ def main():
                 all_epochs_for_plot,
                 prompt_mode=mode,
             )
-            
+
             # Save summary to text file
-            mode_desc = "Direct term comparison" if mode == "direct" else "Prompted: 'this video shows \"xxx\"'"
+            mode_desc = describe_template(template_key)
             with open(aggregate_dir / "ranking_summary.txt", 'w') as f:
                 f.write(f"Aggregate Ranking Summary ({len(all_sample_rankings)} samples, {len(ALL_CONCEPTS)} concepts)\n")
                 f.write(f"Mode: {mode_desc}\n")

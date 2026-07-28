@@ -50,6 +50,7 @@ from src.scripts.eval_subsets.visibility import (
     decode_mask,
     resolve_mask_offset,
 )
+from src.utils.env_utils import resolve_data_dir
 
 OPPOSITE = {"ct": "t", "t": "ct"}
 
@@ -113,7 +114,8 @@ def main():
     )
     ap.add_argument("--map", required=True)
     ap.add_argument("--task", default="enemy_location_0s")
-    ap.add_argument("--data-dir", default="data")
+    ap.add_argument("--data-dir", default=None,
+                    help='defaults to $DATA_BASE_PATH from .env, else "data"')
     ap.add_argument("--trajectory-folder", default="trajectory_angles")
     ap.add_argument("--partition", default="test")
     ap.add_argument("--tri-path", default=None,
@@ -122,6 +124,7 @@ def main():
     ap.add_argument("--half-fov", type=float, default=53.0)
     ap.add_argument("--max-dist", type=float, default=3000.0)
     args = ap.parse_args()
+    args.data_dir = resolve_data_dir(args.data_dir)
 
     enemy_pairs, mate_pairs, self_pairs, n_rounds = collect_pairs(args)
     print(f"sampled {n_rounds} label rows: {len(enemy_pairs)} pov-enemy pairs, "

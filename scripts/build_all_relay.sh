@@ -15,7 +15,13 @@
 
 set -uo pipefail
 
-DATA_DIR="data"
+# .env holds DATA_BASE_PATH, but only the Python side loads it via dotenv, so a
+# plain shell run would not see it.
+if [[ -z "${DATA_BASE_PATH:-}" && -f .env ]]; then
+  set -a; . ./.env; set +a
+fi
+
+DATA_DIR="${DATA_BASE_PATH:-/project2/ustun_1726/x-ego/data}"
 OUT_DIR="output/eval_subsets"
 TRAJ_FOLDER="${TRAJ_FOLDER:-trajectory_angles}"
 MASK_OFFSET="${MASK_OFFSET:-0}"
@@ -23,14 +29,30 @@ ENEMY_BACKEND="${ENEMY_BACKEND:-mask}"
 TEAMMATE_BACKEND="${TEAMMATE_BACKEND:-los}"
 FORCE=0
 
+# An unset $DATA would otherwise make "--data-dir $DATA --out-dir x" collapse into
+# "--data-dir --out-dir", silently taking a flag as the path.
+need_value() {
+  if [[ -z "${2:-}" || "${2:0:2}" == "--" ]]; then
+    echo "$1 needs a value (got '${2:-}'). An unset shell variable is the usual cause." >&2
+    exit 1
+  fi
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --data-dir) DATA_DIR="$2"; shift 2 ;;
-    --out-dir)  OUT_DIR="$2";  shift 2 ;;
+    --data-dir) need_value "$1" "${2:-}"; DATA_DIR="$2"; shift 2 ;;
+    --out-dir)  need_value "$1" "${2:-}"; OUT_DIR="$2";  shift 2 ;;
     --force)    FORCE=1; shift ;;
+    -h|--help)  sed -n '2,14p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 1 ;;
   esac
 done
+
+if [[ ! -d "$DATA_DIR" ]]; then
+  echo "data dir not found: $DATA_DIR" >&2
+  echo "pass --data-dir, or set DATA_BASE_PATH" >&2
+  exit 1
+fi
 
 MAPS=(inferno dust2 mirage)
 # Only the enemy tasks: the relay question is about an opponent seen by a

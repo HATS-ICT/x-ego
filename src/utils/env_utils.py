@@ -22,6 +22,24 @@ def get_output_base_path() -> str:
     """Get the data directory name from environment or default."""
     return os.getenv("OUTPUT_BASE_PATH")
 
+def resolve_data_dir(explicit: str | None = None) -> str:
+    """Data directory to use, preferring an explicit CLI value over .env.
+
+    Exists because scripts that default --data-dir to the literal "data" fail
+    confusingly on the cluster, where the data lives outside the repo and the
+    path is already recorded in .env as DATA_BASE_PATH. Raises with both
+    remedies rather than letting a missing directory surface later as an empty
+    result set.
+    """
+    chosen = explicit or get_data_base_path() or "data"
+    if not Path(chosen).is_dir():
+        raise SystemExit(
+            f"data dir not found: {chosen!r}\n"
+            "Pass --data-dir, or set DATA_BASE_PATH in .env."
+        )
+    return chosen
+
+
 def print_env_info():
     """Print current environment configuration for debugging."""
     print("=" * 50)

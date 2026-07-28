@@ -29,6 +29,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from src.utils.env_utils import resolve_data_dir
+
 
 def build(vphys: Path, out: Path) -> None:
     from awpy.visibility import VphysParser
@@ -53,10 +55,12 @@ def main():
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     ap.add_argument("--map", required=True, help="e.g. inferno, dust2, mirage")
-    ap.add_argument("--data-dir", default="data")
+    ap.add_argument("--data-dir", default=None,
+                    help='defaults to $DATA_BASE_PATH from .env, else "data"')
     ap.add_argument("--vphys", default=None, help="override the .vphys path")
     ap.add_argument("--out", default=None, help="override the .tri output path")
     args = ap.parse_args()
+    args.data_dir = resolve_data_dir(args.data_dir)
 
     full = args.map if args.map.startswith("de_") else f"de_{args.map}"
     mesh_dir = Path(args.data_dir) / args.map / "mesh"

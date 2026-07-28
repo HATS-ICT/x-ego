@@ -51,6 +51,8 @@ import json
 import os
 from pathlib import Path
 
+from src.utils.env_utils import resolve_data_dir
+
 BASE_COLUMNS = [
     "tick_norm", "tick", "game_sec", "round_num", "map_name",
     "steamid", "name", "side", "X", "Y", "Z", "place", "health",
@@ -197,7 +199,8 @@ def main():
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     ap.add_argument("--map", required=True)
-    ap.add_argument("--data-dir", default="data")
+    ap.add_argument("--data-dir", default=None,
+                    help='defaults to $DATA_BASE_PATH from .env, else "data"')
     ap.add_argument("--out-folder", default="trajectory_angles")
     ap.add_argument(
         "--props",
@@ -209,6 +212,7 @@ def main():
     ap.add_argument("--skip-existing", action="store_true",
                     help="skip demos whose output folder already exists")
     args = ap.parse_args()
+    args.data_dir = resolve_data_dir(args.data_dir)
 
     demo_dir = Path(args.data_dir) / args.map / "demo"
     demos = sorted(str(p) for p in demo_dir.glob("*.dem"))

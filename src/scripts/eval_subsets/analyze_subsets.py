@@ -12,9 +12,14 @@ comparable to the published ones:
     regression       R^2
 
 --verify recomputes the full-split metric from the dumped logits and compares it
-against that run's test_results_best.json. Run it first. If those agree, the
-subset slices provably come from the same predictions behind the published
-deltas; if they do not, nothing downstream is trustworthy.
+against reference_metrics.tsv, which was extracted BEFORE any rerun. Comparing
+against the run's own test_results_last.json would be circular, since the rerun
+overwrites that file in place. Run --verify first. If the two agree, the subset
+slices provably come from the same predictions behind the published deltas; if
+they do not, nothing downstream is trustworthy.
+
+Runs are located under $OUTPUT_BASE_PATH, or --output-base, defaulting to the
+same path as scripts/dump_test_predictions.sh.
 
 Usage:
     python -m src.scripts.eval_subsets.analyze_subsets --verify
@@ -43,6 +48,9 @@ CONDITIONS = {
     'teammate_aliveCount': ('alive', [('deaths precede window', 'unobservable_count == 1')]),
 }
 JACCARD_BINS = [(-0.01, 0.0), (0.0, 0.2), (0.2, 0.4), (0.4, 0.6), (0.6, 0.8), (0.8, 1.01)]
+
+# Same default as scripts/dump_test_predictions.sh. Keep the two in step.
+DEFAULT_OUTPUT_BASE = '/project2/ustun_1726/x-ego/output'
 
 
 def sigmoid(x):
@@ -129,17 +137,21 @@ def main():
     ap.add_argument('--reference', default='src/scripts/eval_subsets/reference_metrics.tsv',
                     help='original metrics recorded before any rerun, for --verify')
     ap.add_argument('--verify', action='store_true',
-                    help='only check dumped logits reproduce test_results_best.json')
+                    help='only check dumped logits reproduce the reference metrics')
     ap.add_argument('--out', default=None, help='write a markdown report here')
     args = ap.parse_args()
 
     import os
-    base = Path(args.output_base or os.environ.get('OUTPUT_BASE_PATH', 'output'))
+    # Must agree with the default in scripts/dump_test_predictions.sh, otherwise
+    # a shell that dumped fine reports every run missing here.
+    base = Path(args.output_base or os.environ.get('OUTPUT_BASE_PATH', DEFAULT_OUTPUT_BASE))
+    print(f'output base: {base}')
     man = pd.read_csv(args.manifest, sep='\t')
+    reference = load_reference(Path(args.reference))
 
     runs, missing = {}, []
     for r in man.to_dict('records'):
-        loaded = load_run(base, r['run_dir'])
+        loaded = load_run(base, r['run_dir'], reference)
         if loaded is None:
             missing.append(r['run_dir'])
             continue
@@ -151,6 +163,13 @@ def main():
             print(f'  MISSING {m}')
         if len(missing) > 10:
             print(f'  ... and {len(missing) - 10} more')
+
+    if not runs:
+        raise SystemExit(
+            f'\nERROR: no dumped predictions found under {base}\n'
+            '  Point --output-base at the dir holding the probe run dirs, or export\n'
+            '  OUTPUT_BASE_PATH. Nothing is written when zero runs load.'
+        )
 
     # ---- verification -----------------------------------------------------
     diffs = []
@@ -170,6 +189,11 @@ def main():
         if worst[0] >= 1e-3:
             print('\n  WARNING: at least one run does not reproduce its reported metric.')
             print('  Do not trust the subset numbers until this is resolved.')
+    else:
+        # An empty diff list means nothing was checked. Silence here previously
+        # read as a clean pass, so say it out loud.
+        print(f'\nWARNING: verified 0 of {len(runs)} runs. No run matched a row in '
+              f'{args.reference}, so the dumps are UNVERIFIED.')
     if args.verify:
         return
 

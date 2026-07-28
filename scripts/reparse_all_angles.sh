@@ -51,7 +51,12 @@ MAPS=(inferno dust2 mirage)
 # Confirm the props exist before committing to a long run. A parser build without
 # approximate_spotted_by silently degrades the relay conditions to geometry.
 echo "=== prop availability check on the first ${MAPS[0]} demo"
-python -m src.scripts.data_processing.parse_traj_with_angles   --map "${MAPS[0]}" --data-dir "$DATA_DIR" --list-props
+if ! python -m src.scripts.data_processing.parse_traj_with_angles       --map "${MAPS[0]}" --data-dir "$DATA_DIR" --list-props; then
+  echo >&2
+  echo "The prop probe itself failed. Fix that before parsing anything," >&2
+  echo "since every demo would hit the same problem." >&2
+  exit 1
+fi
 echo
 echo "If pitch or yaw were REJECTED above, stop here and fix --props."
 echo "Continuing in 5 seconds."

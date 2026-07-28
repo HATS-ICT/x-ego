@@ -95,15 +95,65 @@ def list_props(demo_path: str) -> None:
         if p not in df.columns:
             print(f"  {p:24s} ACCEPTED BUT NO COLUMN IN OUTPUT")
             continue
-        nn = int(df[p].notna().sum())
-        sample = df[p].dropna().unique()[:3].tolist()
-        print(f"  {p:24s} OK  non-null {nn}/{len(df)}  dtype {df[p].dtype}  e.g. {sample}")
+        try:
+            col = df[p].dropna()
+            nn = len(col)
+            # No .unique() here: list-valued props such as the spotted mask are
+            # unhashable and would raise, which previously killed the whole probe.
+            sample = col.head(3).tolist()
+            nested = bool(nn) and isinstance(sample[0], (list, tuple))
+            note = "  LIST-VALUED, flattened on write" if nested else ""
+            print(f"  {p:24s} OK  non-null {nn}/{len(df)}  dtype {df[p].dtype}"
+                  f"  e.g. {sample}{note}")
+        except Exception as exc:
+            print(f"  {p:24s} PRESENT but unreadable  {type(exc).__name__}: {exc}")
     print(
         "\nInterpretation. pitch and yaw must be OK or nothing downstream works.\n"
-        "approximate_spotted_by should be an integer bitmask; if it is a list or a\n"
-        "string, visibility.py handles both but confirm the sample above looks like\n"
-        "slot bits and not steamids."
+        "approximate_spotted_by is m_bSpottedByMask. Expect either an integer or a\n"
+        "list of two 32-bit words; both are handled. Confirm the sample looks like\n"
+        "small slot bitmasks and not steamids."
     )
+
+
+def join_words(value) -> str:
+    """One list of mask words as the ';'-separated string decode_mask expects."""
+    if value is None:
+        return ""
+    if not isinstance(value, (list, tuple)):
+        return str(value)
+    return ";".join("" if w is None else str(w) for w in value)
+
+
+def flatten_nested(frame):
+    """Join list-valued columns into ';'-separated strings.
+
+    approximate_spotted_by is m_bSpottedByMask, which arrives as a list of 32-bit
+    words. CSV has no nested type and pyarrow segfaults converting one, so each
+    list becomes "w0;w1". visibility.decode_mask reads that form back, treating
+    element i as bits [32i, 32i+32).
+
+    Nested columns are detected from actual Python values rather than dtypes, and
+    the rewrite falls back to plain Python, because both the dtype predicate and
+    the list-join namespace have been renamed across polars versions and this must
+    not break on whichever one the cluster has.
+    """
+    import polars as pl
+
+    if frame.is_empty():
+        return frame
+    probe = frame.head(1).to_dicts()[0]
+    nested = [c for c, v in probe.items() if isinstance(v, (list, tuple))]
+    for name in nested:
+        try:
+            frame = frame.with_columns(
+                pl.col(name).cast(pl.List(pl.Utf8)).list.join(";").alias(name)
+            )
+        except Exception:
+            frame = frame.with_columns(
+                pl.Series(name, [join_words(v) for v in frame[name].to_list()],
+                          dtype=pl.Utf8)
+            )
+    return frame
 
 
 def parse_one(dem_file: str, out_root: Path, map_name: str, props: list[str]) -> dict:
@@ -179,10 +229,15 @@ def parse_one(dem_file: str, out_root: Path, map_name: str, props: list[str]) ->
             sub = sub.with_columns((pl.col("tick") - start_tick).alias("tick_norm"))
             sub = sub.with_columns((pl.col("tick_norm") / 64.0).round(3).alias("game_sec"))
             sub = sub.select([c for c in keep if c in sub.columns])
+            sub = flatten_nested(sub)
 
             player_dir = out_dir / str(steamid)
             os.makedirs(player_dir, exist_ok=True)
-            sub.to_pandas().to_csv(player_dir / f"round_{round_num}.csv", index=False)
+            # polars writes the CSV directly. Going via to_pandas() segfaults on
+            # nested columns: pyarrow's table_to_dataframe drops the GIL and dies
+            # with "PyThreadState_Get ... the GIL is released". Flattening first
+            # would make to_pandas safe again, but write_csv avoids the round trip.
+            sub.write_csv(player_dir / f"round_{round_num}.csv")
             n_written += 1
 
     return {

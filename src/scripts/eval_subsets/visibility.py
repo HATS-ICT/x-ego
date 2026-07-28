@@ -71,26 +71,56 @@ def forward_vector(pitch_deg: float, yaw_deg: float) -> np.ndarray:
     )
 
 
+def _bits_from_words(words) -> set[int]:
+    """Bit indices from a sequence of 32-bit words, element i covering [32i, 32i+32)."""
+    bits: set[int] = set()
+    for word_i, word in enumerate(words):
+        try:
+            w = int(float(word))
+        except (TypeError, ValueError):
+            continue
+        if w < 0:
+            w &= (1 << 32) - 1
+        for b in range(32):
+            if w & (1 << b):
+                bits.add(word_i * 32 + b)
+    return bits
+
+
 def decode_mask(value) -> Optional[set[int]]:
     """Bit indices set in a spotted mask, tolerating the shapes parsers emit.
 
-    Seen in the wild: a plain int, a list of ints forming a wider mask, and a
-    stringified int. Returns None when the value is absent or unparseable, which
-    the callers treat as "unknown" rather than "not visible".
+    m_bSpottedByMask is uint32[2], so demoparser2 gives a list of two words. Once
+    written to CSV it comes back as "w0;w1", since CSV has no nested type. Some
+    builds give a single integer instead. All three are accepted.
+
+    Returns None when the value is absent or unparseable, which callers treat as
+    "unknown" rather than "not visible", so a missing field can never be mistaken
+    for a confirmed lack of visibility.
     """
-    if value is None or (np.isscalar(value) and pd.isna(value)):
+    if value is None:
         return None
     if isinstance(value, (list, tuple, np.ndarray)):
-        bits: set[int] = set()
-        for word_i, word in enumerate(value):
-            try:
-                w = int(word)
-            except (TypeError, ValueError):
-                continue
-            for b in range(32):
-                if w & (1 << b):
-                    bits.add(word_i * 32 + b)
-        return bits
+        return _bits_from_words(value)
+    if isinstance(value, str):
+        s = value.strip()
+        if not s or s.lower() in ("nan", "none", "null"):
+            return None
+        # Bracketed forms appear if a list was str()'d rather than joined.
+        s = s.strip("[]()").replace(",", ";")
+        if ";" in s:
+            # Do NOT drop empty fields. Position carries meaning: element i covers
+            # bits [32i, 32i+32), so filtering a null first word would shift every
+            # later bit down by 32. _bits_from_words skips unparseable entries
+            # while keeping their index.
+            return _bits_from_words(s.split(";"))
+        try:
+            v = int(float(s))
+        except ValueError:
+            return None
+        return _bits_from_words([v & 0xFFFFFFFF, (v >> 32) & 0xFFFFFFFF])
+    if pd.isna(value):
+        return None
     try:
         v = int(float(value))
     except (TypeError, ValueError):

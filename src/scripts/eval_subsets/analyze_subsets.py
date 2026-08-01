@@ -64,6 +64,12 @@ CONDITIONS = {
         # contains the plant event.
         ('plant before window or never planted',
          'plant_before_window == 1 or planted_at_pred == 0'),
+        # The row above retains 23 of 2544 rows (0.9%) where the plant lands
+        # inside the observation window while the label is still 0, so "no
+        # retained row contains the plant event" is not literally true of it.
+        # This excludes them, making the claim exact. Both classes still present.
+        ('plant before window or never planted, no in-window plant',
+         'plant_before_window == 1 or (planted_at_pred == 0 and plant_inside_window == 0)'),
     ]),
     'enemy_aliveCount': ('alive', [('deaths precede window', 'unobservable_count == 1')]),
     'teammate_aliveCount': ('alive', [('deaths precede window', 'unobservable_count == 1')]),

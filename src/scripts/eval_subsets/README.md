@@ -49,6 +49,7 @@ python -m src.scripts.eval_subsets.analyze_subsets --verify
 python -m src.scripts.eval_subsets.analyze_subsets --out reviews/subset-results.md
 
 # 4b. Per-cell breakdown, needed whenever a row is not unanimous or is thinly
+#     sampled. See REBUTTAL_Q1.md for which rebuttal sentence each column answers.
 #     sampled. Every condition row also carries a min-to-max spread across cells.
 python -m src.scripts.eval_subsets.analyze_subsets --per-cell \
     --out reviews/subset-results-percell.md

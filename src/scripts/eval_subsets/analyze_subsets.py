@@ -24,6 +24,12 @@ same path as scripts/dump_test_predictions.sh.
 Usage:
     python -m src.scripts.eval_subsets.analyze_subsets --verify
     python -m src.scripts.eval_subsets.analyze_subsets --out reviews/subset-results.md
+    python -m src.scripts.eval_subsets.analyze_subsets --per-cell \
+        --out reviews/subset-results-percell.md
+
+Every condition row carries a min-to-max spread across cells, and --per-cell adds
+the full (map, encoder) breakdown. A mean of "+0.09, 4/5 cells positive" says
+nothing about how far the dissenting cell dissents, and a rebuttal has to.
 """
 
 from __future__ import annotations
@@ -43,7 +49,22 @@ CONDITIONS = {
     'enemy_location_10s': ('moved', [('target changed region', 'moved_disjoint == 1')]),
     'enemy_location_5s': ('moved', [('target changed region', 'moved_disjoint == 1')]),
     'teammate_location_10s': ('moved', [('target changed region', 'moved_disjoint == 1')]),
-    'global_bombPlanted': ('bomb', [('plant before window', 'plant_before_window == 1')]),
+    'global_bombPlanted': ('bomb', [
+        # The headline condition. NOTE it selects only label==1 rows, because
+        # plant_before_window implies planted_at_pred, so accuracy here is
+        # positive-class recall and not balanced accuracy.
+        ('plant before window', 'plant_before_window == 1'),
+        # Its complement, needed to state the decomposition honestly: the
+        # full-split delta is a weighted average of this and the row above.
+        ('plant not before window', 'plant_before_window == 0'),
+        # The plant is inside the window, so it is directly visible.
+        ('plant inside window', 'plant_inside_window == 1'),
+        # Unobservable positives plus never-planted negatives. Both classes are
+        # present, so accuracy is not recall on one class, and no retained row
+        # contains the plant event.
+        ('plant before window or never planted',
+         'plant_before_window == 1 or planted_at_pred == 0'),
+    ]),
     'enemy_aliveCount': ('alive', [('deaths precede window', 'unobservable_count == 1')]),
     'teammate_aliveCount': ('alive', [('deaths precede window', 'unobservable_count == 1')]),
 }
@@ -57,7 +78,13 @@ def sigmoid(x):
     return 1.0 / (1.0 + np.exp(-x))
 
 
-def metric(ml_form: str, logits: np.ndarray, targets: np.ndarray) -> float:
+def metric(ml_form: str, logits: np.ndarray, targets: np.ndarray,
+           present_only: bool = False) -> float:
+    """`present_only` only affects multi_cls: skip classes with no support in the
+    slice instead of scoring them as recall 0. The training metric scores them as
+    0, so the default reproduces the published numbers; but a subset that removes
+    a whole class (the alive conditions remove "nobody has died yet") then has its
+    delta divided by the full class count rather than the surviving one."""
     if ml_form == 'multi_label_cls':
         pred = sigmoid(logits) > 0.5
         true = targets > 0.5
@@ -83,8 +110,11 @@ def metric(ml_form: str, logits: np.ndarray, targets: np.ndarray) -> float:
         recalls = []
         for c in range(logits.shape[1]):
             m = true == c
-            recalls.append(float(np.mean(pred[m] == c)) if m.any() else 0.0)
-        return float(np.mean(recalls))
+            if m.any():
+                recalls.append(float(np.mean(pred[m] == c)))
+            elif not present_only:
+                recalls.append(0.0)
+        return float(np.mean(recalls)) if recalls else float('nan')
     if ml_form == 'regression':
         y = targets.reshape(len(targets), -1)
         p = logits.reshape(len(logits), -1)
@@ -141,7 +171,8 @@ def load_run(output_base: Path, run_dir: str, reference: dict | None = None):
     }
 
 
-def cell_delta(runs: dict, task: str, mp: str, enc: str, keep_idx, min_rows: int = 10):
+def cell_delta(runs: dict, task: str, mp: str, enc: str, keep_idx, min_rows: int = 10,
+               present_only: bool = False):
     """CECL minus baseline for one (map, encoder) cell, restricted to `keep_idx`.
 
     `keep_idx` of None means the full split. Seeds are averaged within an arm
@@ -160,24 +191,45 @@ def cell_delta(runs: dict, task: str, mp: str, enc: str, keep_idx, min_rows: int
                    else np.isin(v['idx'], keep_idx))
             if sel.sum() < min_rows:
                 continue
-            seed_vals.append(metric(v['ml_form'], v['logits'][sel], v['targets'][sel]))
+            seed_vals.append(metric(v['ml_form'], v['logits'][sel], v['targets'][sel],
+                                    present_only=present_only))
             ns.append(int(sel.sum()))
         if seed_vals:
             arm_vals[arm] = statistics.fmean(seed_vals)
     if len(arm_vals) != 2:
         return None
-    return arm_vals['CECL'] - arm_vals['BASE'], (statistics.median(ns) if ns else 0)
+    return (arm_vals['CECL'] - arm_vals['BASE'], (statistics.median(ns) if ns else 0),
+            arm_vals['BASE'], arm_vals['CECL'])
 
 
 def summary_row(label: str, results: list) -> str:
-    """One markdown row from a list of (delta, n) per cell."""
+    """One markdown row from a list of (delta, n, base, cecl) per cell."""
     results = [r for r in results if r is not None]
     if not results:
-        return f'| {label} | no data | 0/0 | 0 |'
-    deltas = [d for d, _ in results]
+        return f'| {label} | no data | 0/0 | 0 | - |'
+    deltas = [r[0] for r in results]
     pos = sum(1 for d in deltas if d > 0)
+    # min and max are what a rebuttal needs when a row is 4/5 or thinly sampled:
+    # the mean alone hides both the dissenting cell and the spread.
     return (f'| {label} | {statistics.fmean(deltas):+.4f} | {pos}/{len(deltas)} | '
-            f'{int(statistics.median([n for _, n in results]))} |')
+            f'{int(statistics.median([r[1] for r in results]))} | '
+            f'{min(deltas):+.4f} to {max(deltas):+.4f} |')
+
+
+def per_cell_lines(label: str, keys: list, results: list) -> list:
+    """Per-(map, encoder) breakdown for one condition, plus the total-n sum."""
+    out = [f'', f'Per cell, {label}:', '',
+           '| map | encoder | baseline | CECL | delta | n |', '|---|---|---|---|---|---|']
+    total = 0
+    for (mp, enc), r in zip(keys, results):
+        if r is None:
+            out.append(f'| {mp} | {enc} | - | - | dropped | - |')
+            continue
+        d, n, base, cecl = r
+        total += int(n)
+        out.append(f'| {mp} | {enc} | {base:.4f} | {cecl:.4f} | {d:+.4f} | {int(n)} |')
+    out += ['', f'Summed n across cells: {total}', '']
+    return out
 
 
 def load_flags(subset_dir: str, mp: str, task: str, suffix: str):
@@ -216,6 +268,9 @@ def main():
     ap.add_argument('--verify', action='store_true',
                     help='only check dumped logits reproduce the reference metrics')
     ap.add_argument('--out', default=None, help='write a markdown report here')
+    ap.add_argument('--per-cell', action='store_true',
+                    help='also emit a per-(map, encoder) table for every condition, '
+                         'which is what identifies a dissenting cell')
     args = ap.parse_args()
 
     import os
@@ -301,28 +356,53 @@ def main():
         if not task_keys:
             continue
         lines += [f'## {task}', '',
-                  '| condition | mean delta | cells positive | median n |', '|---|---|---|---|']
+                  '| condition | mean delta | cells positive | median n | min to max |',
+                  '|---|---|---|---|---|']
 
+        detail, per_cell_blocks = [], []
         for label, query in [('full test split', None)] + conds:
             results = []
             for (mp, enc) in task_keys:
                 keep = None
                 if query is not None:
                     flags = load_flags(args.subset_dir, mp, task, suffix)
+                    # Append None rather than skipping, so `results` stays aligned
+                    # with `task_keys` for the per-cell table.
                     if flags is None:
+                        results.append(None)
                         continue
                     keep = flags.query(query)['idx'].tolist()
                     if not keep:
+                        results.append(None)
                         continue
                 results.append(cell_delta(runs, task, mp, enc, keep))
-            lines.append(summary_row(label, results))
-        lines.append('')
+            detail.append(summary_row(label, results))
+            if args.per_cell:
+                per_cell_blocks += per_cell_lines(label, task_keys, results)
+
+            # A subset can delete a whole class. The training metric scores an
+            # empty class as recall 0, which divides the delta by the full class
+            # count; recomputing over surviving classes only says by how much.
+            if query is not None and any(v['ml_form'] == 'multi_cls'
+                                         for k, v in runs.items() if k[3] == task):
+                alt = []
+                for (mp, enc) in task_keys:
+                    flags = load_flags(args.subset_dir, mp, task, suffix)
+                    if flags is None:
+                        alt.append(None)
+                        continue
+                    keep = flags.query(query)['idx'].tolist()
+                    alt.append(cell_delta(runs, task, mp, enc, keep, present_only=True)
+                               if keep else None)
+                detail.append(summary_row(f'{label} (classes present only)', alt))
+        lines += detail + [''] + per_cell_blocks
 
         # jaccard-binned view for the forecast tasks
         if suffix == 'moved':
             lines += ['Delta by how much the present answer overlaps the future one. '
                       'Lower jaccard means less can be carried forward.', '',
-                      '| jaccard | mean delta | cells positive | median n |', '|---|---|---|---|']
+                      '| jaccard | mean delta | cells positive | median n | min to max |',
+                      '|---|---|---|---|---|']
             for lo, hi in JACCARD_BINS:
                 results = []
                 for (mp, enc) in task_keys:
@@ -351,7 +431,8 @@ def main():
                   'can see that teammate. C3 the same without visual contact. C4 nobody '
                   'on the team',
                   'sees any enemy. C2 versus C3 is the discriminator.', '',
-                  '| condition | mean delta | cells positive | median n |', '|---|---|---|---|']
+                  '| condition | mean delta | cells positive | median n | min to max |',
+                  '|---|---|---|---|---|']
         for cond in ('C1', 'C2', 'C3', 'C4'):
             results = []
             for (mp, enc) in task_keys:

@@ -11,6 +11,7 @@ every step here is either a forward pass or offline arithmetic.
 |---|---|---|
 | `moved` | target's map region at the prediction tick differs from its region at the end of the observed window | the forecast gain is not carried forward from the present |
 | `bomb` | the plant occurred before the observation window opened | the target state's defining event is outside every teammate's input, and the HUD is masked |
+| `bomb`, complement and balanced variants | see `CONDITIONS` | `plant_before_window` selects **only label==1 rows**, so its accuracy is positive-class recall. `plant not before window` gives the complement the full-split average is taken over, and `plant before window or never planted` restores both classes while still excluding every row containing the plant event |
 | `alive` | no death inside the window, but some occurred earlier | the count reflects events nobody could see in the input |
 
 `moved` also emits a continuous `jaccard` column (overlap between the present and
@@ -46,6 +47,11 @@ python -m src.scripts.eval_subsets.analyze_subsets --verify
 
 # 4. Produce the report
 python -m src.scripts.eval_subsets.analyze_subsets --out reviews/subset-results.md
+
+# 4b. Per-cell breakdown, needed whenever a row is not unanimous or is thinly
+#     sampled. Every condition row also carries a min-to-max spread across cells.
+python -m src.scripts.eval_subsets.analyze_subsets --per-cell \
+    --out reviews/subset-results-percell.md
 ```
 
 Then copy back only `reviews/subset-results.md` and `output/eval_subsets/*.csv`.
@@ -72,6 +78,12 @@ script prints a warning but does not stop you, so check the output.
   reloads a saved experiment config, and configs written before that key existed
   cannot accept it as an override.
 - `mirage/clip` is excluded: it has baseline runs but no CECL counterpart.
+- **The `alive` conditions delete a class.** Requiring an earlier death removes the
+  "nobody has died yet" class entirely. The training metric is macro recall and
+  scores an empty class as 0, so the restricted delta is divided by the full class
+  count rather than the surviving one, which deflates it by 1/6 on
+  `enemy_aliveCount` and 1/5 on `teammate_aliveCount`. The report now prints a
+  `classes present only` row alongside each, and that row is the fair comparison.
 - The C1–C4 relay ladder is a separate flow with its own prerequisites. See below.
 
 ## The relay ladder (C1–C4)

@@ -1,0 +1,147 @@
+# ICLR-2027 follow-up, P1b: P1 arms with the ORIGINAL cohort's batch regime
+# (appendix Tables stage1_hparams / contrastive_batch_settings): 10 synchronized
+# groups per loss, 4-step gradient accumulation, gradient clipping 1.0.
+# Everything else is identical to contrastive_iclr2027.yaml (P1).
+#
+# ICLR-2027 follow-up, P1: CECL vs single-view vs shuffled-pair adaptation.
+#
+# Frozen protocol (do not edit per-run; override only the arm/seed keys marked
+# ARM and SEED below):
+#   * SigLIP2, temporal_heads: null  -> plain frame averaging, no temporal block
+#   * 3 trainable final backbone blocks + AdamW (the primary historical family,
+#     NOT the later temporal/Muon configuration)
+#   * match-held-out cohort `matchheldout_v1` (see data/<map>/splits/)
+#   * identical spatial pooling, 5s inputs, frame sampling, UI masking,
+#     augmentation policy, projector, optimizer and step budget across arms
+#
+# Arms:
+#   C (cecl)    data.pair_mode=cecl
+#   S (single)  data.pair_mode=single
+#   H (shuffle) data.pair_mode=shuffle  data.shuffle_manifest=<seed-matched manifest>
+# Arm F (frozen) needs no run: it is the unadapted pretrained checkpoint.
+
+meta:
+  seed: 1                      # SEED: 1 | 2 | 3, paired across arms
+  exp_name: iclr2027_p1b
+  run_name: mirage_siglip2_mean_orig_cecl_s1
+  resume_exp: null
+
+data:
+  partition: all
+  labels_folder: labels
+  video_folder: video_306x306_4fps
+  map: mirage
+  persistent_workers: false  # true keeps train+val worker pools alive together -> OOM at epoch 1 (P1b cecl_s1)
+  pin_mem: true
+  batch_size: 10  # GROUPS per microbatch (original SigLIP2 loader batch)
+  num_workers: 8
+  prefetch_factor: 2
+  data_path_csv_filename: video_partitioned_chunked_downsized.csv
+  fixed_duration_seconds: 5
+  target_fps: 4
+  video_column_name: video_path
+  ui_mask: all
+  random_mask:
+    enable: true
+    num_tubes: 3
+    min_size_ratio: 0.15
+    max_size_ratio: 0.35
+  time_jitter_max_seconds: 0
+  # P0 cohort: complete matches assigned to train/val/test.
+  labels_filename: contrastive_matchheldout_v1.csv
+  # ARM: cecl | single | shuffle
+  pair_mode: cecl
+  # ARM: required when pair_mode=shuffle, seed-matched to meta.seed
+  shuffle_manifest: null
+  # groups: data.batch_size counts team rows (original); videos: counts clips (P1)
+  batch_unit: groups
+
+model:
+  activation: gelu
+  encoder:
+    finetune_last_k_layers: 3
+    model_type: siglip2
+    # null => plain mean pooling over frames (no temporal transformer block)
+    temporal_heads: null
+    temporal_depth: 1
+  projector:
+    proj_dim: 768
+    num_hidden_layers: 1
+  contrastive:
+    enable: true
+    logit_scale_init: 10
+    logit_bias_init: -3
+    turn_off_bias: false
+    loss_weight: 1.0
+
+training:
+  max_epochs: 40
+  max_steps: -1
+  accelerator: gpu
+  devices: 1
+  strategy: auto
+  precision: bf16-mixed
+  gradient_clip_val: 1.0
+  accumulate_grad_batches: 4  # original: ordinary gradient accumulation
+  contrastive_accumulate_batches: 1
+  val_check_interval: null
+  check_val_every_n_epoch: 1
+  log_every_n_steps: 10
+  enable_checkpointing: true
+  enable_progress_bar: true
+  enable_model_summary: true
+  torch_compile: false
+  deterministic: false
+  num_sanity_val_steps: 0
+  limit_train_batches: 1.0
+  limit_val_batches: 0.25  # validation is monitoring only; 25% keeps per-epoch checkpoints at ~1/4 the cost
+  limit_test_batches: 1.0
+
+optimization:
+  optimizer: adamw
+  lr: 0.0001
+  betas: [0.9, 0.95]
+  weight_decay: 0.01
+  fused_optimizer: false  # fused AdamW disables clipping in this codebase; original recipe clips at 1.0
+  muon:
+    lr: 0.001
+    weight_decay: 0.01
+  scheduler:
+    type: cosine
+    warmup_steps: 500
+    min_lr_ratio: 0.1
+
+wandb:
+  enabled: true
+  project: xego-v4
+  name: null
+  group: ${meta.exp_name}
+  tags:
+  - iclr2027
+  - p1b
+  - ${data.pair_mode}
+  notes: null
+  save_dir: null
+
+checkpoint:
+  # save_top_k: -1 retains every epoch, which is what P6 dose analysis needs.
+  # The PRIMARY comparison is the common final-step checkpoint (last.ckpt),
+  # never each arm's best downstream test checkpoint.
+  epoch:
+    filename: ${meta.run_name}-e{epoch:02d}-s{step:06d}-l{val/contrastive_loss:.4f}
+    monitor: 'val/contrastive_loss'
+    mode: min
+    save_top_k: -1
+    save_last: true
+    auto_insert_metric_name: false
+    save_on_train_epoch_end: true
+    every_n_epochs: 1
+  step:
+    filename: ${meta.run_name}-s{step:06d}-e{epoch:02d}
+    monitor: null
+    mode: min
+    save_top_k: 0
+    save_last: false
+    auto_insert_metric_name: false
+    save_on_train_epoch_end: false
+    every_n_train_steps: null

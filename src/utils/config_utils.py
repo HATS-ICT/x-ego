@@ -139,11 +139,13 @@ def validate_contrastive_cfg(cfg) -> None:
 
     if cfg.data.batch_size <= 0:
         raise ValueError("data.batch_size must be positive")
-    if cfg.training.accumulate_grad_batches != 1:
+    if cfg.training.accumulate_grad_batches != 1 and cfg.training.contrastive_accumulate_batches != 1:
         raise ValueError(
-            "contrastive training uses embedding-cache accumulation; "
-            "set training.accumulate_grad_batches to 1"
+            "use either embedding-cache accumulation (training.contrastive_accumulate_batches > 1) "
+            "or ordinary gradient accumulation (training.accumulate_grad_batches > 1), not both"
         )
+    if str(getattr(cfg.data, "batch_unit", "videos")) not in ("videos", "groups"):
+        raise ValueError(f"Unsupported data.batch_unit: {cfg.data.batch_unit}")
     if cfg.training.contrastive_accumulate_batches <= 0:
         raise ValueError("training.contrastive_accumulate_batches must be positive")
     if cfg.data.num_workers < 0:

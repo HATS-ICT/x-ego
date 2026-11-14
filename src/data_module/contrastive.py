@@ -136,6 +136,16 @@ class ContrastiveDataModule(BaseDataModule):
         drop_last: bool,
     ) -> DataLoader:
         data_cfg = self.cfg.data
+        if str(getattr(data_cfg, "batch_unit", "videos")) == "groups":
+            # Original-cohort batching: data.batch_size counts synchronized GROUPS
+            # (team rows), each loaded whole. A plain DataLoader has an exact
+            # length, so every epoch validates and checkpoints.
+            return self._create_dataloader(
+                dataset,
+                shuffle=shuffle,
+                drop_last=drop_last,
+                collate_fn=self._get_collate_fn(),
+            )
         batch_sampler = FixedVideoBatchSampler(
             agent_counts=dataset.df['num_alive_teammates'].to_list(),
             video_batch_size=data_cfg.batch_size,
@@ -184,7 +194,8 @@ class ContrastiveDataModule(BaseDataModule):
     
     def _copy_dataset_attributes(self, base_dataset, partition_dataset):
         """Copy dataset attributes."""
-        attrs = ['video_processor', 'processor_type', 'model_type', 'time_offsets']
+        attrs = ['video_processor', 'processor_type', 'model_type', 'time_offsets',
+                 'pair_mode', 'groups']
         for attr in attrs:
             setattr(partition_dataset, attr, getattr(base_dataset, attr))
     

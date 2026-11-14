@@ -5,6 +5,14 @@ This dataset provides multi-agent video data for contrastive learning,
 where positive pairs are agents from the same team at the same time,
 and negative pairs are agents from different teams/times.
 
+Three pairing modes (data.pair_mode) implement the P1 adaptation arms:
+  cecl    -- positives are same-team, same-time player views (the intended supervision)
+  single  -- positives are independent augmentations of ONE observer clip, so the
+             group size and processed-view budget match `cecl` without any
+             cross-player correspondence
+  shuffle -- positives are nuisance-matched pseudo-groups read from a prebuilt
+             manifest (same clip multiset as `cecl`, true correspondence removed)
+
 Key features:
 - Loads from contrastive.csv (no labels, just metadata and teammate info)
 - Variable number of agents per sample (no padding for dead agents)
@@ -29,6 +37,10 @@ from .dataset_utils import (
     load_video_clip,
     transform_video,
 )
+
+
+# Pairing modes for the P1 adaptation arms (see module docstring).
+PAIR_MODES = {"cecl", "single", "shuffle"}
 
 
 def plot_video_example(
@@ -90,6 +102,11 @@ class ContrastiveDataset(Dataset):
             cfg: Configuration dictionary containing dataset parameters
         """
         self.cfg = cfg
+        self.pair_mode = str(getattr(self.cfg.data, 'pair_mode', 'cecl'))
+        if self.pair_mode not in PAIR_MODES:
+            raise ValueError(
+                f"Unsupported data.pair_mode: '{self.pair_mode}'. Expected one of {sorted(PAIR_MODES)}"
+            )
         
         # Load label CSV file
         self.df = pl.read_csv(self.cfg.data.label_path, null_values=[])
@@ -118,7 +135,71 @@ class ContrastiveDataset(Dataset):
             self.time_offsets = json.load(f)
         rprint(f"[green]OK[/green] Loaded time offsets from {offset_path.name}")
         
-        rprint(f"[green]OK[/green] Contrastive dataset initialized with [bold]{len(self.df):,}[/bold] samples")
+        # Shuffled arm: replace the team-row frame with prebuilt pseudo-groups.
+        self.groups = None
+        if self.pair_mode == 'shuffle':
+            self._load_shuffle_manifest()
+        
+        rprint(
+            f"[green]OK[/green] Contrastive dataset initialized with "
+            f"[bold]{len(self.df):,}[/bold] groups (pair_mode=[cyan]{self.pair_mode}[/cyan])"
+        )
+    
+    def _load_shuffle_manifest(self) -> None:
+        """
+        Load the prebuilt shuffled-pair assignment.
+
+        The manifest is long-form (one row per clip). Groups are rebuilt here and
+        `self.df` is replaced by a group-level frame so partition filtering and the
+        video batch sampler keep working unchanged. `num_alive_teammates` carries
+        the group size for that sampler.
+        """
+        manifest_name = getattr(self.cfg.data, 'shuffle_manifest', None)
+        if not manifest_name:
+            raise ValueError("data.pair_mode='shuffle' requires data.shuffle_manifest")
+        
+        manifest_path = Path(manifest_name)
+        if not manifest_path.is_absolute():
+            manifest_path = (
+                Path(self.cfg.path.data) / self.cfg.data.map / self.cfg.data.labels_folder / manifest_name
+            )
+        if not manifest_path.exists():
+            raise FileNotFoundError(
+                f"Shuffled-pair manifest not found: {manifest_path}. "
+                f"Build it with src/scripts/iclr2027/build_shuffle_manifest.py"
+            )
+        
+        members = pl.read_csv(manifest_path, null_values=[])
+        required = {
+            'group_id', 'partition', 'member_idx', 'src_idx', 'match_id',
+            'round_num', 'agent_id', 'start_seconds', 'end_seconds',
+            'pov_team_side', 'phase_bin',
+        }
+        missing = required - set(members.columns)
+        if missing:
+            raise ValueError(f"Shuffle manifest {manifest_path} is missing columns: {sorted(missing)}")
+        
+        members = members.sort(['group_id', 'member_idx'])
+        self.groups = {}
+        for group_id, block in members.group_by('group_id', maintain_order=True):
+            key = int(group_id[0] if isinstance(group_id, tuple) else group_id)
+            self.groups[key] = block.to_dicts()
+        
+        self.df = (
+            members.group_by('group_id', maintain_order=True)
+            .agg(
+                pl.col('partition').first(),
+                pl.col('pov_team_side').first(),
+                pl.col('phase_bin').first(),
+                pl.len().alias('num_alive_teammates'),
+            )
+            .rename({'group_id': 'idx'})
+            .sort('idx')
+        )
+        rprint(
+            f"[green]OK[/green] Loaded shuffled-pair manifest [dim]{manifest_path.name}[/dim]: "
+            f"[bold]{len(self.df):,}[/bold] groups / [bold]{len(members):,}[/bold] clips"
+        )
     
     def _init_video_processor(self):
         """Initialize video processor based on model type from config."""
@@ -154,41 +235,19 @@ class ContrastiveDataset(Dataset):
             idx, max_agents = idx
 
         row = self.df.row(idx, named=True)
-        
-        # Extract metadata
-        start_seconds = row['start_seconds']
-        end_seconds = row['end_seconds']
-        match_id = row['match_id']
-        round_num = row['round_num']
+        clip_specs = self._resolve_clip_specs(row, max_agents)
         pov_team_side = str(row['pov_team_side']).upper()
         original_csv_idx = row['idx']
-        agent_ids = self._get_alive_agent_ids(row)
-        if max_agents is not None:
-            agent_ids = agent_ids[:max_agents]
         
         agent_videos = []
-        for agent_id in agent_ids:
-            video_path = construct_video_path(self.cfg, match_id, agent_id, round_num)
-            
-            # Get offset and fail fast for missing entries.
-            round_key = f"round_{round_num}"
-            try:
-                round_offsets = self.time_offsets[str(match_id)][str(agent_id)][round_key]
-            except KeyError as exc:
-                raise KeyError(
-                    f"No offset data for '{match_id}/{agent_id}/{round_key}'"
-                ) from exc
-            offset_sec = float(round_offsets["offset_sec"])
-
-            video_start = start_seconds + offset_sec
-            video_end = end_seconds + offset_sec
-            
-            video_result = load_video_clip(self.cfg, video_path, video_start, video_end)
-            
-            video_clip = video_result['video']  # [T, C, H, W]
+        for spec in clip_specs:
+            # Each spec is loaded independently, so the random tube mask is drawn
+            # afresh per view. In 'single' mode that is exactly what makes the two
+            # views of one clip independent augmentations.
+            video_clip = self._load_clip(spec)
             
             ## Temporary: Debug, plot each video clip and save png
-            # plot_video_example(video_clip, f"debug_video_{agent_id}.png")
+            # plot_video_example(video_clip, f"debug_video_{spec['agent_id']}.png")
             
             video_features = transform_video(self.video_processor, self.processor_type, video_clip)
             agent_videos.append(video_features)  # Each is [T, C, H, W]
@@ -199,11 +258,79 @@ class ContrastiveDataset(Dataset):
         # Return list of videos (not stacked) - collate will concatenate across batch
         result = {
             'videos': agent_videos,  # List of [T, C, H, W] tensors
-            'num_agents': len(agent_ids),
+            'num_agents': len(clip_specs),
             'pov_team_side': pov_team_side,
             'pov_team_side_encoded': torch.tensor(pov_team_side_encoded, dtype=torch.long),
-            'agent_ids': agent_ids,
+            'agent_ids': [str(spec['agent_id']) for spec in clip_specs],
             'original_csv_idx': original_csv_idx,
         }
         
         return result
+    
+    def _resolve_clip_specs(self, row: Dict[str, Any], max_agents: int | None) -> List[Dict[str, Any]]:
+        """
+        Resolve one positive group into a list of clips to load.
+
+        All three arms return the same group sizes for the same row, so the
+        positive degree and the processed-view budget stay matched across arms.
+        Only the identity of the clips differs.
+        """
+        if self.pair_mode == 'shuffle':
+            members = self.groups[int(row['idx'])]
+            if max_agents is not None:
+                members = members[:max_agents]
+            return [
+                {
+                    'match_id': member['match_id'],
+                    'round_num': int(member['round_num']),
+                    'agent_id': str(member['agent_id']),
+                    'start_seconds': float(member['start_seconds']),
+                    'end_seconds': float(member['end_seconds']),
+                }
+                for member in members
+            ]
+        
+        agent_ids = self._get_alive_agent_ids(row)
+        if max_agents is not None:
+            agent_ids = agent_ids[:max_agents]
+        
+        if self.pair_mode == 'single':
+            # Same group size, but every view comes from roster slot 0 of this row.
+            # The slot rule is fixed and uses only information at the input window.
+            agent_ids = [agent_ids[0]] * len(agent_ids)
+        
+        return [
+            {
+                'match_id': row['match_id'],
+                'round_num': int(row['round_num']),
+                'agent_id': str(agent_id),
+                'start_seconds': float(row['start_seconds']),
+                'end_seconds': float(row['end_seconds']),
+            }
+            for agent_id in agent_ids
+        ]
+    
+    def _load_clip(self, spec: Dict[str, Any]) -> torch.Tensor:
+        """Load one observer clip, applying its per-round synchronization offset."""
+        match_id = spec['match_id']
+        agent_id = spec['agent_id']
+        round_num = spec['round_num']
+        video_path = construct_video_path(self.cfg, match_id, agent_id, round_num)
+        
+        # Get offset and fail fast for missing entries.
+        round_key = f"round_{round_num}"
+        try:
+            round_offsets = self.time_offsets[str(match_id)][str(agent_id)][round_key]
+        except KeyError as exc:
+            raise KeyError(
+                f"No offset data for '{match_id}/{agent_id}/{round_key}'"
+            ) from exc
+        offset_sec = float(round_offsets["offset_sec"])
+        
+        video_result = load_video_clip(
+            self.cfg,
+            video_path,
+            spec['start_seconds'] + offset_sec,
+            spec['end_seconds'] + offset_sec,
+        )
+        return video_result['video']  # [T, C, H, W]
